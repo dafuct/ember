@@ -144,3 +144,66 @@ async fn get_message_previews_fetches_all_ids() {
     let got: Vec<&str> = previews.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(got, vec!["a1", "a2", "a3"]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_history_collects_added_removed_and_archived() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/history"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "history": [
+                { "messagesAdded": [{"message": {"id": "m1", "threadId": "t1"}}] },
+                { "messagesDeleted": [{"message": {"id": "m2", "threadId": "t2"}}] },
+                { "labelsRemoved": [{"message": {"id": "m3", "threadId": "t3"}, "labelIds": ["INBOX"]}] },
+                { "labelsAdded": [{"message": {"id": "m4", "threadId": "t4"}, "labelIds": ["INBOX"]}] }
+            ],
+            "historyId": "999"
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let delta = client.list_history("100").await.unwrap();
+    let mut added = delta.added_ids.clone();
+    added.sort();
+    let mut removed = delta.removed_ids.clone();
+    removed.sort();
+    assert_eq!(added, vec!["m1".to_string(), "m4".to_string()]);
+    assert_eq!(removed, vec!["m2".to_string(), "m3".to_string()]);
+    assert_eq!(delta.new_history_id, Some("999".to_string()));
+    assert!(!delta.too_old);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_history_nets_add_then_archive_to_removed() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/history"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "history": [
+                { "messagesAdded": [{"message": {"id": "m1", "threadId": "t1"}}] },
+                { "labelsRemoved": [{"message": {"id": "m1", "threadId": "t1"}, "labelIds": ["INBOX"]}] }
+            ],
+            "historyId": "1000"
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let delta = client.list_history("100").await.unwrap();
+    assert_eq!(delta.added_ids, Vec::<String>::new());
+    assert_eq!(delta.removed_ids, vec!["m1".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_history_flags_too_old_on_404() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/history"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let delta = client.list_history("1").await.unwrap();
+    assert!(delta.too_old);
+    assert!(delta.added_ids.is_empty());
+    assert!(delta.removed_ids.is_empty());
+}

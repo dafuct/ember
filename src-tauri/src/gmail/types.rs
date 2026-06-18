@@ -6,6 +6,8 @@ pub struct Profile {
     pub email_address: String,
     #[serde(rename = "messagesTotal", default)]
     pub messages_total: u64,
+    #[serde(rename = "historyId", default)]
+    pub history_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +49,53 @@ pub struct Payload {
 pub struct Header {
     pub name: String,
     pub value: String,
+}
+
+// 🦀 The users.history.list response. `#[serde(default)]` lets serde fill in empty
+//    Vecs / None when Gmail omits a field on a given page.
+#[derive(Debug, Deserialize)]
+pub struct HistoryResponse {
+    #[serde(default)]
+    pub history: Vec<HistoryRecord>,
+    #[serde(rename = "historyId", default)]
+    pub history_id: String,
+    #[serde(rename = "nextPageToken", default)]
+    pub next_page_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryRecord {
+    #[serde(rename = "messagesAdded", default)]
+    pub messages_added: Vec<HistoryMessage>,
+    #[serde(rename = "messagesDeleted", default)]
+    pub messages_deleted: Vec<HistoryMessage>,
+    #[serde(rename = "labelsAdded", default)]
+    pub labels_added: Vec<HistoryLabelChange>,
+    #[serde(rename = "labelsRemoved", default)]
+    pub labels_removed: Vec<HistoryLabelChange>,
+}
+
+// 🦀 messagesAdded / messagesDeleted entries wrap a single message.
+#[derive(Debug, Deserialize)]
+pub struct HistoryMessage {
+    pub message: HistoryMessageRef,
+}
+
+// 🦀 labelsAdded / labelsRemoved entries carry the message AND which labels changed.
+#[derive(Debug, Deserialize)]
+pub struct HistoryLabelChange {
+    pub message: HistoryMessageRef,
+    #[serde(rename = "labelIds", default)]
+    pub label_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryMessageRef {
+    pub id: String,
+    #[serde(rename = "threadId", default)]
+    pub thread_id: String,
+    #[serde(rename = "labelIds", default)]
+    pub label_ids: Vec<String>,
 }
 
 /// What the UI consumes for the inbox preview.
