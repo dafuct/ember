@@ -26,6 +26,9 @@ pub mod db;
 //    the JS frontend reach them through Tauri's IPC bridge.
 mod commands;
 
+// 🦀 email HTML sanitizer — strips scripts/events, optionally blocks tracking pixels
+mod html;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -77,6 +80,7 @@ pub fn run() {
             commands::get_connected_account,
             commands::fetch_inbox_preview,
             commands::sync_inbox,
+            commands::fetch_message_body,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

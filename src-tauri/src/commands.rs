@@ -12,6 +12,7 @@ use crate::db;
 use crate::error::{AppError, Result};
 use crate::gmail::types::MessagePreview;
 use crate::gmail::GmailClient;
+use crate::html::sanitize_html;
 
 // 🦀 The SQLite connection is shared application state. `Arc` lets every command
 //    invocation share ownership of it; `Mutex` ensures only one touches the
@@ -175,4 +176,39 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// 🦀 The body payload sent to the frontend. `is_html` tells the UI whether to render
+//    `html` as sanitized HTML (in a sandboxed iframe) or as plain text.
+#[derive(serde::Serialize)]
+pub struct MessageBody {
+    pub html: String,
+    pub is_html: bool,
+    pub blocked_images: bool,
+}
+
+/// Fetch one message's body and sanitize it. With `load_images = false`, remote images
+/// are stripped and `blocked_images` reports whether any were present. No DB needed —
+/// bodies are fetched live from Gmail on demand.
+// 🦀 `#[tauri::command]` with plain args (no DB state needed): `id: String` and
+//    `load_images: bool` are passed directly from JS `invoke("fetch_message_body", { id, loadImages })`.
+//    The return type `Result<MessageBody>` serializes to JSON via the `#[derive(serde::Serialize)]`
+//    on `MessageBody` — Tauri handles the conversion automatically.
+#[tauri::command]
+pub async fn fetch_message_body(id: String, load_images: bool) -> Result<MessageBody> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let raw = client.get_message_body(&id).await?;
+    // 🦀 Prefer the HTML body; fall back to plain text. `if let Some(..)` both checks the
+    //    Option and binds the inner String in one move.
+    if let Some(html) = raw.html {
+        let (clean, blocked) = sanitize_html(&html, load_images);
+        Ok(MessageBody { html: clean, is_html: true, blocked_images: blocked })
+    } else {
+        Ok(MessageBody {
+            html: raw.text.unwrap_or_default(),
+            is_html: false,
+            blocked_images: false,
+        })
+    }
 }

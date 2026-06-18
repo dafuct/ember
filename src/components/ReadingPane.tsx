@@ -1,7 +1,41 @@
-import type { MessagePreview } from "../lib/api";
+import { useEffect, useState } from "react";
+import {
+  fetchMessageBody,
+  type MessageBody,
+  type MessagePreview,
+} from "../lib/api";
 import { Mail, CornerUpLeft, Archive, Trash2 } from "lucide-react";
 
 export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
+  const [body, setBody] = useState<MessageBody | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!msg) {
+      setBody(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setBody(null);
+    fetchMessageBody(msg.id, true)
+      .then((b) => {
+        if (!cancelled) setBody(b);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [msg?.id]);
+
   if (!msg) {
     return (
       <section className="reading">
@@ -12,12 +46,14 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
       </section>
     );
   }
+
   const date = msg.internal_date
     ? new Date(msg.internal_date).toLocaleString([], {
         dateStyle: "medium",
         timeStyle: "short",
       })
     : msg.date;
+
   return (
     <section className="reading">
       <div className="reading-toolbar">
@@ -31,7 +67,7 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
           <Trash2 size={15} />
         </button>
       </div>
-      <div className="reading-content">
+      <div className="reading-head">
         <h2 className="reading-subject">{msg.subject || "(no subject)"}</h2>
         <div className="reading-from">
           <div className="avatar avatar-lg">
@@ -42,10 +78,22 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
           </div>
           <div className="reading-date">{date}</div>
         </div>
-        <p className="reading-body">{msg.snippet}</p>
-        <div className="reading-note">
-          <Mail size={16} /> Preview shown — full message body arrives in M5.
-        </div>
+      </div>
+      <div className="reading-body-area">
+        {loading ? (
+          <div className="reading-status">Loading…</div>
+        ) : error ? (
+          <pre className="error-text">{error}</pre>
+        ) : body?.is_html ? (
+          <iframe
+            className="reading-frame"
+            sandbox=""
+            srcDoc={body.html}
+            title="Message body"
+          />
+        ) : body ? (
+          <pre className="reading-text">{body.html}</pre>
+        ) : null}
       </div>
     </section>
   );

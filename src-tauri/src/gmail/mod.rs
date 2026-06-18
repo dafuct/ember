@@ -3,7 +3,7 @@
 pub mod types;
 
 use std::collections::HashMap;
-use types::{HistoryResponse, MessageList, MessagePreview, Profile, RawMessage};
+use types::{FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, Profile, RawMessage};
 
 use crate::error::Result;
 
@@ -28,6 +28,44 @@ pub struct HistoryDelta {
     pub new_history_id: Option<String>,
     /// True if Gmail returned 404 (startHistoryId too old) → caller should full-resync.
     pub too_old: bool,
+}
+
+/// Raw (un-sanitized) body extracted from a message.
+pub struct RawBody {
+    pub html: Option<String>,
+    pub text: Option<String>,
+}
+
+// 🦀 base64url-decode a part's data into a String. `URL_SAFE_NO_PAD` is the web-safe
+//    base64 variant Gmail uses ('+' → '-', '/' → '_', no '=' padding).
+//    `Engine` is a trait from the `base64` crate — `.decode()` lives on the engine,
+//    so we `use base64::Engine` to bring the trait method into scope.
+//    `from_utf8_lossy` turns the byte vec into a String, replacing any invalid UTF-8
+//    sequences with the U+FFFD replacement character so we never panic.
+fn decode_b64url(data: &str) -> Option<String> {
+    if data.is_empty() {
+        return None;
+    }
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(data.trim().trim_end_matches('='))
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+// 🦀 Recursive tree walk: `&mut Option<String>` are *out-params* — the caller passes
+//    in mutable references to the slots it wants filled. Each recursive call can write
+//    into the same slots without returning values, which keeps the signature clean.
+//    The recursion bottoms out when `part.parts` is empty (leaf node).
+fn collect_body(part: &MessagePart, html: &mut Option<String>, text: &mut Option<String>) {
+    match part.mime_type.as_str() {
+        "text/html" if html.is_none() => *html = decode_b64url(&part.body.data),
+        "text/plain" if text.is_none() => *text = decode_b64url(&part.body.data),
+        _ => {}
+    }
+    for child in &part.parts {
+        collect_body(child, html, text);
+    }
 }
 
 impl GmailClient {
@@ -278,5 +316,15 @@ impl GmailClient {
         //    `Err`s (`r.ok()` turns `Result<T>` into `Option<T>`). One message that
         //    404s or gets rate-limited won't abort the whole sync — we store the rest.
         Ok(results.into_iter().filter_map(|r| r.ok()).collect())
+    }
+
+    /// Fetch the full message and extract its HTML and/or plain-text body (decoded, NOT sanitized).
+    pub async fn get_message_body(&self, id: &str) -> Result<RawBody> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}?format=full", self.base_url, id);
+        let full: FullMessage = self.get_json(&url).await?;
+        let mut html = None;
+        let mut text = None;
+        collect_body(&full.payload, &mut html, &mut text);
+        Ok(RawBody { html, text })
     }
 }

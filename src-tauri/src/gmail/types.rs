@@ -109,3 +109,31 @@ pub struct MessagePreview {
     pub snippet: String,
     pub internal_date: i64,
 }
+
+// 🦀 `format=full` response — wraps the top-level MIME part.
+#[derive(Debug, Deserialize)]
+pub struct FullMessage {
+    pub payload: MessagePart,
+}
+
+// 🦀 A single MIME part in the tree.  `parts` may be empty (leaf) or hold
+//    child parts (multipart/*).  `#[serde(default)]` means "use Default::default()
+//    if the key is absent in the JSON" — handy because Gmail omits both `body`
+//    and `parts` on multipart containers and leaf parts respectively.
+#[derive(Debug, Deserialize)]
+pub struct MessagePart {
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: String,
+    #[serde(default)]
+    pub body: PartBody,
+    #[serde(default)]
+    pub parts: Vec<MessagePart>,
+}
+
+// 🦀 `Default` lets `#[serde(default)]` on the parent field create an empty
+//    `PartBody { data: "" }` when the JSON has no `"body"` key.
+#[derive(Debug, Default, Deserialize)]
+pub struct PartBody {
+    #[serde(default)]
+    pub data: String,
+}
