@@ -53,17 +53,21 @@
 .msg-subject { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-snippet { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.reading { height: 100%; min-height: 0; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; }
+.reading { height: 100%; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
 .reading-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-faint); font-size: 13px; }
 .reading-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.reading-content { padding: 20px 22px; }
+.reading-head { padding: 18px 22px 10px; flex-shrink: 0; }
+.reading-body-area { flex: 1; min-height: 0; display: flex; padding: 0 22px 18px; }
 .reading-subject { font-size: 18px; font-weight: 600; line-height: 1.4; margin: 0 0 16px; color: var(--text); }
 .reading-from { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .reading-from-text { flex: 1; min-width: 0; overflow: hidden; }
 .reading-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reading-date { margin-left: auto; font-size: 12px; color: var(--text-faint); flex-shrink: 0; }
-.reading-body { font-size: 14px; line-height: 1.7; color: var(--text); margin: 0 0 18px; white-space: pre-wrap; }
-.reading-note { display: flex; align-items: center; gap: 8px; border: 1px dashed var(--border-strong); border-radius: 8px; padding: 11px 14px; font-size: 12px; color: var(--text-faint); }
+.reading-frame { flex: 1; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
+.reading-text { flex: 1; margin: 0; overflow: auto; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
+.reading-status { color: var(--text-muted); font-size: 13px; }
+.images-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); font-size: 13px; color: var(--text-muted); }
+.images-bar span { display: flex; align-items: center; gap: 6px; }
 
 .connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
 .connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }

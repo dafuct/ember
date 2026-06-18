@@ -23,3 +23,15 @@ export interface SyncSummary {
 
 export const syncInbox = (): Promise<SyncSummary> =>
   invoke<SyncSummary>("sync_inbox");
+
+export interface MessageBody {
+  html: string;
+  is_html: boolean;
+  blocked_images: boolean;
+}
+
+export const fetchMessageBody = (
+  id: string,
+  loadImages = false,
+): Promise<MessageBody> =>
+  invoke<MessageBody>("fetch_message_body", { id, loadImages });
