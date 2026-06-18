@@ -80,6 +80,7 @@ pub fn run() {
             commands::get_connected_account,
             commands::fetch_inbox_preview,
             commands::sync_inbox,
+            commands::fetch_message_body,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
