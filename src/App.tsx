@@ -11,6 +11,7 @@ import {
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
+import { SplitView } from "./components/SplitView";
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
@@ -86,14 +87,16 @@ export default function App() {
     <div className="app">
       <Header busy={busy} onSync={handleSync} status={status} account={account} />
       {error && <div className="error-bar">{error}</div>}
-      <div className="app-body">
-        <MessageList
-          messages={messages}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-        <ReadingPane msg={selected} />
-      </div>
+      <SplitView
+        left={
+          <MessageList
+            messages={messages}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        }
+        right={<ReadingPane msg={selected} />}
+      />
     </div>
   );
 }
