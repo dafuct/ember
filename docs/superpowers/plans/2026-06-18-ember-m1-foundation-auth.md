@@ -8,6 +8,8 @@
 
 **Tech Stack:** Tauri 2, Rust (`oauth2` v5, `reqwest`, `keyring` v3, `tokio`, `serde`, `open`, `dotenvy`, `thiserror`; `wiremock` for tests), React 18 + TypeScript + Vite.
 
+**Learning mode (IMPORTANT — applies to every implementer, subagent or inline):** The repo owner is learning Rust and does not know the language yet. All Rust code MUST include teaching comments that explain the *language*, not just the intent: ownership/borrowing (`&`, `&mut`), `Result`/`Option` and the `?` operator, `match`, traits and `impl`, `async`/`await`, closures and `move`, lifetimes (`'_`), `String` vs `&str`, derive macros, etc. Prefix each teaching comment with `// 🦀` so they're easy to find and strip later; keep them concise and accurate (do not over-comment obvious lines). After each task, the reviewer gives a short plain-English recap of the Rust concepts that task introduced. TypeScript/React code gets normal comments — the owner already knows JS/React.
+
 ---
 
 ## Milestone roadmap (context — only M1 is in this plan)
