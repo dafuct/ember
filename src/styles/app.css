@@ -80,3 +80,11 @@
 
 .spin { animation: ember-spin 1s linear infinite; }
 @keyframes ember-spin { to { transform: rotate(360deg); } }
+
+/* Header stays intact when the window narrows: essentials never shrink, the
+   folder nav and account email give way (shrink, then hide) before anything clips. */
+.brand, .btn, .icon-btn { flex-shrink: 0; }
+.header-nav { min-width: 0; overflow: hidden; }
+.header-account, .header-account .account-email { min-width: 0; }
+@media (max-width: 860px) { .header-nav { display: none; } }
+@media (max-width: 580px) { .header-account .account-email { display: none; } }
