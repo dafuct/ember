@@ -27,6 +27,11 @@ pub enum AppError {
     #[error("keychain error: {0}")]
     Keychain(#[from] keyring::Error),
 
+    // 🦀 And again for SQLite (rusqlite) errors — `?` on any rusqlite call inside a
+    //    function returning our `Result` now auto-wraps the error into `AppError::Db`.
+    #[error("database error: {0}")]
+    Db(#[from] rusqlite::Error),
+
     #[error("config error: {0}")]
     Config(String),
 

@@ -15,11 +15,18 @@ pub mod auth;
 //    reach it as `ember_lib::gmail::GmailClient` — same as any external user.
 pub mod gmail;
 
+// 🦀 `pub mod db;` declares the local SQLite store module. Rust resolves this
+//    to `src/db/mod.rs` (the `mod.rs` convention for a module that is itself a
+//    directory) or `src/db.rs` (single-file form) — whichever exists.
+pub mod db;
+
 // 🦀 `mod commands;` pulls in the Tauri command handlers defined in
 //    `src/commands.rs`.  It is `mod` (not `pub mod`) because external crates
 //    never need to call these directly — only the `invoke_handler!` macro and
 //    the JS frontend reach them through Tauri's IPC bridge.
 mod commands;
+
+use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
 //    attribute*.  `cfg_attr` applies the inner attribute (`tauri::mobile_entry_point`)
@@ -52,10 +59,24 @@ pub fn run() {
     //    Rust async fns as IPC handlers.  After this, the JS frontend can call
     //    `invoke("connect_gmail")` and Tauri will route it to `commands::connect_gmail`.
     tauri::Builder::default()
+        .setup(|app| {
+            // 🦀 The setup hook runs once at startup with the App handle. `app.path()`
+            //    (Manager trait) resolves OS-standard dirs; on macOS app_data_dir is
+            //    ~/Library/Application Support/<bundle-identifier>/.
+            let dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&dir)?;
+            let conn = rusqlite::Connection::open(dir.join("ember.db"))?;
+            crate::db::init(&conn)?;
+            // 🦀 `app.manage(...)` stores a value in Tauri's typed state registry;
+            //    commands receive it later via `tauri::State<'_, Db>`.
+            app.manage(std::sync::Arc::new(std::sync::Mutex::new(conn)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::connect_gmail,
             commands::get_connected_account,
             commands::fetch_inbox_preview,
+            commands::sync_inbox,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

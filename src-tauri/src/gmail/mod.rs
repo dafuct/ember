@@ -115,10 +115,71 @@ impl GmailClient {
         };
         Ok(MessagePreview {
             id: raw.id.clone(),
+            thread_id: raw.thread_id.clone(),
             from: header("From"),
             subject: header("Subject"),
             date: header("Date"),
             snippet: raw.snippet,
+            // 🦀 internalDate is ms-since-epoch as a string; parse to i64, 0 if absent.
+            internal_date: raw.internal_date.parse::<i64>().unwrap_or(0),
         })
+    }
+
+    /// List INBOX message ids matching `query` (e.g. "newer_than:30d"), following
+    /// pagination up to `max_total` ids.
+    pub async fn list_inbox_message_ids_paged(
+        &self,
+        query: &str,
+        max_total: u32,
+    ) -> Result<Vec<String>> {
+        // 🦀 Percent-encode the query value so characters like ':' are URL-safe.
+        let encoded_q: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
+        let mut ids = Vec::new();
+        // 🦀 The pagination cursor: None on the first request, then Some(token) per page
+        //    until Gmail stops returning one.
+        let mut page_token: Option<String> = None;
+        loop {
+            let mut url = format!(
+                "{}/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=100&q={}",
+                self.base_url, encoded_q
+            );
+            if let Some(token) = &page_token {
+                url.push_str(&format!("&pageToken={token}"));
+            }
+            let list: MessageList = self.get_json(&url).await?;
+            for m in list.messages {
+                ids.push(m.id);
+                if ids.len() >= max_total as usize {
+                    return Ok(ids);
+                }
+            }
+            match list.next_page_token {
+                Some(token) => page_token = Some(token),
+                None => break,
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Fetch previews for many ids concurrently (at most `concurrency` in flight).
+    /// Individual fetch failures are skipped; the returned Vec's order is not guaranteed.
+    pub async fn get_message_previews(
+        &self,
+        ids: &[String],
+        concurrency: usize,
+    ) -> Result<Vec<MessagePreview>> {
+        // 🦀 `futures::stream` + `buffer_unordered` runs up to `concurrency` futures at
+        //    once, yielding each as it finishes — replacing M1's slow one-at-a-time loop
+        //    with bounded concurrency (polite to Gmail's rate limits).
+        use futures::stream::StreamExt;
+        let results = futures::stream::iter(ids.iter().cloned())
+            .map(|id| async move { self.get_message_preview(&id).await })
+            .buffer_unordered(concurrency)
+            .collect::<Vec<Result<MessagePreview>>>()
+            .await;
+        // 🦀 Keep the successes and skip individual failures: `filter_map` drops the
+        //    `Err`s (`r.ok()` turns `Result<T>` into `Option<T>`). One message that
+        //    404s or gets rate-limited won't abort the whole sync — we store the rest.
+        Ok(results.into_iter().filter_map(|r| r.ok()).collect())
     }
 }
