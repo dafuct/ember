@@ -1,0 +1,21 @@
+# Derived/extracted design assets — regenerate with scripts/extract-ember.py
+docs/_ember_extracted/
+
+# macOS
+.DS_Store
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Rust / Tauri (added now so build output is never committed)
+src-tauri/target/
+target/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
