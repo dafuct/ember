@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Flame } from "lucide-react";
+import "./styles/app.css";
 import {
   connectGmail,
   fetchInboxPreview,
@@ -6,21 +8,24 @@ import {
   syncInbox,
   type MessagePreview,
 } from "./lib/api";
+import { Header } from "./components/Header";
+import { MessageList } from "./components/MessageList";
+import { ReadingPane } from "./components/ReadingPane";
+import { SplitView } from "./components/SplitView";
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessagePreview[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // On mount: find the connected account and show whatever is already cached
-  // in the local DB (instant, works offline — no network needed).
   useEffect(() => {
     getConnectedAccount()
       .then(setAccount)
       .catch(() => setAccount(null));
-    fetchInboxPreview(20)
+    fetchInboxPreview(50)
       .then(setMessages)
       .catch(() => {});
   }, []);
@@ -42,9 +47,9 @@ export default function App() {
     setError(null);
     setStatus(null);
     try {
-      const summary = await syncInbox();
-      setStatus(`Synced ${summary.added} new, ${summary.removed} removed`);
-      setMessages(await fetchInboxPreview(20));
+      const s = await syncInbox();
+      setStatus(`${s.added} new, ${s.removed} removed`);
+      setMessages(await fetchInboxPreview(50));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -52,34 +57,46 @@ export default function App() {
     }
   }
 
+  const selected = useMemo(
+    () => messages.find((m) => m.id === selectedId) ?? null,
+    [messages, selectedId],
+  );
+
+  if (!account) {
+    return (
+      <div className="app">
+        <Header busy={busy} status={null} />
+        <div className="connect-screen">
+          <Flame size={40} className="brand-icon" />
+          <h1 className="connect-title">Welcome to Ember</h1>
+          <p className="connect-sub">Connect your Gmail to get started.</p>
+          <button
+            className="btn btn-accent"
+            onClick={handleConnect}
+            disabled={busy}
+          >
+            {busy ? "Connecting…" : "Connect Gmail"}
+          </button>
+          {error && <pre className="error-text">{error}</pre>}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <main style={{ fontFamily: "system-ui", padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Ember — M2</h1>
-      {account ? (
-        <p>
-          Connected as <strong>{account}</strong>
-        </p>
-      ) : (
-        <button onClick={handleConnect} disabled={busy}>
-          Connect Gmail
-        </button>
-      )}
-      {account && (
-        <button onClick={handleSync} disabled={busy}>
-          {busy ? "Working…" : "Sync inbox"}
-        </button>
-      )}
-      {status && <p style={{ color: "#2563eb" }}>{status}</p>}
-      {error && <pre style={{ color: "crimson", whiteSpace: "pre-wrap" }}>{error}</pre>}
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {messages.map((m) => (
-          <li key={m.id} style={{ borderBottom: "1px solid #eee", padding: "10px 0" }}>
-            <div style={{ fontWeight: 600 }}>{m.from}</div>
-            <div>{m.subject}</div>
-            <div style={{ color: "#666", fontSize: 13 }}>{m.snippet}</div>
-          </li>
-        ))}
-      </ul>
-    </main>
+    <div className="app">
+      <Header busy={busy} onSync={handleSync} status={status} account={account} />
+      {error && <div className="error-bar">{error}</div>}
+      <SplitView
+        left={
+          <MessageList
+            messages={messages}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        }
+        right={<ReadingPane msg={selected} />}
+      />
+    </div>
   );
 }

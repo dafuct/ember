@@ -1,0 +1,81 @@
+.app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+
+.app-header { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
+.brand-icon { color: var(--accent); }
+.spacer { flex: 1; }
+.status-text { font-size: 12px; color: var(--text-muted); }
+.header-nav { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
+.header-nav-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: none; border-radius: 7px; background: transparent; color: var(--text-muted); font-size: 13px; cursor: pointer; }
+.header-nav-item.active { background: var(--accent-weak); color: var(--accent-text); font-weight: 500; }
+.header-nav-item:disabled { color: var(--text-faint); cursor: default; }
+.header-account { display: flex; align-items: center; gap: 8px; }
+.header-account .account-email { max-width: 170px; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; }
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.btn-accent:hover:not(:disabled) { filter: brightness(1.05); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.icon-btn:disabled { opacity: .5; cursor: default; }
+
+.error-bar { padding: 8px 16px; background: var(--accent-weak); color: var(--danger); font-size: 13px; border-bottom: 1px solid var(--border); }
+.error-text { color: var(--danger); font-size: 13px; white-space: pre-wrap; max-width: 420px; }
+
+.split-root { flex: 1; min-height: 0; display: flex; }
+.split-pane { height: 100%; min-height: 0; overflow: hidden; flex-shrink: 0; }
+.split-pane-grow { flex: 1; }
+.resize-handle { width: 7px; flex-shrink: 0; position: relative; cursor: col-resize; }
+.resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--border); }
+.resize-handle:hover::after, .resize-handle:active::after { background: var(--accent); width: 2px; left: 2px; }
+
+.account-email { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.avatar { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-weak); color: var(--accent-text); font-size: 12px; font-weight: 500; flex-shrink: 0; }
+.avatar-lg { width: 38px; height: 38px; font-size: 15px; }
+
+.msglist { display: flex; flex-direction: column; height: 100%; background: var(--surface); min-height: 0; }
+.msglist-header { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.msglist-title { font-size: 14px; font-weight: 500; }
+.msglist-count { font-size: 12px; color: var(--text-faint); }
+.msglist-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.empty { padding: 32px 16px; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+.msg-item { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 10px 14px; border: none; border-bottom: 1px solid var(--border); border-left: 2px solid transparent; background: transparent; text-align: left; cursor: pointer; color: var(--text); }
+.msg-item:hover:not(.selected) { background: var(--surface-2); }
+.msg-item.selected { background: var(--accent-weak); border-left-color: var(--accent); }
+.msg-top { display: flex; align-items: center; gap: 8px; }
+.msg-sender { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-time { flex-shrink: 0; font-size: 11px; color: var(--text-faint); }
+.msg-subject { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-snippet { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reading { height: 100%; min-height: 0; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; }
+.reading-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-faint); font-size: 13px; }
+.reading-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.reading-content { padding: 20px 22px; }
+.reading-subject { font-size: 18px; font-weight: 600; line-height: 1.4; margin: 0 0 16px; color: var(--text); }
+.reading-from { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.reading-from-text { flex: 1; min-width: 0; overflow: hidden; }
+.reading-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reading-date { margin-left: auto; font-size: 12px; color: var(--text-faint); flex-shrink: 0; }
+.reading-body { font-size: 14px; line-height: 1.7; color: var(--text); margin: 0 0 18px; white-space: pre-wrap; }
+.reading-note { display: flex; align-items: center; gap: 8px; border: 1px dashed var(--border-strong); border-radius: 8px; padding: 11px 14px; font-size: 12px; color: var(--text-faint); }
+
+.connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+.connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
+.connect-sub { font-size: 14px; color: var(--text-muted); margin: 0 0 8px; }
+
+.spin { animation: ember-spin 1s linear infinite; }
+@keyframes ember-spin { to { transform: rotate(360deg); } }
+
+/* Header stays intact when the window narrows: essentials never shrink, the
+   folder nav and account email give way (shrink, then hide) before anything clips. */
+.brand, .btn, .icon-btn { flex-shrink: 0; }
+.header-nav { min-width: 0; overflow: hidden; }
+.header-account, .header-account .account-email { min-width: 0; }
+@media (max-width: 900px) { .nav-label { display: none; } }
+@media (max-width: 580px) { .header-account .account-email { display: none; } }
