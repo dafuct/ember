@@ -9,7 +9,6 @@ import {
   type MessagePreview,
 } from "./lib/api";
 import { Header } from "./components/Header";
-import { Sidebar } from "./components/Sidebar";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 
@@ -85,10 +84,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header busy={busy} onSync={handleSync} status={status} />
+      <Header busy={busy} onSync={handleSync} status={status} account={account} />
       {error && <div className="error-bar">{error}</div>}
       <div className="app-body">
-        <Sidebar account={account} count={messages.length} />
         <MessageList
           messages={messages}
           selectedId={selectedId}
