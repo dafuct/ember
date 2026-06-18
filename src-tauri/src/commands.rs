@@ -15,9 +15,11 @@ use crate::gmail::GmailClient;
 
 // 🦀 The SQLite connection is shared application state. `Arc` lets every command
 //    invocation share ownership of it; `Mutex` ensures only one touches the
-//    connection at a time (rusqlite's Connection is `Send` but not `Sync`). This
-//    alias keeps the long type readable across command signatures and `lib.rs`.
+//    connection at a time (rusqlite's Connection is `Send` but not `Sync`).
 pub type Db = Arc<Mutex<Connection>>;
+
+const PREVIEW_CONCURRENCY: usize = 8;
+const SYNC_WINDOW_DAYS: i64 = 30;
 
 /// Run the interactive Google sign-in. Returns the connected email address.
 #[tauri::command]
@@ -33,44 +35,71 @@ pub async fn get_connected_account() -> Result<Option<String>> {
     Ok(load_token(PRIMARY_ACCOUNT)?.map(|t| t.email))
 }
 
-/// Sync the last ~30 days of INBOX into the local DB. Returns how many messages
-/// were fetched and stored.
+/// Sync INBOX into the local DB. Uses Gmail history deltas when we have a stored
+/// historyId (fast); falls back to a full ~30-day resync on first run or if the
+/// historyId expired. Returns how many messages were fetched/stored this run.
 #[tauri::command]
 pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
-    // 🦀 All async network I/O happens FIRST, before we acquire the DB lock.
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
+    // 🦀 Prune cutoff: 30 days ago, in Unix MILLISECONDS (internal_date's unit).
+    let cutoff_ms = (now_secs() as i64 - SYNC_WINDOW_DAYS * 24 * 60 * 60) * 1000;
+
+    // 🦀 Read the stored historyId in an await-free locked block, then drop the lock
+    //    before any network I/O (a std MutexGuard cannot be held across `.await`).
+    let last_history_id: Option<i64> = {
+        let conn = state
+            .lock()
+            .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::get_sync_state(&conn, PRIMARY_ACCOUNT)?.and_then(|s| s.last_history_id)
+    };
+
+    // 🦀 Fast path: with a baseline, ask Gmail only for what CHANGED since then.
+    if let Some(hid) = last_history_id {
+        let delta = client.list_history(&hid.to_string()).await?;
+        if !delta.too_old {
+            let previews = client
+                .get_message_previews(&delta.added_ids, PREVIEW_CONCURRENCY)
+                .await?;
+            let rows = to_rows(previews);
+            let count = rows.len();
+            // 🦀 Advance to the new historyId; if Gmail didn't return one, keep the old.
+            let new_hid = delta
+                .new_history_id
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(hid);
+            {
+                let conn = state
+                    .lock()
+                    .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+                db::upsert_messages(&conn, &rows)?;
+                db::delete_messages(&conn, &delta.removed_ids)?;
+                db::prune_older_than(&conn, cutoff_ms)?;
+                db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(new_hid), now_secs() as i64)?;
+            }
+            return Ok(count);
+        }
+        // 🦀 `too_old` → stored historyId expired (Gmail keeps ~a week). Fall through.
+    }
+
+    // Slow path: first sync ever, or the historyId aged out — pull the whole window.
     let ids = client
-        .list_inbox_message_ids_paged("newer_than:30d", 500)
+        .list_inbox_message_ids_paged(&format!("newer_than:{SYNC_WINDOW_DAYS}d"), 500)
         .await?;
-    // 🦀 Fetch up to 8 previews concurrently (see gmail::get_message_previews).
-    let previews = client.get_message_previews(&ids, 8).await?;
-
-    // 🦀 Convert Gmail-shaped previews into DB rows (a few field names differ).
-    let rows: Vec<db::StoredMessage> = previews
-        .into_iter()
-        .map(|p| db::StoredMessage {
-            id: p.id,
-            thread_id: p.thread_id,
-            from_addr: p.from,
-            subject: p.subject,
-            snippet: p.snippet,
-            date_header: p.date,
-            internal_date: p.internal_date,
-        })
-        .collect();
+    let previews = client
+        .get_message_previews(&ids, PREVIEW_CONCURRENCY)
+        .await?;
+    let rows = to_rows(previews);
     let count = rows.len();
-
-    // 🦀 Only now — inside a block with NO `.await` — do we lock the Mutex and run
-    //    the synchronous DB writes. A std::sync::MutexGuard is not `Send`, so
-    //    holding it across an `.await` would make this async fn fail to compile;
-    //    keeping the lock in an await-free block sidesteps that entirely.
+    // 🦀 Record the current mailbox historyId as the baseline for future deltas.
+    let baseline_hid = client.get_profile().await?.history_id.parse::<i64>().ok();
     {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
         db::upsert_messages(&conn, &rows)?;
-        db::set_sync_state(&conn, PRIMARY_ACCOUNT, None, now_secs() as i64)?;
+        db::prune_older_than(&conn, cutoff_ms)?;
+        db::set_sync_state(&conn, PRIMARY_ACCOUNT, baseline_hid, now_secs() as i64)?;
     }
     Ok(count)
 }
@@ -86,7 +115,6 @@ pub async fn fetch_inbox_preview(
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     let rows = db::recent_previews(&conn, max)?;
-    // 🦀 Map DB rows back to the frontend's MessagePreview shape.
     Ok(rows
         .into_iter()
         .map(|m| MessagePreview {
@@ -99,6 +127,23 @@ pub async fn fetch_inbox_preview(
             internal_date: m.internal_date,
         })
         .collect())
+}
+
+// 🦀 Convert Gmail-shaped previews into DB rows (a few field names differ). Pulled
+//    into a helper because both the incremental and full-resync paths use it.
+fn to_rows(previews: Vec<MessagePreview>) -> Vec<db::StoredMessage> {
+    previews
+        .into_iter()
+        .map(|p| db::StoredMessage {
+            id: p.id,
+            thread_id: p.thread_id,
+            from_addr: p.from,
+            subject: p.subject,
+            snippet: p.snippet,
+            date_header: p.date,
+            internal_date: p.internal_date,
+        })
+        .collect()
 }
 
 // 🦀 Current Unix time in seconds. (Local copy to avoid making auth::now_secs public.)
