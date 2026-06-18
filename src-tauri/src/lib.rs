@@ -3,6 +3,13 @@
 //    Items inside are accessed as `error::AppError`, or you can `use` them.
 mod error;
 
+// 🦀 `pub mod auth;` declares the `auth` submodule and makes it public so that
+//    Tauri commands (and future crate consumers) can reference `auth::tokens::…`
+//    directly.  Rust will look for `src/auth/mod.rs` and compile it as the module
+//    root, which in turn declares `pub mod tokens;` — wiring up the full path
+//    `ember_lib::auth::tokens::StoredToken`.
+pub mod auth;
+
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
 //    attribute*.  `cfg_attr` applies the inner attribute (`tauri::mobile_entry_point`)
 //    only when the `mobile` cfg flag is set (i.e. compiling for iOS/Android).
