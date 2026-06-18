@@ -6,9 +6,9 @@ import {
   type ReactNode,
 } from "react";
 
-export type Theme = "light" | "dark" | "ember";
+export type Theme = "light" | "dark";
 
-const THEMES: Theme[] = ["light", "dark", "ember"];
+const THEMES: Theme[] = ["light", "dark"];
 const STORAGE_KEY = "ember-theme";
 
 interface ThemeContextValue {
@@ -21,9 +21,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function initialTheme(): Theme {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved === "light" || saved === "dark" || saved === "ember"
-    ? saved
-    : "light";
+  return saved === "light" || saved === "dark" ? saved : "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

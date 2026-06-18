@@ -1,7 +1,7 @@
 import { Flame, RefreshCw, Sun, Moon, type LucideIcon } from "lucide-react";
 import { useTheme, type Theme } from "../theme";
 
-const THEME_ICON: Record<Theme, LucideIcon> = { light: Sun, dark: Moon, ember: Flame };
+const THEME_ICON: Record<Theme, LucideIcon> = { light: Sun, dark: Moon };
 
 export function Header({
   busy,
