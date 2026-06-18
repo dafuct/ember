@@ -162,7 +162,7 @@ impl GmailClient {
     }
 
     /// Fetch previews for many ids concurrently (at most `concurrency` in flight).
-    /// The order of the returned Vec is not guaranteed.
+    /// Individual fetch failures are skipped; the returned Vec's order is not guaranteed.
     pub async fn get_message_previews(
         &self,
         ids: &[String],
@@ -177,8 +177,9 @@ impl GmailClient {
             .buffer_unordered(concurrency)
             .collect::<Vec<Result<MessagePreview>>>()
             .await;
-        // 🦀 Collecting `Vec<Result<T>>` into `Result<Vec<T>>` short-circuits on the
-        //    first Err; if all succeeded you get Ok(all previews).
-        results.into_iter().collect()
+        // 🦀 Keep the successes and skip individual failures: `filter_map` drops the
+        //    `Err`s (`r.ok()` turns `Result<T>` into `Option<T>`). One message that
+        //    404s or gets rate-limited won't abort the whole sync — we store the rest.
+        Ok(results.into_iter().filter_map(|r| r.ok()).collect())
     }
 }

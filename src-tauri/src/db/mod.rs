@@ -61,18 +61,22 @@ pub fn init(conn: &Connection) -> Result<()> {
 
 /// Insert each message, or update it in place if its id already exists.
 pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<()> {
+    // 🦀 Wrap all the inserts in ONE transaction. `unchecked_transaction` works on a
+    //    shared `&Connection` (our Mutex already guarantees exclusive use), unlike
+    //    `transaction()` which needs `&mut`. Without it each `execute` is its own
+    //    auto-committed write — for 500 rows that's 500 disk syncs. Batching them into
+    //    a single commit is far faster AND atomic: if any insert fails, `tx` drops
+    //    without committing and SQLite rolls the whole batch back.
+    let tx = conn.unchecked_transaction()?;
     for m in messages {
-        // 🦀 `execute` runs a single SQL statement.  The `?1, ?2, ...` positional
-        //    placeholders are **parameterized queries**: rusqlite binds values
-        //    separately from the SQL text, so user-supplied data can never be
-        //    interpreted as SQL.  This makes SQL injection impossible.
-        //    Never use `format!()` to build SQL strings — that bypasses all protection.
+        // 🦀 `?1, ?2, ...` positional placeholders are **parameterized queries**:
+        //    rusqlite binds values separately from the SQL text, so user data can never
+        //    be interpreted as SQL. Never build SQL with `format!()`.
         //
-        // 🦀 SQLite UPSERT pattern: `ON CONFLICT(id) DO UPDATE SET col = excluded.col`
-        //    means "if a row with this PRIMARY KEY already exists, update the listed
-        //    columns using the values from the row we just tried to insert".
-        //    `excluded` is a special alias for that incoming (conflicting) row.
-        conn.execute(
+        // 🦀 SQLite UPSERT: `ON CONFLICT(id) DO UPDATE SET col = excluded.col` updates
+        //    the row in place if its PRIMARY KEY already exists. `excluded` is the
+        //    incoming (conflicting) row we just tried to insert.
+        tx.execute(
             "INSERT INTO messages
                 (id, thread_id, from_addr, subject, snippet, date_header, internal_date)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -91,6 +95,8 @@ pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<
             ],
         )?;
     }
+    // 🦀 Commit once: all rows become visible together, or none (rollback on drop).
+    tx.commit()?;
     Ok(())
 }
 
