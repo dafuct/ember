@@ -26,6 +26,9 @@ pub mod db;
 //    the JS frontend reach them through Tauri's IPC bridge.
 mod commands;
 
+// 🦀 email HTML sanitizer — strips scripts/events, optionally blocks tracking pixels
+mod html;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
