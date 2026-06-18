@@ -86,5 +86,5 @@
 .brand, .btn, .icon-btn { flex-shrink: 0; }
 .header-nav { min-width: 0; overflow: hidden; }
 .header-account, .header-account .account-email { min-width: 0; }
-@media (max-width: 860px) { .header-nav { display: none; } }
+@media (max-width: 900px) { .nav-label { display: none; } }
 @media (max-width: 580px) { .header-account .account-email { display: none; } }

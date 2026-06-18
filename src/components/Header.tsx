@@ -41,14 +41,19 @@ export function Header({
       </span>
       {account && (
         <nav className="header-nav">
-          <span className="header-nav-item active">
-            <Inbox size={15} /> Inbox
+          <span className="header-nav-item active" title="Inbox">
+            <Inbox size={15} /> <span className="nav-label">Inbox</span>
           </span>
           {FOLDERS.map((f) => {
             const Icon = f.icon;
             return (
-              <button key={f.label} className="header-nav-item" disabled>
-                <Icon size={15} /> {f.label}
+              <button
+                key={f.label}
+                className="header-nav-item"
+                title={f.label}
+                disabled
+              >
+                <Icon size={15} /> <span className="nav-label">{f.label}</span>
               </button>
             );
           })}
