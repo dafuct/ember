@@ -15,6 +15,12 @@ pub mod auth;
 //    reach it as `ember_lib::gmail::GmailClient` — same as any external user.
 pub mod gmail;
 
+// 🦀 `mod commands;` pulls in the Tauri command handlers defined in
+//    `src/commands.rs`.  It is `mod` (not `pub mod`) because external crates
+//    never need to call these directly — only the `invoke_handler!` macro and
+//    the JS frontend reach them through Tauri's IPC bridge.
+mod commands;
+
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
 //    attribute*.  `cfg_attr` applies the inner attribute (`tauri::mobile_entry_point`)
 //    only when the `mobile` cfg flag is set (i.e. compiling for iOS/Android).
@@ -42,7 +48,15 @@ pub fn run() {
     //    Each `.method()` call configures one aspect of the app and returns
     //    `Self` so the next call can be chained.  The chain ends with `.run()`
     //    which consumes the builder and starts the event loop.
+    // 🦀 `tauri::generate_handler![...]` is a macro that registers the listed
+    //    Rust async fns as IPC handlers.  After this, the JS frontend can call
+    //    `invoke("connect_gmail")` and Tauri will route it to `commands::connect_gmail`.
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            commands::connect_gmail,
+            commands::get_connected_account,
+            commands::fetch_inbox_preview,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
