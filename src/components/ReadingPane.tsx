@@ -4,7 +4,7 @@ import {
   type MessageBody,
   type MessagePreview,
 } from "../lib/api";
-import { Mail, CornerUpLeft, Archive, Trash2, ImageOff } from "lucide-react";
+import { Mail, CornerUpLeft, Archive, Trash2 } from "lucide-react";
 
 export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
   const [body, setBody] = useState<MessageBody | null>(null);
@@ -21,7 +21,7 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
     setLoading(true);
     setError(null);
     setBody(null);
-    fetchMessageBody(msg.id, false)
+    fetchMessageBody(msg.id, true)
       .then((b) => {
         if (!cancelled) setBody(b);
       })
@@ -35,15 +35,6 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
       cancelled = true;
     };
   }, [msg?.id]);
-
-  async function loadRemoteImages() {
-    if (!msg) return;
-    try {
-      setBody(await fetchMessageBody(msg.id, true));
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
   if (!msg) {
     return (
@@ -87,16 +78,6 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
           </div>
           <div className="reading-date">{date}</div>
         </div>
-        {body?.blocked_images && (
-          <div className="images-bar">
-            <span>
-              <ImageOff size={15} /> Remote images blocked for your privacy
-            </span>
-            <button className="btn" onClick={loadRemoteImages}>
-              Load images
-            </button>
-          </div>
-        )}
       </div>
       <div className="reading-body-area">
         {loading ? (

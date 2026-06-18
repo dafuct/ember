@@ -66,8 +66,6 @@
 .reading-frame { flex: 1; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
 .reading-text { flex: 1; margin: 0; overflow: auto; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
 .reading-status { color: var(--text-muted); font-size: 13px; }
-.images-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); font-size: 13px; color: var(--text-muted); }
-.images-bar span { display: flex; align-items: center; gap: 6px; }
 
 .connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
 .connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
