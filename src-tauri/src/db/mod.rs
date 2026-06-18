@@ -1,7 +1,8 @@
 // 🦀 `Connection` is an owned handle to a single SQLite database file (or an
-//    in-memory DB).  It is NOT `Send` by default, so you can only use it on the
-//    thread that created it.  In a multi-threaded app you'd wrap it in a
-//    `Mutex<Connection>` and lock it before each use.
+//    in-memory DB).  It IS `Send` (you can move it to another thread) but NOT
+//    `Sync` (you can't share `&Connection` across threads at the same time).
+//    Wrapping it in a `Mutex` gives safe shared access — `Mutex<Connection>` is
+//    `Sync` — which is exactly what lets us hold it as shared Tauri state.
 use rusqlite::{params, Connection};
 
 // 🦀 `crate::error::Result` is the project's own `Result<T>` alias — it expands
