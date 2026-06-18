@@ -15,6 +15,11 @@ pub mod auth;
 //    reach it as `ember_lib::gmail::GmailClient` — same as any external user.
 pub mod gmail;
 
+// 🦀 `pub mod db;` declares the local SQLite store module. Rust resolves this
+//    to `src/db/mod.rs` (the `mod.rs` convention for a module that is itself a
+//    directory) or `src/db.rs` (single-file form) — whichever exists.
+pub mod db;
+
 // 🦀 `mod commands;` pulls in the Tauri command handlers defined in
 //    `src/commands.rs`.  It is `mod` (not `pub mod`) because external crates
 //    never need to call these directly — only the `invoke_handler!` macro and
