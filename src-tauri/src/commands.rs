@@ -63,11 +63,15 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
                 .await?;
             let rows = to_rows(previews);
             let count = rows.len();
-            // 🦀 Advance to the new historyId; if Gmail didn't return one, keep the old.
-            let new_hid = delta
-                .new_history_id
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(hid);
+            // 🦀 Advance the baseline: use the new historyId when Gmail returns one,
+            //    keep the old one if the delta was empty (None), and fail loudly rather
+            //    than silently stalling if it's somehow present but non-numeric.
+            let new_hid = match delta.new_history_id {
+                Some(s) => s.parse::<i64>().map_err(|_| {
+                    AppError::Other("Gmail returned a non-numeric historyId".into())
+                })?,
+                None => hid,
+            };
             {
                 let conn = state
                     .lock()
@@ -83,6 +87,17 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
     }
 
     // Slow path: first sync ever, or the historyId aged out — pull the whole window.
+    // 🦀 Read the baseline historyId BEFORE the heavy message fetch: if this network
+    //    call fails we bail early (no wasted fetch), and capturing it first means any
+    //    messages that arrive *during* the fetch are simply re-seen on the next sync
+    //    (upsert is idempotent) rather than skipped. Parse with a real error instead of
+    //    silently storing NULL — a NULL baseline would force a full resync forever.
+    let baseline_hid: i64 = client
+        .get_profile()
+        .await?
+        .history_id
+        .parse()
+        .map_err(|_| AppError::Other("Gmail returned a non-numeric historyId".into()))?;
     let ids = client
         .list_inbox_message_ids_paged(&format!("newer_than:{SYNC_WINDOW_DAYS}d"), 500)
         .await?;
@@ -91,15 +106,13 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
         .await?;
     let rows = to_rows(previews);
     let count = rows.len();
-    // 🦀 Record the current mailbox historyId as the baseline for future deltas.
-    let baseline_hid = client.get_profile().await?.history_id.parse::<i64>().ok();
     {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
         db::upsert_messages(&conn, &rows)?;
         db::prune_older_than(&conn, cutoff_ms)?;
-        db::set_sync_state(&conn, PRIMARY_ACCOUNT, baseline_hid, now_secs() as i64)?;
+        db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(baseline_hid), now_secs() as i64)?;
     }
     Ok(count)
 }
