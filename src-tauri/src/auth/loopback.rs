@@ -3,6 +3,7 @@
 //    Rust only resolves trait methods when the trait is in scope.
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::time::{Duration, Instant};
 
 use crate::error::{AppError, Result};
 
@@ -39,11 +40,34 @@ impl Loopback {
     //    After this call the caller no longer owns the value — the compiler prevents reuse.
     //    Here that's intentional: we only ever want one response from the listener.
     pub fn wait_for_code(self) -> Result<(String, String)> {
-        // 🦀 `TcpListener::accept()` blocks the thread until a TCP connection arrives,
-        //    then returns the connected stream and the remote address.
-        let (mut stream, _) = self
-            .listener
-            .accept()
+        // 🦀 Poll accept() with a deadline so an abandoned sign-in (user closes the
+        //    browser, Google never redirects) fails cleanly instead of parking this
+        //    thread forever. `set_nonblocking(true)` makes accept() return immediately
+        //    with a `WouldBlock` error when no connection is waiting yet.
+        self.listener
+            .set_nonblocking(true)
+            .map_err(|e| AppError::Auth(e.to_string()))?;
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut stream = loop {
+            match self.listener.accept() {
+                Ok((stream, _)) => break stream,
+                // 🦀 `ErrorKind::WouldBlock` is the "nothing ready yet" signal, not a
+                //    real failure — sleep briefly and retry until the deadline passes.
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err(AppError::Auth(
+                            "timed out waiting for the Google sign-in redirect".into(),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(e) => return Err(AppError::Auth(e.to_string())),
+            }
+        };
+        // 🦀 An accepted socket can inherit the listener's non-blocking mode; switch it
+        //    back to blocking so the `read_line` below simply waits for the request.
+        stream
+            .set_nonblocking(false)
             .map_err(|e| AppError::Auth(e.to_string()))?;
         let mut request_line = String::new();
         BufReader::new(&stream)

@@ -38,6 +38,10 @@ pub async fn get_connected_account() -> Result<Option<String>> {
 //    This gives the frontend structured error information rather than a raw panic.
 #[tauri::command]
 pub async fn fetch_inbox_preview(max: u32) -> Result<Vec<MessagePreview>> {
+    // 🦀 Clamp the caller-supplied count into [1, 50] so a stray large value can't
+    //    fan out into hundreds of sequential Gmail requests. `.clamp(lo, hi)` is a
+    //    standard numeric method that bounds a value between two limits.
+    let max = max.clamp(1, 50);
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
     let ids = client.list_inbox_message_ids(max).await?;
