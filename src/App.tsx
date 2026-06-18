@@ -42,8 +42,8 @@ export default function App() {
     setError(null);
     setStatus(null);
     try {
-      const count = await syncInbox();
-      setStatus(`Synced ${count} messages from Gmail`);
+      const summary = await syncInbox();
+      setStatus(`Synced ${summary.added} new, ${summary.removed} removed`);
       setMessages(await fetchInboxPreview(20));
     } catch (e) {
       setError(String(e));

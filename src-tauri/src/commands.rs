@@ -18,6 +18,14 @@ use crate::gmail::GmailClient;
 //    connection at a time (rusqlite's Connection is `Send` but not `Sync`).
 pub type Db = Arc<Mutex<Connection>>;
 
+// 🦀 What `sync_inbox` reports back. `#[derive(serde::Serialize)]` lets Tauri send it to
+//    the frontend as JSON `{ "added": N, "removed": M }`.
+#[derive(serde::Serialize)]
+pub struct SyncSummary {
+    pub added: usize,
+    pub removed: usize,
+}
+
 const PREVIEW_CONCURRENCY: usize = 8;
 const SYNC_WINDOW_DAYS: i64 = 30;
 
@@ -37,9 +45,9 @@ pub async fn get_connected_account() -> Result<Option<String>> {
 
 /// Sync INBOX into the local DB. Uses Gmail history deltas when we have a stored
 /// historyId (fast); falls back to a full ~30-day resync on first run or if the
-/// historyId expired. Returns how many messages were fetched/stored this run.
+/// historyId expired. Returns the number of messages added and removed this run.
 #[tauri::command]
-pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
+pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
     // 🦀 Prune cutoff: 30 days ago, in Unix MILLISECONDS (internal_date's unit).
@@ -72,16 +80,18 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
                 })?,
                 None => hid,
             };
+            let removed = delta.removed_ids.len();
             {
                 let conn = state
                     .lock()
                     .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-                db::upsert_messages(&conn, &rows)?;
-                db::delete_messages(&conn, &delta.removed_ids)?;
-                db::prune_older_than(&conn, cutoff_ms)?;
+                // 🦀 One atomic transaction for the whole delta (see db::apply_delta).
+                db::apply_delta(&conn, &rows, &delta.removed_ids, cutoff_ms)?;
                 db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(new_hid), now_secs() as i64)?;
             }
-            return Ok(count);
+            // NOTE (known limitation): Gmail's labelId=INBOX history filter can omit a
+            // *hard* delete of an INBOX message; such rows are removed by the 30-day prune.
+            return Ok(SyncSummary { added: count, removed });
         }
         // 🦀 `too_old` → stored historyId expired (Gmail keeps ~a week). Fall through.
     }
@@ -110,11 +120,11 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<usize> {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        db::upsert_messages(&conn, &rows)?;
-        db::prune_older_than(&conn, cutoff_ms)?;
+        // 🦀 Full resync: upsert everything, no deletes, prune old — one transaction.
+        db::apply_delta(&conn, &rows, &[], cutoff_ms)?;
         db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(baseline_hid), now_secs() as i64)?;
     }
-    Ok(count)
+    Ok(SyncSummary { added: count, removed: 0 })
 }
 
 /// The most recent inbox previews, read from the local DB (fast, works offline).

@@ -16,4 +16,10 @@ export const getConnectedAccount = (): Promise<string | null> =>
   invoke<string | null>("get_connected_account");
 export const fetchInboxPreview = (max = 20): Promise<MessagePreview[]> =>
   invoke<MessagePreview[]>("fetch_inbox_preview", { max });
-export const syncInbox = (): Promise<number> => invoke<number>("sync_inbox");
+export interface SyncSummary {
+  added: number;
+  removed: number;
+}
+
+export const syncInbox = (): Promise<SyncSummary> =>
+  invoke<SyncSummary>("sync_inbox");

@@ -66,43 +66,63 @@ pub fn init(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+// 🦀 The UPSERT statement, in one `const` so `upsert_messages` and `apply_delta`
+//    share exactly one definition instead of duplicating the SQL.
+const UPSERT_SQL: &str = "INSERT INTO messages
+        (id, thread_id, from_addr, subject, snippet, date_header, internal_date)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT(id) DO UPDATE SET
+        thread_id = excluded.thread_id,
+        from_addr = excluded.from_addr,
+        subject = excluded.subject,
+        snippet = excluded.snippet,
+        date_header = excluded.date_header,
+        internal_date = excluded.internal_date";
+
+// 🦀 Upsert one message against a connection OR a transaction. rusqlite's `Transaction`
+//    derefs to `Connection`, so callers can pass `&tx` here and it coerces to `&Connection`.
+fn upsert_one(conn: &Connection, m: &StoredMessage) -> Result<()> {
+    conn.execute(
+        UPSERT_SQL,
+        params![
+            m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date_header, m.internal_date
+        ],
+    )?;
+    Ok(())
+}
+
 /// Insert each message, or update it in place if its id already exists.
 pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<()> {
-    // 🦀 Wrap all the inserts in ONE transaction. `unchecked_transaction` works on a
-    //    shared `&Connection` (our Mutex already guarantees exclusive use), unlike
-    //    `transaction()` which needs `&mut`. Without it each `execute` is its own
-    //    auto-committed write — for 500 rows that's 500 disk syncs. Batching them into
-    //    a single commit is far faster AND atomic: if any insert fails, `tx` drops
-    //    without committing and SQLite rolls the whole batch back.
     let tx = conn.unchecked_transaction()?;
     for m in messages {
-        // 🦀 `?1, ?2, ...` positional placeholders are **parameterized queries**:
-        //    rusqlite binds values separately from the SQL text, so user data can never
-        //    be interpreted as SQL. Never build SQL with `format!()`.
-        //
-        // 🦀 SQLite UPSERT: `ON CONFLICT(id) DO UPDATE SET col = excluded.col` updates
-        //    the row in place if its PRIMARY KEY already exists. `excluded` is the
-        //    incoming (conflicting) row we just tried to insert.
-        tx.execute(
-            "INSERT INTO messages
-                (id, thread_id, from_addr, subject, snippet, date_header, internal_date)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(id) DO UPDATE SET
-                thread_id = excluded.thread_id,
-                from_addr = excluded.from_addr,
-                subject = excluded.subject,
-                snippet = excluded.snippet,
-                date_header = excluded.date_header,
-                internal_date = excluded.internal_date",
-            // 🦀 `params![]` is a macro that builds a heterogeneous slice of
-            //    `&dyn ToSql` trait objects, matched positionally to the `?1..?N`
-            //    placeholders in the SQL string above.
-            params![
-                m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date_header, m.internal_date
-            ],
-        )?;
+        upsert_one(&tx, m)?;
     }
-    // 🦀 Commit once: all rows become visible together, or none (rollback on drop).
+    tx.commit()?;
+    Ok(())
+}
+
+/// Apply a sync delta in ONE transaction: upsert `upserts`, delete `delete_ids`, and
+/// prune messages older than `prune_cutoff_ms`. All-or-nothing.
+pub fn apply_delta(
+    conn: &Connection,
+    upserts: &[StoredMessage],
+    delete_ids: &[String],
+    prune_cutoff_ms: i64,
+) -> Result<()> {
+    // 🦀 A single transaction spanning all three steps: if any fails, `tx` drops without
+    //    committing and the whole delta rolls back — the DB is never left half-applied
+    //    (e.g. additions saved but removals lost).
+    let tx = conn.unchecked_transaction()?;
+    for m in upserts {
+        upsert_one(&tx, m)?;
+    }
+    for id in delete_ids {
+        tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+    }
+    tx.execute(
+        "DELETE FROM messages WHERE internal_date < ?1",
+        params![prune_cutoff_ms],
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -291,5 +311,20 @@ mod tests {
         let s = get_sync_state(&c, "primary").unwrap().unwrap();
         assert_eq!(s.last_history_id, Some(42));
         assert_eq!(s.last_synced_at, 1718700000);
+    }
+
+    #[test]
+    fn apply_delta_upserts_deletes_and_prunes_atomically() {
+        let c = conn();
+        upsert_messages(&c, &[msg("keep", 500), msg("archive", 600), msg("old", 100)]).unwrap();
+        apply_delta(&c, &[msg("newmsg", 700)], &["archive".to_string()], 200).unwrap();
+        let mut ids: Vec<String> = recent_previews(&c, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        ids.sort();
+        // "keep"(500) stays, "newmsg"(700) added, "archive" deleted, "old"(100) pruned.
+        assert_eq!(ids, vec!["keep".to_string(), "newmsg".to_string()]);
     }
 }
