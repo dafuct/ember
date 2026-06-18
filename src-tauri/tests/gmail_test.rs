@@ -7,6 +7,14 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+// 🦀 Helper: base64url-encode a string so tests can produce mock payloads without
+//    depending on a separate fixture file.  Uses the same engine the production
+//    code decodes with, so round-trips are guaranteed to match.
+fn b64url(s: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(s)
+}
+
 // 🦀 `#[tokio::test]` is an attribute macro from the `tokio` crate.  It wraps
 //    the async test function in a Tokio runtime so you can `.await` futures
 //    inside a test without starting the runtime manually.
@@ -206,4 +214,47 @@ async fn list_history_flags_too_old_on_404() {
     assert!(delta.too_old);
     assert!(delta.added_ids.is_empty());
     assert!(delta.removed_ids.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_body_extracts_html_from_multipart() {
+    let server = MockServer::start().await;
+    let html = "<p>Hello <b>world</b></p>";
+    let text = "Hello world";
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m1",
+            "payload": {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    { "mimeType": "text/plain", "body": { "data": b64url(text) } },
+                    { "mimeType": "text/html", "body": { "data": b64url(html) } }
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let body = client.get_message_body("m1").await.unwrap();
+    assert_eq!(body.html.as_deref(), Some(html));
+    assert_eq!(body.text.as_deref(), Some(text));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_body_handles_simple_plaintext() {
+    let server = MockServer::start().await;
+    let text = "just text, no parts";
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m2",
+            "payload": { "mimeType": "text/plain", "body": { "data": b64url(text) } }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let body = client.get_message_body("m2").await.unwrap();
+    assert_eq!(body.text.as_deref(), Some(text));
+    assert_eq!(body.html, None);
 }

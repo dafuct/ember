@@ -25,6 +25,8 @@ thiserror = "2"
 dotenvy = "0.15"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 futures = "0.3.32"
+base64 = "0.22.1"
 
 [dev-dependencies]
+base64 = "0.22.1"
 wiremock = "0.6"
