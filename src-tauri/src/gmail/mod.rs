@@ -2,7 +2,8 @@
 //    of this `gmail` module.  The full path is `ember_lib::gmail::types::Profile`.
 pub mod types;
 
-use types::{MessageList, MessagePreview, Profile, RawMessage};
+use std::collections::HashMap;
+use types::{HistoryResponse, MessageList, MessagePreview, Profile, RawMessage};
 
 use crate::error::Result;
 
@@ -15,6 +16,18 @@ pub struct GmailClient {
     //    It is cheaply cloneable (Arc-backed internally) and is meant to be
     //    reused across requests — one instance per logical "service" is typical.
     http: reqwest::Client,
+}
+
+/// The net result of replaying history since a stored historyId.
+// 🦀 `#[derive(Default)]` lets us build a value with all fields at their defaults
+//    (empty Vecs, None, false) via `HistoryDelta::default()` / `..Default::default()`.
+#[derive(Debug, Default, PartialEq)]
+pub struct HistoryDelta {
+    pub added_ids: Vec<String>,
+    pub removed_ids: Vec<String>,
+    pub new_history_id: Option<String>,
+    /// True if Gmail returned 404 (startHistoryId too old) → caller should full-resync.
+    pub too_old: bool,
 }
 
 impl GmailClient {
@@ -159,6 +172,90 @@ impl GmailClient {
             }
         }
         Ok(ids)
+    }
+
+    /// Replay INBOX history since `start_history_id`, returning the net set of added
+    /// and removed message ids. On a 404 (expired historyId), returns `too_old = true`.
+    pub async fn list_history(&self, start_history_id: &str) -> Result<HistoryDelta> {
+        // 🦀 A HashMap<id, bool> tracks the NET state per message across all records:
+        //    true = currently in INBOX (add), false = left INBOX (remove). Later records
+        //    overwrite earlier ones, so "added then archived" correctly nets to removed.
+        let mut state: HashMap<String, bool> = HashMap::new();
+        let mut page_token: Option<String> = None;
+        let mut latest_history_id: Option<String> = None;
+
+        loop {
+            let mut url = format!(
+                "{}/gmail/v1/users/me/history?startHistoryId={}&labelId=INBOX&maxResults=500\
+                 &historyTypes=messageAdded&historyTypes=messageDeleted\
+                 &historyTypes=labelAdded&historyTypes=labelRemoved",
+                self.base_url, start_history_id
+            );
+            if let Some(token) = &page_token {
+                url.push_str(&format!("&pageToken={token}"));
+            }
+
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&self.access_token)
+                .send()
+                .await?;
+            // 🦀 Check the status BEFORE `error_for_status()`: a 404 here is expected
+            //    (the stored historyId aged out), so we treat it as data, not an error.
+            if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                return Ok(HistoryDelta {
+                    too_old: true,
+                    ..Default::default()
+                });
+            }
+            let resp = resp.error_for_status()?;
+            let page: HistoryResponse = resp.json().await?;
+
+            for record in page.history {
+                for m in record.messages_added {
+                    state.insert(m.message.id, true);
+                }
+                for c in record.labels_added {
+                    if c.label_ids.iter().any(|l| l == "INBOX") {
+                        state.insert(c.message.id, true);
+                    }
+                }
+                for m in record.messages_deleted {
+                    state.insert(m.message.id, false);
+                }
+                for c in record.labels_removed {
+                    if c.label_ids.iter().any(|l| l == "INBOX") {
+                        state.insert(c.message.id, false);
+                    }
+                }
+            }
+            if !page.history_id.is_empty() {
+                latest_history_id = Some(page.history_id);
+            }
+            match page.next_page_token {
+                Some(token) => page_token = Some(token),
+                None => break,
+            }
+        }
+
+        // 🦀 Split the net state into the two id lists the sync step will act on.
+        let added_ids = state
+            .iter()
+            .filter(|(_, &present)| present)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let removed_ids = state
+            .iter()
+            .filter(|(_, &present)| !present)
+            .map(|(id, _)| id.clone())
+            .collect();
+        Ok(HistoryDelta {
+            added_ids,
+            removed_ids,
+            new_history_id: latest_history_id,
+            too_old: false,
+        })
     }
 
     /// Fetch previews for many ids concurrently (at most `concurrency` in flight).

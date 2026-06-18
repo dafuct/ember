@@ -34,6 +34,13 @@ pub struct SyncState {
 
 /// Create tables and indexes if they don't exist. Safe to call on every startup.
 pub fn init(conn: &Connection) -> Result<()> {
+    // 🦀 WAL (write-ahead logging) lets reads proceed while a write is in progress —
+    //    better concurrency and crash durability than the default rollback journal.
+    //    (On an in-memory DB this is a no-op, which keeps the unit tests working.)
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    // 🦀 If the DB is briefly locked by another connection, wait up to 5s for it to
+    //    free up instead of immediately returning SQLITE_BUSY.
+    conn.busy_timeout(std::time::Duration::from_millis(5000))?;
     // 🦀 `execute_batch` runs multiple semicolon-separated SQL statements in one
     //    call, unlike `execute` which runs exactly one statement.  It's safe here
     //    because we're supplying literal SQL with no user-controlled values —
@@ -98,6 +105,28 @@ pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<
     // 🦀 Commit once: all rows become visible together, or none (rollback on drop).
     tx.commit()?;
     Ok(())
+}
+
+/// Delete the given message ids (e.g. messages removed from Gmail or archived).
+pub fn delete_messages(conn: &Connection, ids: &[String]) -> Result<()> {
+    // 🦀 Reuse a single transaction so the whole batch of deletes commits at once.
+    let tx = conn.unchecked_transaction()?;
+    for id in ids {
+        tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Delete messages older than `cutoff_ms` (Unix ms). Returns how many were removed.
+pub fn prune_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
+    // 🦀 `conn.execute` returns the number of rows it changed — here, how many old
+    //    messages were pruned.
+    let removed = conn.execute(
+        "DELETE FROM messages WHERE internal_date < ?1",
+        params![cutoff_ms],
+    )?;
+    Ok(removed)
 }
 
 /// The most recent `max` messages, newest first.
@@ -225,6 +254,33 @@ mod tests {
             rows.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
             vec!["new", "mid"]
         );
+    }
+
+    #[test]
+    fn delete_messages_removes_only_given_ids() {
+        let c = conn();
+        upsert_messages(&c, &[msg("a", 1), msg("b", 2), msg("c", 3)]).unwrap();
+        delete_messages(&c, &["b".to_string()]).unwrap();
+        let ids: Vec<String> = recent_previews(&c, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, vec!["c".to_string(), "a".to_string()]); // newest first; "b" gone
+    }
+
+    #[test]
+    fn prune_older_than_deletes_below_cutoff_and_counts() {
+        let c = conn();
+        upsert_messages(&c, &[msg("old", 100), msg("new", 300)]).unwrap();
+        let removed = prune_older_than(&c, 200).unwrap();
+        assert_eq!(removed, 1);
+        let ids: Vec<String> = recent_previews(&c, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, vec!["new".to_string()]);
     }
 
     #[test]
