@@ -10,6 +10,11 @@ mod error;
 //    `ember_lib::auth::tokens::StoredToken`.
 pub mod auth;
 
+// 🦀 `pub mod gmail;` wires in the Gmail API client as a public submodule.
+//    Integration tests in `tests/gmail_test.rs` (a *separate crate*) can then
+//    reach it as `ember_lib::gmail::GmailClient` — same as any external user.
+pub mod gmail;
+
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
 //    attribute*.  `cfg_attr` applies the inner attribute (`tauri::mobile_entry_point`)
 //    only when the `mobile` cfg flag is set (i.e. compiling for iOS/Android).
