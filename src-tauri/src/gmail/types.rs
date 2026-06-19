@@ -135,6 +135,9 @@ pub struct FullMessage {
 pub struct MessagePart {
     #[serde(rename = "mimeType", default)]
     pub mime_type: String,
+    // 🦀 `format=full` includes the part's headers; `default` → empty Vec when absent.
+    #[serde(default)]
+    pub headers: Vec<Header>,
     #[serde(default)]
     pub body: PartBody,
     #[serde(default)]
@@ -147,6 +150,14 @@ pub struct MessagePart {
 pub struct PartBody {
     #[serde(default)]
     pub data: String,
+}
+
+/// What a reply needs from the original message: threading headers + the quoted text.
+#[derive(Debug, Serialize)]
+pub struct ReplyContext {
+    pub message_id: String,
+    pub references: String,
+    pub quoted_text: String,
 }
 
 /// The subset of the `users.messages.modify` response we use: the id and the

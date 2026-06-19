@@ -3,7 +3,10 @@
 pub mod types;
 
 use std::collections::HashMap;
-use types::{FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage, Profile, RawMessage};
+use types::{
+    FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
+    Profile, RawMessage, ReplyContext,
+};
 
 use crate::error::Result;
 
@@ -384,6 +387,34 @@ impl GmailClient {
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
         Ok(RawBody { html, text })
+    }
+
+    /// Fetch what a reply needs: the original's `Message-ID` + `References` headers (for
+    /// threading) and its decoded plain-text body (for quoting). One `format=full` fetch.
+    pub async fn get_reply_context(&self, id: &str) -> Result<ReplyContext> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}?format=full", self.base_url, id);
+        let full: FullMessage = self.get_json(&url).await?;
+        // 🦀 Closure that borrows the payload headers and finds one case-insensitively
+        //    ("Message-ID" vs "Message-Id"), cloning the matched value out.
+        let header = |name: &str| {
+            full.payload
+                .headers
+                .iter()
+                .find(|h| h.name.eq_ignore_ascii_case(name))
+                .map(|h| h.value.clone())
+                .unwrap_or_default()
+        };
+        let message_id = header("Message-ID");
+        let references = header("References");
+        // 🦀 Reuse the existing recursive MIME walk to pull the text/plain part.
+        let mut html = None;
+        let mut text = None;
+        collect_body(&full.payload, &mut html, &mut text);
+        Ok(ReplyContext {
+            message_id,
+            references,
+            quoted_text: text.unwrap_or_default(),
+        })
     }
 
     /// Move a single message to Trash (recoverable in Gmail for ~30 days).

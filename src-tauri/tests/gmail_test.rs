@@ -365,3 +365,31 @@ async fn trash_message_posts_to_trash_endpoint() {
     // 🦀 We only care that it succeeded; the response body is ignored.
     client.trash_message("a1").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_reply_context_extracts_message_id_references_and_text() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/r1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "r1",
+            "payload": {
+                "mimeType": "multipart/alternative",
+                "headers": [
+                    {"name": "Message-ID", "value": "<orig@mail.example>"},
+                    {"name": "References", "value": "<a@x> <b@y>"}
+                ],
+                "parts": [
+                    {"mimeType": "text/plain", "body": {"data": b64url("Original body")}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let rc = client.get_reply_context("r1").await.unwrap();
+    assert_eq!(rc.message_id, "<orig@mail.example>");
+    assert_eq!(rc.references, "<a@x> <b@y>");
+    assert_eq!(rc.quoted_text, "Original body");
+}
