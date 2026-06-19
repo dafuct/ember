@@ -29,6 +29,10 @@ mod commands;
 // 🦀 email HTML sanitizer — strips scripts/events, optionally blocks tracking pixels
 mod html;
 
+// 🦀 `pub mod scorer;` wires in the pure smart-inbox classifier (no I/O, fully
+//    unit-testable). `pub` so integration tests / future callers can reach it.
+pub mod scorer;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional

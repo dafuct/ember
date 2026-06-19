@@ -29,6 +29,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# LLM Wiki — local personal knowledge base, not shared in the repo
+wiki/
+raw/
+CLAUDE.md
+
 # Editor directories (allow extensions.json)
 .vscode/*
 !.vscode/extensions.json

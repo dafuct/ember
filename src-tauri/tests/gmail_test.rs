@@ -80,6 +80,53 @@ async fn get_message_preview_extracts_headers() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_message_preview_extracts_labels_and_list_headers() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/n1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "n1",
+            "labelIds": ["INBOX", "CATEGORY_PROMOTIONS"],
+            "snippet": "Big sale",
+            "payload": { "headers": [
+                {"name": "From", "value": "Store <deals@store.com>"},
+                {"name": "To", "value": "you@example.com"},
+                {"name": "List-Unsubscribe", "value": "<mailto:unsub@store.com>"}
+            ]}
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let m = client.get_message_preview("n1").await.unwrap();
+    assert_eq!(m.label_ids, vec!["INBOX".to_string(), "CATEGORY_PROMOTIONS".to_string()]);
+    assert_eq!(m.to_addr, "you@example.com");
+    assert!(m.has_list_unsubscribe);
+    assert!(!m.has_list_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_preview_flags_list_id_when_present() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/n2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "n2",
+            "payload": { "headers": [
+                {"name": "From", "value": "Dev List <team@list.example>"},
+                {"name": "List-Id", "value": "<dev.list.example>"}
+            ]}
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let m = client.get_message_preview("n2").await.unwrap();
+    assert!(m.has_list_id);
+    assert!(!m.has_list_unsubscribe);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn list_inbox_message_ids_paged_follows_next_page_token() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

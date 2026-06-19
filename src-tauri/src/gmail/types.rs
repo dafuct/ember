@@ -30,6 +30,10 @@ pub struct RawMessage {
     pub id: String,
     #[serde(rename = "threadId", default)]
     pub thread_id: String,
+    // 🦀 Gmail returns the message's labels (incl. CATEGORY_* tabs) at the top level
+    //    in format=metadata. `default` makes it an empty Vec when the key is absent.
+    #[serde(rename = "labelIds", default)]
+    pub label_ids: Vec<String>,
     // 🦀 Gmail sends `internalDate` as a STRING of milliseconds-since-epoch; we keep
     //    it as String here and parse to i64 in the client.
     #[serde(rename = "internalDate", default)]
@@ -98,7 +102,8 @@ pub struct HistoryMessageRef {
     pub label_ids: Vec<String>,
 }
 
-/// What the UI consumes for the inbox preview.
+/// What the UI consumes for the inbox preview. Also carries the M6 scoring signals;
+/// the frontend only reads `category` (the rest are persisted for re-scoring).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MessagePreview {
     pub id: String,
@@ -108,6 +113,12 @@ pub struct MessagePreview {
     pub date: String,
     pub snippet: String,
     pub internal_date: i64,
+    pub label_ids: Vec<String>,
+    pub to_addr: String,
+    pub has_list_unsubscribe: bool,
+    pub has_list_id: bool,
+    /// Filled by the scorer at sync time (empty on the raw Gmail-fetch path).
+    pub category: String,
 }
 
 // 🦀 `format=full` response — wraps the top-level MIME part.

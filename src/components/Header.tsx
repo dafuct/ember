@@ -4,6 +4,9 @@ import {
   Sun,
   Moon,
   Inbox,
+  Users,
+  Bell,
+  Newspaper,
   Star,
   Send,
   Archive,
@@ -11,8 +14,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTheme, type Theme } from "../theme";
+import { STREAMS, type Stream } from "../lib/streams";
 
 const THEME_ICON: Record<Theme, LucideIcon> = { light: Sun, dark: Moon };
+
+const STREAM_ICON: Record<Stream, LucideIcon> = {
+  all: Inbox,
+  people: Users,
+  notifications: Bell,
+  newsletters: Newspaper,
+};
 
 const FOLDERS: { icon: LucideIcon; label: string }[] = [
   { icon: Star, label: "Starred" },
@@ -26,11 +37,15 @@ export function Header({
   onSync,
   status,
   account = null,
+  stream = "all",
+  onSelectStream,
 }: {
   busy: boolean;
   onSync?: () => void;
   status: string | null;
   account?: string | null;
+  stream?: Stream;
+  onSelectStream?: (s: Stream) => void;
 }) {
   const { theme, cycleTheme } = useTheme();
   const ThemeIcon = THEME_ICON[theme];
@@ -41,9 +56,24 @@ export function Header({
       </span>
       {account && (
         <nav className="header-nav">
-          <span className="header-nav-item active" title="Inbox">
-            <Inbox size={15} /> <span className="nav-label">Inbox</span>
-          </span>
+          {STREAMS.map((s) => {
+            const Icon = STREAM_ICON[s.key];
+            return (
+              <button
+                key={s.key}
+                className={
+                  s.key === stream
+                    ? "header-nav-item active"
+                    : "header-nav-item"
+                }
+                title={s.label}
+                aria-current={s.key === stream ? "page" : undefined}
+                onClick={() => onSelectStream?.(s.key)}
+              >
+                <Icon size={15} /> <span className="nav-label">{s.label}</span>
+              </button>
+            );
+          })}
           {FOLDERS.map((f) => {
             const Icon = f.icon;
             return (

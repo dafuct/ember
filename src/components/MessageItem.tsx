@@ -16,7 +16,16 @@ export function MessageItem({
       onClick={() => onSelect(msg.id)}
     >
       <div className="msg-top">
-        <span className="msg-sender">{msg.from || "(unknown sender)"}</span>
+        <span className="msg-sender">
+          {msg.category && (
+            <span
+              className={`cat-dot cat-${msg.category}`}
+              title={msg.category}
+              aria-hidden
+            />
+          )}
+          {msg.from || "(unknown sender)"}
+        </span>
         <span className="msg-time">{relativeTime(msg.internal_date)}</span>
       </div>
       <span className="msg-subject">{msg.subject || "(no subject)"}</span>

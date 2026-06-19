@@ -13,6 +13,7 @@ use crate::error::{AppError, Result};
 use crate::gmail::types::MessagePreview;
 use crate::gmail::GmailClient;
 use crate::html::sanitize_html;
+use crate::scorer;
 
 // 🦀 The SQLite connection is shared application state. `Arc` lets every command
 //    invocation share ownership of it; `Mutex` ensures only one touches the
@@ -149,23 +150,54 @@ pub async fn fetch_inbox_preview(
             date: m.date_header,
             snippet: m.snippet,
             internal_date: m.internal_date,
+            // 🦀 Split the comma-joined labels back into a Vec; drop empties so an
+            //    empty string yields [] rather than [""].
+            label_ids: m
+                .label_ids
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect(),
+            to_addr: m.to_addr,
+            has_list_unsubscribe: m.has_list_unsubscribe,
+            has_list_id: m.has_list_id,
+            category: m.category,
         })
         .collect())
 }
 
-// 🦀 Convert Gmail-shaped previews into DB rows (a few field names differ). Pulled
-//    into a helper because both the incremental and full-resync paths use it.
+// 🦀 Convert Gmail-shaped previews into DB rows, classifying each message in the
+//    process. The scorer borrows the preview's signals; once `category` is computed
+//    the borrow ends and we move the owned fields into the StoredMessage.
 fn to_rows(previews: Vec<MessagePreview>) -> Vec<db::StoredMessage> {
     previews
         .into_iter()
-        .map(|p| db::StoredMessage {
-            id: p.id,
-            thread_id: p.thread_id,
-            from_addr: p.from,
-            subject: p.subject,
-            snippet: p.snippet,
-            date_header: p.date,
-            internal_date: p.internal_date,
+        .map(|p| {
+            let category = scorer::classify(&scorer::MessageFeatures {
+                label_ids: &p.label_ids,
+                from_addr: &p.from,
+                has_list_unsubscribe: p.has_list_unsubscribe,
+                has_list_id: p.has_list_id,
+            })
+            .as_str()
+            .to_string();
+            db::StoredMessage {
+                id: p.id,
+                thread_id: p.thread_id,
+                from_addr: p.from,
+                subject: p.subject,
+                snippet: p.snippet,
+                date_header: p.date,
+                internal_date: p.internal_date,
+                // 🦀 Persist the raw signals so a future re-score needs no Gmail refetch.
+                //    Stored comma-joined: Gmail label ids are uppercase-ASCII / "Label_<n>"
+                //    tokens that never contain commas, so this CSV round-trips losslessly.
+                label_ids: p.label_ids.join(","),
+                to_addr: p.to_addr,
+                has_list_unsubscribe: p.has_list_unsubscribe,
+                has_list_id: p.has_list_id,
+                category,
+            }
         })
         .collect()
 }
@@ -210,5 +242,44 @@ pub async fn fetch_message_body(id: String, load_images: bool) -> Result<Message
             is_html: false,
             blocked_images: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gmail::types::MessagePreview;
+
+    // 🦀 Build a MessagePreview with given labels/flags; other fields are filler.
+    fn preview(labels: Vec<&str>, lu: bool) -> MessagePreview {
+        MessagePreview {
+            id: "x".into(),
+            thread_id: "t".into(),
+            from: "sender@example.com".into(),
+            subject: "s".into(),
+            date: "d".into(),
+            snippet: "snip".into(),
+            internal_date: 1,
+            label_ids: labels.into_iter().map(String::from).collect(),
+            to_addr: "you@example.com".into(),
+            has_list_unsubscribe: lu,
+            has_list_id: false,
+            category: String::new(),
+        }
+    }
+
+    #[test]
+    fn to_rows_classifies_and_joins_labels() {
+        let rows = to_rows(vec![
+            preview(vec!["INBOX", "CATEGORY_PROMOTIONS"], false),
+            preview(vec!["INBOX", "CATEGORY_PERSONAL"], false),
+            preview(vec![], true), // List-Unsubscribe → newsletters
+        ]);
+        assert_eq!(rows[0].category, "newsletters");
+        assert_eq!(rows[0].label_ids, "INBOX,CATEGORY_PROMOTIONS");
+        assert_eq!(rows[1].category, "people");
+        assert_eq!(rows[2].category, "newsletters");
+        // empty input labels join to "" (so the read-side split yields [] later)
+        assert_eq!(rows[2].label_ids, "");
     }
 }
