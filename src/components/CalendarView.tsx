@@ -3,9 +3,11 @@ import { type CalendarEvent, toTimeMinMax } from "../lib/calendar";
 import { fetchCalendarWeek, connectGmail } from "../lib/api";
 import { WeekGrid } from "./WeekGrid";
 
-// The backend maps missing calendar scope to a message containing "reconnect".
+// The backend maps missing calendar scope to the specific message
+// "Calendar access not granted — reconnect Google to enable it." Match that phrasing
+// precisely so an unrelated error that merely mentions "permission" isn't misrouted here.
 function isScopeError(msg: string): boolean {
-  return /reconnect|calendar access|insufficient|permission/i.test(msg);
+  return /reconnect google|calendar access not granted/i.test(msg);
 }
 
 export function CalendarView({ weekStart }: { weekStart: Date }) {
