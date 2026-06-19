@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Flame,
   Pencil,
@@ -13,6 +14,8 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Search,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme, type Theme } from "../theme";
@@ -48,6 +51,10 @@ export function Header({
   view = "mail",
   onSelectView,
   calendar,
+  onSearch,
+  onClearSearch,
+  inSearch = false,
+  searching = false,
 }: {
   busy: boolean;
   onSync?: () => void;
@@ -60,10 +67,26 @@ export function Header({
   view?: View;
   onSelectView?: (v: View) => void;
   calendar?: CalendarNav;
+  onSearch?: (q: string) => void;
+  onClearSearch?: () => void;
+  inSearch?: boolean;
+  searching?: boolean;
 }) {
   const { theme, cycleTheme } = useTheme();
   const ThemeIcon = THEME_ICON[theme];
   const isCal = view === "calendar";
+  // Local input text; App owns the submitted query + results.
+  const [q, setQ] = useState("");
+
+  function submitSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (q.trim()) onSearch?.(q);
+  }
+  function clearSearch() {
+    setQ("");
+    onClearSearch?.();
+  }
+
   return (
     <header className="app-header">
       <span className="brand">
@@ -89,7 +112,7 @@ export function Header({
         </div>
       )}
 
-      {account && !isCal && (
+      {account && !isCal && !inSearch && (
         <nav className="header-nav">
           {STREAMS.map((s) => {
             const Icon = STREAM_ICON[s.key];
@@ -124,6 +147,32 @@ export function Header({
       )}
 
       <span className="spacer" />
+
+      {account && !isCal && onSearch && (
+        <form className="search-box" onSubmit={submitSearch} role="search">
+          <Search size={14} className="search-icon" />
+          <input
+            className="search-input"
+            type="search"
+            placeholder="Search mail…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search mail"
+          />
+          {(inSearch || q) && (
+            <button
+              type="button"
+              className="icon-btn search-clear"
+              aria-label="Clear search"
+              onClick={clearSearch}
+            >
+              <X size={14} />
+            </button>
+          )}
+          {searching && <span className="search-spinner" aria-hidden="true" />}
+        </form>
+      )}
+
       {status && <span className="status-text">{status}</span>}
 
       {!isCal && onCompose && (
