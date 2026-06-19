@@ -9,12 +9,14 @@ export function MessageItem({
   onSelect,
   onArchive,
   onStar,
+  showRecipient = false,
 }: {
   msg: MessagePreview;
   selected: boolean;
   onSelect: (id: string) => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
+  showRecipient?: boolean;
 }) {
   const unread = isUnread(msg);
   const starred = isStarred(msg);
@@ -34,7 +36,9 @@ export function MessageItem({
                 aria-hidden
               />
             )}
-            {msg.from || "(unknown sender)"}
+            {showRecipient
+              ? `To: ${msg.to_addr || "(no recipient)"}`
+              : msg.from || "(unknown sender)"}
           </span>
           <span className="msg-time">{relativeTime(msg.internal_date)}</span>
           {unread && <span className="unread-dot" title="Unread" aria-hidden />}

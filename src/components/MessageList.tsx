@@ -17,6 +17,7 @@ export function MessageList({
   flat = false,
   title,
   emptyText,
+  showRecipient = false,
 }: {
   messages: MessagePreview[];
   stream: Stream;
@@ -30,6 +31,7 @@ export function MessageList({
   title?: string;
   /** Empty-state text override (used in flat/search mode). */
   emptyText?: string;
+  showRecipient?: boolean;
 }) {
   // Flat mode (search): render the given messages as-is. Stream mode (inbox): filter, and
   // group by category only in the "All" view.
@@ -69,6 +71,7 @@ export function MessageList({
                   onSelect={onSelect}
                   onArchive={onArchive}
                   onStar={onStar}
+                  showRecipient={showRecipient}
                 />
               ))}
             </div>
@@ -82,6 +85,7 @@ export function MessageList({
               onSelect={onSelect}
               onArchive={onArchive}
               onStar={onStar}
+              showRecipient={showRecipient}
             />
           ))
         )}
