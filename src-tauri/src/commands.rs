@@ -149,6 +149,11 @@ pub async fn fetch_inbox_preview(
             date: m.date_header,
             snippet: m.snippet,
             internal_date: m.internal_date,
+            label_ids: vec![],
+            to_addr: String::new(),
+            has_list_unsubscribe: false,
+            has_list_id: false,
+            category: String::new(),
         })
         .collect())
 }

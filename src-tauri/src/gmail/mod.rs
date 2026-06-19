@@ -138,7 +138,9 @@ impl GmailClient {
 
     pub async fn get_message_preview(&self, id: &str) -> Result<MessagePreview> {
         let url = format!(
-            "{}/gmail/v1/users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
+            "{}/gmail/v1/users/me/messages/{}?format=metadata\
+             &metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date\
+             &metadataHeaders=To&metadataHeaders=List-Id&metadataHeaders=List-Unsubscribe",
             self.base_url, id
         );
         let raw: RawMessage = self.get_json(&url).await?;
@@ -164,15 +166,30 @@ impl GmailClient {
                 .map(|h| h.value.clone())
                 .unwrap_or_default()
         };
+        // 🦀 Pull every header-derived value out FIRST, while the `header` closure's
+        //    borrow of `raw.payload` is live. After the last call the borrow ends
+        //    (non-lexical lifetimes), so we can then MOVE owned fields out of `raw`
+        //    (no clones needed) when building the struct below.
+        let from = header("From");
+        let subject = header("Subject");
+        let date = header("Date");
+        let to_addr = header("To");
+        let has_list_unsubscribe = !header("List-Unsubscribe").is_empty();
+        let has_list_id = !header("List-Id").is_empty();
+        let internal_date = raw.internal_date.parse::<i64>().unwrap_or(0);
         Ok(MessagePreview {
-            id: raw.id.clone(),
-            thread_id: raw.thread_id.clone(),
-            from: header("From"),
-            subject: header("Subject"),
-            date: header("Date"),
+            id: raw.id,
+            thread_id: raw.thread_id,
+            from,
+            subject,
+            date,
             snippet: raw.snippet,
-            // 🦀 internalDate is ms-since-epoch as a string; parse to i64, 0 if absent.
-            internal_date: raw.internal_date.parse::<i64>().unwrap_or(0),
+            internal_date,
+            label_ids: raw.label_ids,
+            to_addr,
+            has_list_unsubscribe,
+            has_list_id,
+            category: String::new(), // scored at sync time, not here
         })
     }
 
