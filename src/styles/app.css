@@ -239,4 +239,4 @@
 .search-input::placeholder { color: var(--text-faint); }
 .search-clear { padding: 2px; }
 .search-spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong);
-  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  border-top-color: var(--accent); border-radius: 50%; animation: ember-spin 0.7s linear infinite; }
