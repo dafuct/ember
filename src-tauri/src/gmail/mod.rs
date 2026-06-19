@@ -116,6 +116,18 @@ impl GmailClient {
         Ok(resp.json::<T>().await?)
     }
 
+    // 🦀 POST with no request body — Gmail's trash endpoint takes none. We only
+    //    need to know it succeeded, so the response body is discarded.
+    async fn post_no_body(&self, url: &str) -> Result<()> {
+        self.http
+            .post(url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     // 🦀 The write-side twin of get_json: serialize `body` to JSON, POST it with
     //    bearer auth, turn 4xx/5xx into errors, then deserialize the response into T.
     //    `B: serde::Serialize` is the request body type; `T` the response type.
@@ -372,6 +384,12 @@ impl GmailClient {
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
         Ok(RawBody { html, text })
+    }
+
+    /// Move a single message to Trash (recoverable in Gmail for ~30 days).
+    pub async fn trash_message(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
+        self.post_no_body(&url).await
     }
 
     /// Add and/or remove labels on a single message. Returns the message's label

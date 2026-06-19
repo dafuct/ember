@@ -348,3 +348,20 @@ async fn modify_message_sends_add_labels() {
         vec!["INBOX".to_string(), "STARRED".to_string()]
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn trash_message_posts_to_trash_endpoint() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/a1/trash"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "a1",
+            "labelIds": ["TRASH"]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    // 🦀 We only care that it succeeded; the response body is ignored.
+    client.trash_message("a1").await.unwrap();
+}
