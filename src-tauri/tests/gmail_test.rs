@@ -524,3 +524,27 @@ async fn list_inbox_message_ids_paged_omits_spam_trash_flag() {
     let ids = client.list_inbox_message_ids_paged("newer_than:30d", 50).await.unwrap();
     assert_eq!(ids, vec!["i1".to_string()]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn untrash_message_posts_to_untrash() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/m1/untrash"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "m1" })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.untrash_message("m1").await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_message_forever_issues_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/gmail/v1/users/me/messages/m1"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.delete_message_forever("m1").await.unwrap();
+}

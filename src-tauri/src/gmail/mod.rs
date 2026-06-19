@@ -131,6 +131,18 @@ impl GmailClient {
         Ok(())
     }
 
+    // 🦀 DELETE with no body — Gmail's permanent-delete endpoint. Like post_no_body but the verb is
+    //    DELETE. We only need success; there's no response body to read.
+    async fn delete_no_body(&self, url: &str) -> Result<()> {
+        self.http
+            .delete(url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     // 🦀 The write-side twin of get_json: serialize `body` to JSON, POST it with
     //    bearer auth, turn 4xx/5xx into errors, then deserialize the response into T.
     //    `B: serde::Serialize` is the request body type; `T` the response type.
@@ -470,6 +482,18 @@ impl GmailClient {
     pub async fn trash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
         self.post_no_body(&url).await
+    }
+
+    /// Restore a trashed message (removes the TRASH label). Gmail `messages/{id}/untrash`.
+    pub async fn untrash_message(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base_url, id);
+        self.post_no_body(&url).await
+    }
+
+    /// PERMANENTLY delete a message (bypasses Trash, irreversible). Gmail `DELETE messages/{id}`.
+    pub async fn delete_message_forever(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}", self.base_url, id);
+        self.delete_no_body(&url).await
     }
 
     /// Add and/or remove labels on a single message. Returns the message's label
