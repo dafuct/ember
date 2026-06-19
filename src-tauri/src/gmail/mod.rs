@@ -3,7 +3,7 @@
 pub mod types;
 
 use std::collections::HashMap;
-use types::{FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, Profile, RawMessage};
+use types::{FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage, Profile, RawMessage};
 
 use crate::error::Result;
 
@@ -113,6 +113,25 @@ impl GmailClient {
         //    into type `T`.  The turbofish `::<T>` tells the compiler which
         //    concrete type to use here.  `.await?` drives the async read to
         //    completion and propagates any parse error.
+        Ok(resp.json::<T>().await?)
+    }
+
+    // 🦀 The write-side twin of get_json: serialize `body` to JSON, POST it with
+    //    bearer auth, turn 4xx/5xx into errors, then deserialize the response into T.
+    //    `B: serde::Serialize` is the request body type; `T` the response type.
+    async fn post_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<T> {
+        let resp = self
+            .http
+            .post(url)
+            .bearer_auth(&self.access_token)
+            .json(body)
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(resp.json::<T>().await?)
     }
 
@@ -353,5 +372,32 @@ impl GmailClient {
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
         Ok(RawBody { html, text })
+    }
+
+    /// Add and/or remove labels on a single message. Returns the message's label
+    /// set *after* the change (Gmail echoes the updated resource), so the caller can
+    /// persist the server-authoritative labels.
+    pub async fn modify_message(
+        &self,
+        id: &str,
+        add: &[&str],
+        remove: &[&str],
+    ) -> Result<ModifiedMessage> {
+        // 🦀 A short-lived request struct whose serde field names match Gmail's JSON
+        //    (`addLabelIds`/`removeLabelIds`). The `<'a>` lifetime ties the borrowed
+        //    slices to the struct so we serialize without cloning the label strings.
+        #[derive(serde::Serialize)]
+        struct ModifyRequest<'a> {
+            #[serde(rename = "addLabelIds")]
+            add_label_ids: &'a [&'a str],
+            #[serde(rename = "removeLabelIds")]
+            remove_label_ids: &'a [&'a str],
+        }
+        let url = format!("{}/gmail/v1/users/me/messages/{}/modify", self.base_url, id);
+        let body = ModifyRequest {
+            add_label_ids: add,
+            remove_label_ids: remove,
+        };
+        self.post_json(&url, &body).await
     }
 }

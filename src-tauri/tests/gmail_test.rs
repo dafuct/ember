@@ -4,7 +4,7 @@
 //    This mirrors how a real downstream user would consume the library.
 use ember_lib::gmail::GmailClient;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param, query_param_is_missing};
+use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // 🦀 Helper: base64url-encode a string so tests can produce mock payloads without
@@ -304,4 +304,47 @@ async fn get_message_body_handles_simple_plaintext() {
     let body = client.get_message_body("m2").await.unwrap();
     assert_eq!(body.text.as_deref(), Some(text));
     assert_eq!(body.html, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn modify_message_posts_labels_and_parses_response() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/a1/modify"))
+        .and(body_json(json!({ "addLabelIds": [], "removeLabelIds": ["UNREAD"] })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "a1",
+            "labelIds": ["INBOX", "STARRED"]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let m = client.modify_message("a1", &[], &["UNREAD"]).await.unwrap();
+    assert_eq!(m.id, "a1");
+    assert_eq!(
+        m.label_ids,
+        vec!["INBOX".to_string(), "STARRED".to_string()]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn modify_message_sends_add_labels() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/a2/modify"))
+        .and(body_json(json!({ "addLabelIds": ["STARRED"], "removeLabelIds": [] })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "a2",
+            "labelIds": ["INBOX", "STARRED"]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let m = client.modify_message("a2", &["STARRED"], &[]).await.unwrap();
+    assert_eq!(
+        m.label_ids,
+        vec!["INBOX".to_string(), "STARRED".to_string()]
+    );
 }

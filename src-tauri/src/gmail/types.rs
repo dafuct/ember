@@ -148,3 +148,15 @@ pub struct PartBody {
     #[serde(default)]
     pub data: String,
 }
+
+/// The subset of the `users.messages.modify` response we use: the id and the
+/// label set after the change. We don't request `payload`, so we don't model it —
+/// keeping this type small means the parse never fails on a missing `payload`.
+#[derive(Debug, Deserialize)]
+pub struct ModifiedMessage {
+    pub id: String,
+    // 🦀 `default` makes serde fill an empty Vec if Gmail omits `labelIds`
+    //    (it shouldn't, but this keeps the deserialize total/robust).
+    #[serde(rename = "labelIds", default)]
+    pub label_ids: Vec<String>,
+}
