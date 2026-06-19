@@ -417,6 +417,28 @@ impl GmailClient {
         })
     }
 
+    /// Send a raw RFC822 message. `thread_id` threads a reply into its conversation.
+    pub async fn send_message(&self, raw_rfc822: &str, thread_id: Option<&str>) -> Result<()> {
+        use base64::Engine;
+        // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding)
+        //    in the `raw` field — the same encoding the read path decodes with.
+        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822.as_bytes());
+        // 🦀 Short-lived request struct. `skip_serializing_if` drops `threadId` entirely
+        //    (not `null`) when there's no thread — Gmail rejects a null threadId.
+        #[derive(serde::Serialize)]
+        struct SendRequest<'a> {
+            raw: String,
+            #[serde(rename = "threadId", skip_serializing_if = "Option::is_none")]
+            thread_id: Option<&'a str>,
+        }
+        let url = format!("{}/gmail/v1/users/me/messages/send", self.base_url);
+        let body = SendRequest { raw, thread_id };
+        // 🦀 We don't use the returned Message resource; deserialize into a throwaway
+        //    `serde_json::Value` and drop it.
+        let _: serde_json::Value = self.post_json(&url, &body).await?;
+        Ok(())
+    }
+
     /// Move a single message to Trash (recoverable in Gmail for ~30 days).
     pub async fn trash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
