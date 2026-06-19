@@ -1,5 +1,6 @@
 import {
   Flame,
+  Pencil,
   RefreshCw,
   Sun,
   Moon,
@@ -24,6 +25,7 @@ const STREAM_ICON: Record<Stream, LucideIcon> = {
 export function Header({
   busy,
   onSync,
+  onCompose,
   status,
   account = null,
   stream = "all",
@@ -31,6 +33,7 @@ export function Header({
 }: {
   busy: boolean;
   onSync?: () => void;
+  onCompose?: () => void;
   status: string | null;
   account?: string | null;
   stream?: Stream;
@@ -67,6 +70,11 @@ export function Header({
       )}
       <span className="spacer" />
       {status && <span className="status-text">{status}</span>}
+      {onCompose && (
+        <button className="btn" onClick={onCompose}>
+          <Pencil size={15} /> <span className="nav-label">Compose</span>
+        </button>
+      )}
       {onSync && (
         <button className="btn btn-accent" onClick={onSync} disabled={busy}>
           <RefreshCw size={15} className={busy ? "spin" : undefined} />
