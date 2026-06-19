@@ -9,6 +9,7 @@ import { isStarred } from "../lib/labels";
 
 export function ReadingPane({
   msg,
+  loadImages,
   onArchive,
   onTrash,
   onToggleStar,
@@ -16,6 +17,7 @@ export function ReadingPane({
   onReply,
 }: {
   msg: MessagePreview | null;
+  loadImages: boolean;
   onArchive: (m: MessagePreview) => void;
   onTrash: (m: MessagePreview) => void;
   onToggleStar: (m: MessagePreview) => void;
@@ -36,7 +38,7 @@ export function ReadingPane({
     setLoading(true);
     setError(null);
     setBody(null);
-    fetchMessageBody(msg.id, true)
+    fetchMessageBody(msg.id, loadImages)
       .then((b) => {
         if (!cancelled) setBody(b);
       })
@@ -49,7 +51,7 @@ export function ReadingPane({
     return () => {
       cancelled = true;
     };
-  }, [msg?.id]);
+  }, [msg?.id, loadImages]);
 
   if (!msg) {
     return (
