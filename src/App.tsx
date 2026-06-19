@@ -93,7 +93,10 @@ export default function App() {
         status={status}
         account={account}
         stream={stream}
-        onSelectStream={setStream}
+        onSelectStream={(s) => {
+          setStream(s);
+          setSelectedId(null);
+        }}
       />
       {error && <div className="error-bar">{error}</div>}
       <SplitView

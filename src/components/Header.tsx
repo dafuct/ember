@@ -67,6 +67,7 @@ export function Header({
                     : "header-nav-item"
                 }
                 title={s.label}
+                aria-current={s.key === stream ? "page" : undefined}
                 onClick={() => onSelectStream?.(s.key)}
               >
                 <Icon size={15} /> <span className="nav-label">{s.label}</span>
