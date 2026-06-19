@@ -393,3 +393,25 @@ async fn get_reply_context_extracts_message_id_references_and_text() {
     assert_eq!(rc.references, "<a@x> <b@y>");
     assert_eq!(rc.quoted_text, "Original body");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_reply_context_returns_empty_references_when_absent() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/r2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "r2",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [{"name": "Message-ID", "value": "<only-id@mail>"}],
+                "body": {"data": b64url("Body text")}
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let rc = client.get_reply_context("r2").await.unwrap();
+    assert_eq!(rc.message_id, "<only-id@mail>");
+    assert_eq!(rc.references, ""); // absent header → empty string (frontend maps "" → null)
+    assert_eq!(rc.quoted_text, "Body text");
+}

@@ -60,11 +60,13 @@ pub fn build_rfc822(msg: &OutgoingMessage) -> String {
         headers.push(format!("Cc: {}", msg.cc.iter().map(|a| sanitize_header(a)).collect::<Vec<_>>().join(", ")));
     }
     headers.push(format!("Subject: {}", encode_subject(&sanitize_header(&msg.subject))));
-    // 🦀 `if let Some(x) = &opt` borrows the inner value without consuming the Option.
-    if let Some(irt) = &msg.in_reply_to {
+    // 🦀 Emit threading headers only when present AND non-empty — an empty In-Reply-To/
+    //    References is invalid and some servers reject it. `as_deref().filter(..)` turns
+    //    `Option<String>` into `Option<&str>` and drops the empty case.
+    if let Some(irt) = msg.in_reply_to.as_deref().filter(|s| !s.is_empty()) {
         headers.push(format!("In-Reply-To: {}", sanitize_header(irt)));
     }
-    if let Some(refs) = &msg.references {
+    if let Some(refs) = msg.references.as_deref().filter(|s| !s.is_empty()) {
         headers.push(format!("References: {}", sanitize_header(refs)));
     }
     headers.push("MIME-Version: 1.0".to_string());
@@ -144,6 +146,16 @@ mod tests {
         let out = build_rfc822(&m);
         assert!(out.contains("In-Reply-To: <abc@mail>\r\n"));
         assert!(out.contains("References: <abc@mail>\r\n"));
+    }
+
+    #[test]
+    fn omits_empty_threading_headers() {
+        let mut m = msg();
+        m.in_reply_to = Some(String::new());
+        m.references = Some(String::new());
+        let out = build_rfc822(&m);
+        assert!(!out.contains("In-Reply-To:"));
+        assert!(!out.contains("References:"));
     }
 
     #[test]
