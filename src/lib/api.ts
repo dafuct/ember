@@ -8,6 +8,8 @@ export interface MessagePreview {
   date: string;
   snippet: string;
   internal_date: number;
+  /** Smart-inbox stream from the backend scorer: "people" | "notifications" | "newsletters". */
+  category: string;
 }
 
 export const connectGmail = (): Promise<string> =>
