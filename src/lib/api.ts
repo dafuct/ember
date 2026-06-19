@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch } from "./mock";
 
 export type { CalendarEvent };
 
@@ -25,6 +25,11 @@ export const getConnectedAccount = (): Promise<string | null> =>
 
 export const fetchInboxPreview = (max = 20): Promise<MessagePreview[]> =>
   isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(MOCK_MESSAGES);
+
+export const searchMessages = (query: string, max = 50): Promise<MessagePreview[]> =>
+  isTauri()
+    ? invoke<MessagePreview[]>("search_messages", { query, max })
+    : Promise.resolve(mockSearch(query));
 export interface SyncSummary {
   added: number;
   removed: number;
