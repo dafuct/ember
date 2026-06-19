@@ -458,3 +458,39 @@ async fn send_message_omits_thread_id_when_none() {
     let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
     assert!(body.get("threadId").is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_message_ids_searches_all_mail_without_inbox_filter() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param("q", "from:maya"))
+        .and(query_param_is_missing("labelIds"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{ "id": "s1" }, { "id": "s2" }]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let ids = client.search_message_ids("from:maya", 50).await.unwrap();
+    assert_eq!(ids, vec!["s1".to_string(), "s2".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_inbox_message_ids_paged_still_filters_to_inbox() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param("labelIds", "INBOX"))
+        .and(query_param("q", "newer_than:30d"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{ "id": "i1" }]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let ids = client.list_inbox_message_ids_paged("newer_than:30d", 50).await.unwrap();
+    assert_eq!(ids, vec!["i1".to_string()]);
+}
