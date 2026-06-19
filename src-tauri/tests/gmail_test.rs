@@ -494,3 +494,33 @@ async fn list_inbox_message_ids_paged_still_filters_to_inbox() {
     let ids = client.list_inbox_message_ids_paged("newer_than:30d", 50).await.unwrap();
     assert_eq!(ids, vec!["i1".to_string()]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_message_ids_includes_spam_trash_flag_for_trash() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param("labelIds", "TRASH"))
+        .and(query_param("includeSpamTrash", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "messages": [{ "id": "t9" }] })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let ids = client.list_message_ids(Some("TRASH"), "", 50, true).await.unwrap();
+    assert_eq!(ids, vec!["t9".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_inbox_message_ids_paged_omits_spam_trash_flag() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param("labelIds", "INBOX"))
+        .and(query_param_is_missing("includeSpamTrash"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "messages": [{ "id": "i1" }] })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let ids = client.list_inbox_message_ids_paged("newer_than:30d", 50).await.unwrap();
+    assert_eq!(ids, vec!["i1".to_string()]);
+}

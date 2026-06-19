@@ -237,15 +237,16 @@ impl GmailClient {
         })
     }
 
-    /// Shared paging loop for `messages.list`. `label = Some("INBOX")` restricts to a label;
-    /// `None` searches across all mail. Follows `nextPageToken` up to `max_total` ids.
-    // 🦀 `Option<&str>` is a borrowed, maybe-absent string: `Some("INBOX")` or `None`. Passing a
-    //    reference (not `String`) means callers lend us the label without giving up ownership.
-    async fn list_message_ids(
+    /// Shared paging loop for `messages.list`. `label = Some("INBOX")` restricts to a label; `None`
+    /// searches all mail. `include_spam_trash` adds `&includeSpamTrash=true` — Gmail omits Trash/Spam
+    /// messages without it. Follows `nextPageToken` up to `max_total` ids.
+    // 🦀 Now `pub` so the folder command can call it directly with a label + the spam/trash flag.
+    pub async fn list_message_ids(
         &self,
         label: Option<&str>,
         query: &str,
         max_total: u32,
+        include_spam_trash: bool,
     ) -> Result<Vec<String>> {
         // 🦀 Percent-encode the query value so characters like ':' are URL-safe.
         let encoded_q: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
@@ -260,6 +261,10 @@ impl GmailClient {
             //    the inner `&str` to `l`. No label → search across all mail.
             if let Some(l) = label {
                 url.push_str(&format!("&labelIds={l}"));
+            }
+            // 🦀 Only add the flag when asked — keeps the inbox/search requests byte-identical.
+            if include_spam_trash {
+                url.push_str("&includeSpamTrash=true");
             }
             if let Some(token) = &page_token {
                 url.push_str(&format!("&pageToken={token}"));
@@ -286,13 +291,13 @@ impl GmailClient {
         query: &str,
         max_total: u32,
     ) -> Result<Vec<String>> {
-        self.list_message_ids(Some("INBOX"), query, max_total).await
+        self.list_message_ids(Some("INBOX"), query, max_total, false).await
     }
 
     /// Search across ALL mail (no label restriction) for `query`. Gmail excludes Spam/Trash by
     /// default. Follows pagination up to `max_total` ids.
     pub async fn search_message_ids(&self, query: &str, max_total: u32) -> Result<Vec<String>> {
-        self.list_message_ids(None, query, max_total).await
+        self.list_message_ids(None, query, max_total, false).await
     }
 
     /// Replay INBOX history since `start_history_id`, returning the net set of added
