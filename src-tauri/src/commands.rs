@@ -31,6 +31,7 @@ pub struct SyncSummary {
 }
 
 const PREVIEW_CONCURRENCY: usize = 8;
+const SEARCH_MAX: u32 = 50;
 const CALENDAR_CONCURRENCY: usize = 6;
 const SYNC_WINDOW_DAYS: i64 = 30;
 
@@ -362,6 +363,34 @@ pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
     client.get_reply_context(&id).await
+}
+
+/// Search all mail with a Gmail `q=` query and return hydrated, recency-sorted previews. DB-free —
+/// results are fetched live, not cached. Reuses the smart-inbox scorer to set each result's category
+/// (for the category dot), exactly as the sync path does.
+#[tauri::command]
+pub async fn search_messages(query: String, max: u32) -> Result<Vec<MessagePreview>> {
+    // 🦀 `clamp` keeps `max` within 1..=SEARCH_MAX regardless of what the frontend sends.
+    let max = max.clamp(1, SEARCH_MAX);
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let ids = client.search_message_ids(&query, max).await?;
+    let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
+    // 🦀 `for p in &mut previews` iterates by mutable reference so we can write `p.category` in place.
+    for p in &mut previews {
+        p.category = scorer::classify(&scorer::MessageFeatures {
+            label_ids: &p.label_ids,
+            from_addr: &p.from,
+            has_list_unsubscribe: p.has_list_unsubscribe,
+            has_list_id: p.has_list_id,
+        })
+        .as_str()
+        .to_string();
+    }
+    // 🦀 `get_message_previews` returns results out of order (buffer_unordered); sort newest-first.
+    //    `Reverse` wraps the key so the natural ascending sort becomes descending.
+    previews.sort_by_key(|p| std::cmp::Reverse(p.internal_date));
+    Ok(previews)
 }
 
 /// Fetch the user's events for the week window [time_min, time_max) (RFC3339 strings from the
