@@ -166,6 +166,16 @@ impl GmailClient {
                 .map(|h| h.value.clone())
                 .unwrap_or_default()
         };
+        // 🦀 Presence check: does a header with this name exist at all? Distinct from
+        //    `header()` (which returns the value or ""): for List-* we care only that
+        //    the header EXISTS, so an is_empty() check on the value would be wrong.
+        //    `.any(...)` also avoids cloning the value just to test it.
+        let has_header = |name: &str| {
+            raw.payload
+                .headers
+                .iter()
+                .any(|h| h.name.eq_ignore_ascii_case(name))
+        };
         // 🦀 Pull every header-derived value out FIRST, while the `header` closure's
         //    borrow of `raw.payload` is live. After the last call the borrow ends
         //    (non-lexical lifetimes), so we can then MOVE owned fields out of `raw`
@@ -174,8 +184,8 @@ impl GmailClient {
         let subject = header("Subject");
         let date = header("Date");
         let to_addr = header("To");
-        let has_list_unsubscribe = !header("List-Unsubscribe").is_empty();
-        let has_list_id = !header("List-Id").is_empty();
+        let has_list_unsubscribe = has_header("List-Unsubscribe");
+        let has_list_id = has_header("List-Id");
         let internal_date = raw.internal_date.parse::<i64>().unwrap_or(0);
         Ok(MessagePreview {
             id: raw.id,
