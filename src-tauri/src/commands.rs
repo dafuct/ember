@@ -393,6 +393,51 @@ pub async fn search_messages(query: String, max: u32) -> Result<Vec<MessagePrevi
     Ok(previews)
 }
 
+/// Fetch one mailbox's previews (live, DB-free). Maps the folder key to a Gmail label/query +
+/// includeSpamTrash flag, lists ids, hydrates, recency-sorts. Folder results are NOT classified
+/// (category dots are an inbox concept).
+#[tauri::command]
+pub async fn fetch_folder(folder: String, max: u32) -> Result<Vec<MessagePreview>> {
+    let max = max.clamp(1, SEARCH_MAX);
+    // 🦀 A match returning a tuple: each folder picks its (label, query, includeSpamTrash). The
+    //    annotation pins the element types so `None` is inferred as `Option<&str>`, not `Option<_>`.
+    let (label, query, include_spam_trash): (Option<&str>, &str, bool) = match folder.as_str() {
+        "sent" => (Some("SENT"), "", false),
+        "starred" => (Some("STARRED"), "", false),
+        "trash" => (Some("TRASH"), "", true),
+        "spam" => (Some("SPAM"), "", true),
+        "archive" => (None, "-in:inbox -in:sent -in:trash -in:spam", false),
+        other => return Err(AppError::Other(format!("unknown folder: {other}"))),
+    };
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let ids = client.list_message_ids(label, query, max, include_spam_trash).await?;
+    let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
+    previews.sort_by_key(|p| std::cmp::Reverse(p.internal_date));
+    Ok(previews)
+}
+
+/// Restore a trashed message (untrash). DB-free — the Trash folder isn't cached.
+#[tauri::command]
+pub async fn restore_message(id: String) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.untrash_message(&id).await
+}
+
+/// Permanently delete a message (irreversible) and drop it from the local cache if present.
+#[tauri::command]
+pub async fn delete_message_forever(id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.delete_message_forever(&id).await?;
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    Ok(())
+}
+
 /// Fetch the user's events for the week window [time_min, time_max) (RFC3339 strings from the
 /// frontend, in local time). Reads all *selected* calendars concurrently, merges, and sorts.
 /// DB-free — calendar data is fetched live, not cached.
