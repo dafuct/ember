@@ -10,7 +10,7 @@ use crate::auth::tokens::load_token;
 use crate::auth::{ensure_access_token, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
-use crate::gmail::types::MessagePreview;
+use crate::gmail::types::{MessagePreview, ReplyContext};
 use crate::gmail::GmailClient;
 use crate::html::sanitize_html;
 use crate::scorer;
@@ -320,6 +320,45 @@ pub async fn trash_message(id: String, state: tauri::State<'_, Db>) -> Result<()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     db::delete_messages(&conn, std::slice::from_ref(&id))?;
     Ok(())
+}
+
+/// Build an RFC822 message from the compose fields and send it via Gmail. DB-free —
+/// sent mail lands in Gmail's Sent folder, which Ember does not cache.
+#[tauri::command]
+pub async fn send_email(
+    to: Vec<String>,
+    cc: Vec<String>,
+    subject: String,
+    body: String,
+    in_reply_to: Option<String>,
+    references: Option<String>,
+    thread_id: Option<String>,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    // 🦀 Partial move: `access_token` moves into the client, then `email` moves into the
+    //    message — Rust allows moving distinct fields out of `stored` separately.
+    let client = GmailClient::new(stored.access_token);
+    let msg = crate::mime::OutgoingMessage {
+        from: stored.email,
+        to,
+        cc,
+        subject,
+        body,
+        in_reply_to,
+        references,
+    };
+    let raw = crate::mime::build_rfc822(&msg);
+    // 🦀 `Option<String>::as_deref()` → `Option<&str>` to match send_message's signature.
+    client.send_message(&raw, thread_id.as_deref()).await
+}
+
+/// Fetch the data a reply needs: the original's Message-ID/References (threading) and its
+/// plain-text body (quoting).
+#[tauri::command]
+pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.get_reply_context(&id).await
 }
 
 #[cfg(test)]

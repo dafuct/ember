@@ -92,6 +92,8 @@ pub fn run() {
             commands::set_message_starred,
             commands::archive_message,
             commands::trash_message,
+            commands::send_email,
+            commands::get_reply_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
