@@ -20,6 +20,14 @@ pub struct StoredMessage {
     pub snippet: String,
     pub date_header: String,
     pub internal_date: i64,
+    // 🦀 Smart-inbox signals (M6). Stored so the cache can be re-scored later without
+    //    re-fetching from Gmail. `label_ids` is the Gmail labels joined by commas.
+    pub label_ids: String,
+    pub to_addr: String,
+    pub has_list_unsubscribe: bool,
+    pub has_list_id: bool,
+    /// The classifier's verdict: "people" | "notifications" | "newsletters".
+    pub category: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +61,12 @@ pub fn init(conn: &Connection) -> Result<()> {
             subject       TEXT NOT NULL DEFAULT '',
             snippet       TEXT NOT NULL DEFAULT '',
             date_header   TEXT NOT NULL DEFAULT '',
-            internal_date INTEGER NOT NULL DEFAULT 0
+            internal_date INTEGER NOT NULL DEFAULT 0,
+            label_ids     TEXT NOT NULL DEFAULT '',
+            to_addr       TEXT NOT NULL DEFAULT '',
+            has_list_unsubscribe INTEGER NOT NULL DEFAULT 0,
+            has_list_id   INTEGER NOT NULL DEFAULT 0,
+            category      TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_messages_internal_date
             ON messages(internal_date DESC);
@@ -63,21 +76,74 @@ pub fn init(conn: &Connection) -> Result<()> {
             last_synced_at  INTEGER NOT NULL DEFAULT 0
         );",
     )?;
+
+    // 🦀 Additive migration for DBs created before the M6 smart-inbox columns. The
+    //    CREATE TABLE above only fires on a brand-new DB (IF NOT EXISTS), so existing
+    //    installs need their columns added here. We capture `needs_migration` BEFORE
+    //    adding anything: the absence of `category` is the sentinel for "old schema".
+    let needs_migration = !column_exists(conn, "messages", "category")?;
+    add_column_if_missing(conn, "messages", "label_ids", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "messages", "to_addr", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "messages", "has_list_unsubscribe", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(conn, "messages", "has_list_id", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(conn, "messages", "category", "TEXT NOT NULL DEFAULT ''")?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)",
+        [],
+    )?;
+    if needs_migration {
+        // 🦀 Old rows lack label/header data, so they can't be scored. The messages
+        //    table is a pure local cache of Gmail — wipe it and clear the history
+        //    baseline so the next sync does a full 30-day resync with full data.
+        conn.execute("DELETE FROM messages", [])?;
+        conn.execute("UPDATE sync_state SET last_history_id = NULL", [])?;
+    }
+    Ok(())
+}
+
+// 🦀 Does `table` have a column named `col`? PRAGMA statements can't take bound
+//    params, but `table` here is always an internal constant ("messages"), never
+//    user input, so formatting it in is injection-safe. `query_map` yields each
+//    column's name (index 1 of PRAGMA table_info), and `?` propagates row errors.
+fn column_exists(conn: &Connection, table: &str, col: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    while let Some(name) = rows.next() {
+        if name? == col {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+// 🦀 Idempotent `ALTER TABLE … ADD COLUMN`: SQLite has no "ADD COLUMN IF NOT
+//    EXISTS", so we guard with `column_exists`. `decl` includes the type and a
+//    DEFAULT (required when adding a NOT NULL column to a populated table).
+fn add_column_if_missing(conn: &Connection, table: &str, col: &str, decl: &str) -> Result<()> {
+    if !column_exists(conn, table, col)? {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl}"), [])?;
+    }
     Ok(())
 }
 
 // 🦀 The UPSERT statement, in one `const` so `upsert_messages` and `apply_delta`
 //    share exactly one definition instead of duplicating the SQL.
 const UPSERT_SQL: &str = "INSERT INTO messages
-        (id, thread_id, from_addr, subject, snippet, date_header, internal_date)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        (id, thread_id, from_addr, subject, snippet, date_header, internal_date,
+         label_ids, to_addr, has_list_unsubscribe, has_list_id, category)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
      ON CONFLICT(id) DO UPDATE SET
         thread_id = excluded.thread_id,
         from_addr = excluded.from_addr,
         subject = excluded.subject,
         snippet = excluded.snippet,
         date_header = excluded.date_header,
-        internal_date = excluded.internal_date";
+        internal_date = excluded.internal_date,
+        label_ids = excluded.label_ids,
+        to_addr = excluded.to_addr,
+        has_list_unsubscribe = excluded.has_list_unsubscribe,
+        has_list_id = excluded.has_list_id,
+        category = excluded.category";
 
 // 🦀 Upsert one message against a connection OR a transaction. rusqlite's `Transaction`
 //    derefs to `Connection`, so callers can pass `&tx` here and it coerces to `&Connection`.
@@ -85,7 +151,9 @@ fn upsert_one(conn: &Connection, m: &StoredMessage) -> Result<()> {
     conn.execute(
         UPSERT_SQL,
         params![
-            m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date_header, m.internal_date
+            m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date_header,
+            m.internal_date, m.label_ids, m.to_addr, m.has_list_unsubscribe,
+            m.has_list_id, m.category
         ],
     )?;
     Ok(())
@@ -155,7 +223,8 @@ pub fn recent_previews(conn: &Connection, max: u32) -> Result<Vec<StoredMessage>
     //    When a query runs in a tight loop you'd prepare once outside the loop and
     //    reuse it; here we prepare per call for simplicity since this path isn't hot.
     let mut stmt = conn.prepare(
-        "SELECT id, thread_id, from_addr, subject, snippet, date_header, internal_date
+        "SELECT id, thread_id, from_addr, subject, snippet, date_header, internal_date,
+                label_ids, to_addr, has_list_unsubscribe, has_list_id, category
          FROM messages
          ORDER BY internal_date DESC
          LIMIT ?1",
@@ -173,6 +242,12 @@ pub fn recent_previews(conn: &Connection, max: u32) -> Result<Vec<StoredMessage>
             snippet: row.get(4)?,
             date_header: row.get(5)?,
             internal_date: row.get(6)?,
+            label_ids: row.get(7)?,
+            to_addr: row.get(8)?,
+            // 🦀 rusqlite maps SQLite INTEGER 0/1 to Rust `bool` via the FromSql trait.
+            has_list_unsubscribe: row.get(9)?,
+            has_list_id: row.get(10)?,
+            category: row.get(11)?,
         })
     })?;
     let mut out = Vec::new();
@@ -231,6 +306,11 @@ mod tests {
             snippet: "snip".into(),
             date_header: "Wed, 18 Jun 2026".into(),
             internal_date,
+            label_ids: String::new(),
+            to_addr: String::new(),
+            has_list_unsubscribe: false,
+            has_list_id: false,
+            category: "people".into(),
         }
     }
 
@@ -326,5 +406,53 @@ mod tests {
         ids.sort();
         // "keep"(500) stays, "newmsg"(700) added, "archive" deleted, "old"(100) pruned.
         assert_eq!(ids, vec!["keep".to_string(), "newmsg".to_string()]);
+    }
+
+    #[test]
+    fn migration_adds_columns_wipes_cache_and_is_idempotent() {
+        // 🦀 Simulate an OLD-schema DB: hand-create the pre-M6 7-column table + a row,
+        //    plus a sync_state baseline, BEFORE init() runs.
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE messages (
+                id TEXT PRIMARY KEY, thread_id TEXT NOT NULL DEFAULT '',
+                from_addr TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL DEFAULT '',
+                snippet TEXT NOT NULL DEFAULT '', date_header TEXT NOT NULL DEFAULT '',
+                internal_date INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE sync_state (account TEXT PRIMARY KEY, last_history_id INTEGER,
+                last_synced_at INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO messages (id) VALUES ('old1');
+             INSERT INTO sync_state (account, last_history_id, last_synced_at)
+                VALUES ('primary', 42, 1);",
+        )
+        .unwrap();
+
+        init(&c).unwrap();
+
+        // New column exists; old cache wiped; history baseline cleared → next sync is full.
+        assert!(column_exists(&c, "messages", "category").unwrap());
+        assert_eq!(recent_previews(&c, 10).unwrap().len(), 0);
+        assert_eq!(
+            get_sync_state(&c, "primary").unwrap().unwrap().last_history_id,
+            None
+        );
+
+        // Idempotent: a second init() does not error and keeps the column.
+        init(&c).unwrap();
+        assert!(column_exists(&c, "messages", "category").unwrap());
+    }
+
+    #[test]
+    fn upsert_and_read_preserve_category_and_signals() {
+        let c = conn();
+        let mut m = msg("a", 1);
+        m.category = "newsletters".into();
+        m.has_list_unsubscribe = true;
+        m.label_ids = "INBOX,CATEGORY_PROMOTIONS".into();
+        upsert_messages(&c, &[m]).unwrap();
+        let rows = recent_previews(&c, 10).unwrap();
+        assert_eq!(rows[0].category, "newsletters");
+        assert!(rows[0].has_list_unsubscribe);
+        assert_eq!(rows[0].label_ids, "INBOX,CATEGORY_PROMOTIONS");
     }
 }

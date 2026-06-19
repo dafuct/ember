@@ -166,6 +166,11 @@ fn to_rows(previews: Vec<MessagePreview>) -> Vec<db::StoredMessage> {
             snippet: p.snippet,
             date_header: p.date,
             internal_date: p.internal_date,
+            label_ids: String::new(),
+            to_addr: String::new(),
+            has_list_unsubscribe: false,
+            has_list_id: false,
+            category: String::new(),
         })
         .collect()
 }
