@@ -81,3 +81,43 @@
 .header-account, .header-account .account-email { min-width: 0; }
 @media (max-width: 900px) { .nav-label { display: none; } }
 @media (max-width: 580px) { .header-account .account-email { display: none; } }
+
+/* Smart Inbox — grouped list sections */
+.msglist-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-lo, #888);
+  background: var(--bg-1, rgba(127, 127, 127, 0.06));
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.msglist-group-count {
+  opacity: 0.7;
+}
+
+/* Per-row category dot */
+.cat-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+  flex: none;
+}
+.cat-people {
+  background: #ff7a9c;
+}
+.cat-notifications {
+  background: #ffc25c;
+}
+.cat-newsletters {
+  background: #74d0bd;
+}

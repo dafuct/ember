@@ -8,6 +8,7 @@ import {
   syncInbox,
   type MessagePreview,
 } from "./lib/api";
+import type { Stream } from "./lib/streams";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
@@ -17,6 +18,7 @@ export default function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessagePreview[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [stream, setStream] = useState<Stream>("all");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,12 +87,20 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header busy={busy} onSync={handleSync} status={status} account={account} />
+      <Header
+        busy={busy}
+        onSync={handleSync}
+        status={status}
+        account={account}
+        stream={stream}
+        onSelectStream={setStream}
+      />
       {error && <div className="error-bar">{error}</div>}
       <SplitView
         left={
           <MessageList
             messages={messages}
+            stream={stream}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />
