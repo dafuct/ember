@@ -33,6 +33,9 @@ mod html;
 //    unit-testable). `pub` so integration tests / future callers can reach it.
 pub mod scorer;
 
+// 🦀 Pure RFC822 message builder for outgoing mail (no I/O, fully unit-testable).
+pub mod mime;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
