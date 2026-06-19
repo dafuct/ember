@@ -79,8 +79,10 @@ pub fn init(conn: &Connection) -> Result<()> {
 
     // 🦀 Additive migration for DBs created before the M6 smart-inbox columns. The
     //    CREATE TABLE above only fires on a brand-new DB (IF NOT EXISTS), so existing
-    //    installs need their columns added here. We capture `needs_migration` BEFORE
-    //    adding anything: the absence of `category` is the sentinel for "old schema".
+    //    installs need their columns added here. `category` is always the LAST new
+    //    column added below, so its absence is a reliable sentinel for "old schema".
+    //    Capture it BEFORE adding anything — otherwise the check is always false and
+    //    the one-time wipe would never run.
     let needs_migration = !column_exists(conn, "messages", "category")?;
     add_column_if_missing(conn, "messages", "label_ids", "TEXT NOT NULL DEFAULT ''")?;
     add_column_if_missing(conn, "messages", "to_addr", "TEXT NOT NULL DEFAULT ''")?;
@@ -95,8 +97,13 @@ pub fn init(conn: &Connection) -> Result<()> {
         // 🦀 Old rows lack label/header data, so they can't be scored. The messages
         //    table is a pure local cache of Gmail — wipe it and clear the history
         //    baseline so the next sync does a full 30-day resync with full data.
-        conn.execute("DELETE FROM messages", [])?;
-        conn.execute("UPDATE sync_state SET last_history_id = NULL", [])?;
+        // 🦀 Both run in ONE transaction (like apply_delta): otherwise a crash between
+        //    them could leave the cache emptied while last_history_id still points at a
+        //    baseline, so the next sync would skip the repairing resync and show nothing.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM messages", [])?;
+        tx.execute("UPDATE sync_state SET last_history_id = NULL", [])?;
+        tx.commit()?;
     }
     Ok(())
 }
@@ -437,9 +444,14 @@ mod tests {
             None
         );
 
-        // Idempotent: a second init() does not error and keeps the column.
+        // Idempotent: insert a fresh row, run init() AGAIN, and confirm it was NOT
+        // wiped a second time (needs_migration must be false now that category exists).
+        upsert_messages(&c, &[msg("fresh", 5)]).unwrap();
         init(&c).unwrap();
         assert!(column_exists(&c, "messages", "category").unwrap());
+        let rows = recent_previews(&c, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "fresh");
     }
 
     #[test]
