@@ -8,6 +8,7 @@ import {
   getConnectedAccount,
   getReplyContext,
   getSettings,
+  searchMessages,
   setMessageRead,
   setMessageStarred,
   syncInbox,
@@ -44,6 +45,14 @@ export default function App() {
   // maket shows immediately; the Tauri app opens on Mail.
   const [view, setView] = useState<View>(isTauri() ? "mail" : "calendar");
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
+
+  // M11 search. `inSearch` (a boolean, not array-nullability) marks search mode so both lists stay
+  // the same non-null MessagePreview[] type and their setters unify in the `setActiveList` ternary.
+  const [inSearch, setInSearch] = useState(false);
+  const [searchResults, setSearchResults] = useState<MessagePreview[]>([]);
+  const [searchSelectedId, setSearchSelectedId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     getConnectedAccount()
@@ -103,26 +112,30 @@ export default function App() {
     }
   }
 
+  // The "active list" is the search results when searching, else the inbox. All selection +
+  // action handlers operate on it, so they work identically for inbox and search.
+  const activeList = inSearch ? searchResults : messages;
+  const setActiveList = inSearch ? setSearchResults : setMessages;
+  const activeSelectedId = inSearch ? searchSelectedId : selectedId;
+  const setActiveSelectedId = inSearch ? setSearchSelectedId : setSelectedId;
+
   const selected = useMemo(
-    () => messages.find((m) => m.id === selectedId) ?? null,
-    [messages, selectedId],
+    () => activeList.find((m) => m.id === activeSelectedId) ?? null,
+    [activeList, activeSelectedId],
   );
 
-  // Pick the row to select after the current one is removed (archive/trash):
-  // the next visible row, else the previous, else nothing. Uses the active stream's
-  // ordering so selection lands on something the user can actually see.
+  // Pick the row to select after the current one is removed (archive/trash): next visible, else
+  // previous, else nothing. Inbox uses the stream ordering; search results are already a flat list.
   function nextSelectedId(removedId: string): string | null {
-    const visible = orderedForStream(messages, stream);
+    const visible = inSearch ? activeList : orderedForStream(messages, stream);
     const idx = visible.findIndex((m) => m.id === removedId);
-    if (idx === -1) return selectedId;
+    if (idx === -1) return activeSelectedId;
     const next = visible[idx + 1] ?? visible[idx - 1] ?? null;
     return next ? next.id : null;
   }
 
-  // Roll back to `snapshot` and surface the error if the backend call rejects.
-  // Captures explicit snapshots (not functional updates) — fine for single-user
-  // clicks; rapid concurrent actions may roll back to a slightly stale list.
-  async function withMessagesRollback(
+  // Roll back to `snapshot` on the ACTIVE list and surface the error if the backend call rejects.
+  async function withActiveRollback(
     snapshot: MessagePreview[],
     call: () => Promise<void>,
   ) {
@@ -130,37 +143,37 @@ export default function App() {
     try {
       await call();
     } catch (e) {
-      setMessages(snapshot);
+      setActiveList(snapshot);
       setError(String(e));
     }
   }
 
   function toggleRead(m: MessagePreview, read: boolean) {
-    const snapshot = messages;
-    setMessages(
+    const snapshot = activeList;
+    setActiveList(
       snapshot.map((x) => (x.id === m.id ? withLabel(x, UNREAD, !read) : x)),
     );
-    void withMessagesRollback(snapshot, () => setMessageRead(m.id, read));
+    void withActiveRollback(snapshot, () => setMessageRead(m.id, read));
   }
 
   function toggleStar(m: MessagePreview) {
     const starred = !isStarred(m);
-    const snapshot = messages;
-    setMessages(
+    const snapshot = activeList;
+    setActiveList(
       snapshot.map((x) => (x.id === m.id ? withLabel(x, STARRED, starred) : x)),
     );
-    void withMessagesRollback(snapshot, () => setMessageStarred(m.id, starred));
+    void withActiveRollback(snapshot, () => setMessageStarred(m.id, starred));
   }
 
   function removeWithAction(m: MessagePreview, call: () => Promise<void>) {
-    const msgsSnap = messages;
-    const selSnap = selectedId;
-    setMessages(msgsSnap.filter((x) => x.id !== m.id));
-    if (selectedId === m.id) setSelectedId(nextSelectedId(m.id));
+    const listSnap = activeList;
+    const selSnap = activeSelectedId;
+    setActiveList(listSnap.filter((x) => x.id !== m.id));
+    if (activeSelectedId === m.id) setActiveSelectedId(nextSelectedId(m.id));
     setError(null);
     call().catch((e) => {
-      setMessages(msgsSnap);
-      setSelectedId(selSnap);
+      setActiveList(listSnap);
+      setActiveSelectedId(selSnap);
       setError(String(e));
     });
   }
@@ -205,9 +218,35 @@ export default function App() {
 
   // Selecting a message opens it and (if unread) marks it read — like every mail client.
   function handleSelect(id: string) {
-    setSelectedId(id);
-    const m = messages.find((x) => x.id === id);
+    setActiveSelectedId(id);
+    const m = activeList.find((x) => x.id === id);
     if (m && isUnread(m)) toggleRead(m, true);
+  }
+
+  async function handleSearch(q: string) {
+    const query = q.trim();
+    if (!query) return;
+    setInSearch(true);
+    setSearchQuery(query);
+    setSearchSelectedId(null);
+    setSearching(true);
+    setError(null);
+    try {
+      setSearchResults(await searchMessages(query, 50));
+    } catch (e) {
+      setSearchResults([]);
+      setError(String(e));
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleClearSearch() {
+    setInSearch(false);
+    setSearchResults([]);
+    setSearchSelectedId(null);
+    setSearchQuery("");
+    setError(null);
   }
 
   if (!account) {
@@ -256,6 +295,10 @@ export default function App() {
           onToday: () => setWeekStart(startOfWeek(new Date())),
           onNext: () => setWeekStart((w) => addWeeks(w, 1)),
         }}
+        onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
+        inSearch={inSearch}
+        searching={searching}
       />
       {error && <div className="error-bar">{error}</div>}
       {view === "calendar" ? (
@@ -264,12 +307,21 @@ export default function App() {
         <SplitView
           left={
             <MessageList
-              messages={messages}
+              messages={activeList}
               stream={stream}
-              selectedId={selectedId}
+              selectedId={activeSelectedId}
               onSelect={handleSelect}
               onArchive={handleArchive}
               onStar={toggleStar}
+              flat={inSearch}
+              title={inSearch ? "Results" : undefined}
+              emptyText={
+                inSearch
+                  ? searching
+                    ? "Searching…"
+                    : `No results for "${searchQuery}".`
+                  : undefined
+              }
             />
           }
           right={

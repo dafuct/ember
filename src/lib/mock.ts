@@ -51,3 +51,15 @@ export function mockCalendarWeek(timeMin: string, _timeMax: string): CalendarEve
     { id: "e11", calendar_id: "primary", title: "Q3 planning", start: ymdAt(2), end: ymdAt(4), all_day: true, location: null, color: AMBER },
   ];
 }
+
+/** Browser-maket search: case-insensitive substring match over the mock messages. */
+export function mockSearch(query: string): MessagePreview[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return MOCK_MESSAGES.filter(
+    (m) =>
+      m.from.toLowerCase().includes(q) ||
+      m.subject.toLowerCase().includes(q) ||
+      m.snippet.toLowerCase().includes(q),
+  );
+}

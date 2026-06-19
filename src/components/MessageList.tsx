@@ -14,6 +14,9 @@ export function MessageList({
   onSelect,
   onArchive,
   onStar,
+  flat = false,
+  title,
+  emptyText,
 }: {
   messages: MessagePreview[];
   stream: Stream;
@@ -21,26 +24,34 @@ export function MessageList({
   onSelect: (id: string) => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
+  /** When true, render `messages` as a flat list (no stream filter/grouping) — used for search. */
+  flat?: boolean;
+  /** Header title override (used in flat/search mode). */
+  title?: string;
+  /** Empty-state text override (used in flat/search mode). */
+  emptyText?: string;
 }) {
-  const visible = filterByStream(messages, stream);
-  // In the "All" view we render category-grouped sections; otherwise a flat list.
-  const groups = stream === "all" ? groupByStream(visible) : null;
-  const title = STREAMS.find((s) => s.key === stream)?.label ?? "Inbox";
-  // Count what's actually rendered so the header never disagrees with the rows:
-  // the grouped total in "All", the filtered length otherwise.
+  // Flat mode (search): render the given messages as-is. Stream mode (inbox): filter, and
+  // group by category only in the "All" view.
+  const visible = flat ? messages : filterByStream(messages, stream);
+  const groups = !flat && stream === "all" ? groupByStream(visible) : null;
+  const headerTitle = flat
+    ? title ?? "Results"
+    : STREAMS.find((s) => s.key === stream)?.label ?? "Inbox";
   const count = groups
     ? groups.reduce((n, g) => n + g.messages.length, 0)
     : visible.length;
+  const empty = emptyText ?? "No messages here — hit Sync.";
 
   return (
     <section className="msglist">
       <div className="msglist-header">
-        <span className="msglist-title">{title}</span>
+        <span className="msglist-title">{headerTitle}</span>
         <span className="msglist-count">{count} messages</span>
       </div>
       <div className="msglist-scroll">
         {count === 0 ? (
-          <div className="empty">No messages here — hit Sync.</div>
+          <div className="empty">{empty}</div>
         ) : groups ? (
           groups.map((group) => (
             <div key={group.category} className="msglist-group">
