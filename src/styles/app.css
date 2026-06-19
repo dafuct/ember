@@ -219,3 +219,13 @@
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; color: var(--text-muted); padding: 40px;
 }
+
+/* ===== M10 Calendar — header toggle + week nav ===== */
+.view-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+.view-tab {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border: 0;
+  background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13px;
+}
+.view-tab.active { background: var(--accent); color: var(--accent-contrast); }
+.week-nav { display: inline-flex; align-items: center; gap: 8px; }
+.week-range { font-weight: 600; color: var(--text); margin-left: 4px; }
