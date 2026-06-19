@@ -45,7 +45,7 @@ fn is_automated_sender(from: &str) -> bool {
     //    a sane fallback if the address is malformed (no '@').
     let before_at = lower.split('@').next().unwrap_or(lower.as_str());
     let local = before_at
-        .rsplit(|c: char| c == '<' || c == ' ')
+        .rsplit(['<', ' '])
         .next()
         .unwrap_or(before_at);
     const MARKERS: [&str; 7] = [

@@ -114,8 +114,8 @@ pub fn init(conn: &Connection) -> Result<()> {
 //    column's name (index 1 of PRAGMA table_info), and `?` propagates row errors.
 fn column_exists(conn: &Connection, table: &str, col: &str) -> Result<bool> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let mut rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    while let Some(name) = rows.next() {
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows {
         if name? == col {
             return Ok(true);
         }
