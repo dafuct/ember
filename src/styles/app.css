@@ -44,9 +44,13 @@
 .msglist-scroll { flex: 1; overflow-y: auto; min-height: 0; }
 .empty { padding: 32px 16px; text-align: center; color: var(--text-faint); font-size: 13px; }
 
-.msg-item { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 10px 14px; border: none; border-bottom: 1px solid var(--border); border-left: 2px solid transparent; background: transparent; text-align: left; cursor: pointer; color: var(--text); }
+.msg-item { display: flex; align-items: stretch; width: 100%; border-bottom: 1px solid var(--border); border-left: 2px solid transparent; cursor: pointer; color: var(--text); }
 .msg-item:hover:not(.selected) { background: var(--surface-2); }
 .msg-item.selected { background: var(--accent-weak); border-left-color: var(--accent); }
+.msg-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; border: none; background: transparent; text-align: left; cursor: pointer; color: inherit; }
+/* Unread: bolder sender + subject */
+.msg-item.unread .msg-sender { font-weight: 700; }
+.msg-item.unread .msg-subject { font-weight: 600; }
 .msg-top { display: flex; align-items: center; gap: 8px; }
 .msg-sender { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-time { flex-shrink: 0; font-size: 11px; color: var(--text-faint); }
@@ -121,3 +125,17 @@
 .cat-newsletters {
   background: #74d0bd;
 }
+
+/* M7 actions — list-row hover actions */
+.msg-actions { display: flex; align-items: center; gap: 2px; padding: 0 8px; flex-shrink: 0; }
+.row-act { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; }
+.msg-item:hover .row-act, .msg-item:focus-within .row-act { opacity: 1; }
+.row-act:hover { background: var(--surface); color: var(--text); }
+/* A starred message keeps its star lit even when the row isn't hovered. */
+.row-act.starred { opacity: 1; color: var(--accent); }
+
+/* M7 actions — active (e.g. starred) reading-pane toolbar button */
+.icon-btn.active { color: var(--accent); border-color: var(--accent); }
+
+/* M7 actions — keyboard focus ring for action buttons */
+.row-act:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

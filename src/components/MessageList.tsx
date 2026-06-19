@@ -12,11 +12,15 @@ export function MessageList({
   stream,
   selectedId,
   onSelect,
+  onArchive,
+  onStar,
 }: {
   messages: MessagePreview[];
   stream: Stream;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onArchive: (msg: MessagePreview) => void;
+  onStar: (msg: MessagePreview) => void;
 }) {
   const visible = filterByStream(messages, stream);
   // In the "All" view we render category-grouped sections; otherwise a flat list.
@@ -52,6 +56,8 @@ export function MessageList({
                   msg={m}
                   selected={m.id === selectedId}
                   onSelect={onSelect}
+                  onArchive={onArchive}
+                  onStar={onStar}
                 />
               ))}
             </div>
@@ -63,6 +69,8 @@ export function MessageList({
               msg={m}
               selected={m.id === selectedId}
               onSelect={onSelect}
+              onArchive={onArchive}
+              onStar={onStar}
             />
           ))
         )}
