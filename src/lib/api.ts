@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder } from "./mock";
 
 export type { CalendarEvent };
 
@@ -16,6 +16,8 @@ export interface MessagePreview {
   category: string;
   /** Raw Gmail label ids (e.g. "INBOX", "UNREAD", "STARRED"). Drives read/star state. */
   label_ids: string[];
+  /** Recipient (To header). Shown instead of `from` in the Sent folder. */
+  to_addr: string;
 }
 
 export const connectGmail = (): Promise<string> =>
@@ -30,6 +32,14 @@ export const searchMessages = (query: string, max = 50): Promise<MessagePreview[
   isTauri()
     ? invoke<MessagePreview[]>("search_messages", { query, max })
     : Promise.resolve(mockSearch(query));
+export const fetchFolder = (folder: string, max = 50): Promise<MessagePreview[]> =>
+  isTauri()
+    ? invoke<MessagePreview[]>("fetch_folder", { folder, max })
+    : Promise.resolve(mockFolder(folder));
+export const restoreMessage = (id: string): Promise<void> =>
+  invoke<void>("restore_message", { id });
+export const deleteMessageForever = (id: string): Promise<void> =>
+  invoke<void>("delete_message_forever", { id });
 export interface SyncSummary {
   added: number;
   removed: number;
