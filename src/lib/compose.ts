@@ -36,3 +36,11 @@ export function quoteBody(
     .join("\n");
   return `\n\nOn ${dateLabel}, ${fromLabel} wrote:\n${quoted}\n`;
 }
+
+// Append a plain-text signature block to a composed body. Empty/whitespace signature
+// → body unchanged. The "-- " line is the standard signature delimiter.
+export function appendSignature(body: string, signature: string): string {
+  const sig = signature.trim();
+  if (!sig) return body;
+  return `${body}\n\n-- \n${sig}`;
+}

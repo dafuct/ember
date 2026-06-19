@@ -78,3 +78,14 @@ export const sendEmail = (p: SendEmailPayload): Promise<void> =>
 
 export const getReplyContext = (id: string): Promise<ReplyContext> =>
   invoke<ReplyContext>("get_reply_context", { id });
+
+export interface Settings {
+  signature: string;
+  remote_images: boolean;
+}
+
+export const getSettings = (): Promise<Settings> =>
+  invoke<Settings>("get_settings");
+export const setSettings = (settings: Settings): Promise<void> =>
+  invoke<void>("set_settings", { settings });
+export const disconnect = (): Promise<void> => invoke<void>("disconnect");
