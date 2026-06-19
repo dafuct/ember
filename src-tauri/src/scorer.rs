@@ -34,15 +34,26 @@ pub struct MessageFeatures<'a> {
     pub has_list_id: bool,
 }
 
-// 🦀 Heuristic: does the sender address look like an automated/no-reply mailbox?
-//    `to_ascii_lowercase` copies once so matching is case-insensitive. `.contains`
-//    is a substring check. "notification" also matches "notifications@".
+// 🦀 Does the sender look like an automated/no-reply mailbox? We match on the
+//    address LOCAL-PART (the text before '@'), not the whole header, so a real
+//    person at e.g. "person@notification-labs.io" is NOT misread as automated.
 fn is_automated_sender(from: &str) -> bool {
-    let f = from.to_ascii_lowercase();
-    const MARKERS: [&str; 6] = [
-        "no-reply", "noreply", "no_reply", "donotreply", "do-not-reply", "mailer-daemon",
+    let lower = from.to_ascii_lowercase();
+    // 🦀 `split('@').next()` takes everything before the first '@'. A From header
+    //    can be "Name <local@domain>", so we then keep only the part after the
+    //    last '<' or space — that leaves just the mailbox name. `unwrap_or` gives
+    //    a sane fallback if the address is malformed (no '@').
+    let before_at = lower.split('@').next().unwrap_or(lower.as_str());
+    let local = before_at
+        .rsplit(|c: char| c == '<' || c == ' ')
+        .next()
+        .unwrap_or(before_at);
+    const MARKERS: [&str; 7] = [
+        "no-reply", "noreply", "no_reply", "donotreply", "do-not-reply",
+        "mailer-daemon", "notification",
     ];
-    MARKERS.iter().any(|m| f.contains(m)) || f.contains("notification")
+    // 🦀 `.any(|m| ...)` returns true if ANY marker is a substring of the local-part.
+    MARKERS.iter().any(|m| local.contains(m))
 }
 
 /// Classify a message into exactly one stream. Ordered precedence: the first rule
@@ -85,6 +96,8 @@ mod tests {
             (vec!["CATEGORY_SOCIAL"], "social@app.com", false, false, Category::Notifications),
             (vec![], "no-reply@service.com", false, false, Category::Notifications), // automated
             (vec![], "notifications@github.com", false, false, Category::Notifications),
+            // domain contains "notification" but the local-part doesn't → People (regression)
+            (vec![], "person@notification-labs.io", false, false, Category::People),
             (vec![], "team@startup.com", false, true, Category::Notifications), // List-Id
             (vec!["CATEGORY_PERSONAL"], "maya@studio.co", false, false, Category::People),
             (vec![], "maya@studio.co", false, false, Category::People), // no labels → People
