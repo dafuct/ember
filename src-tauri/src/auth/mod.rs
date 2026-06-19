@@ -27,6 +27,10 @@ use crate::gmail::GmailClient;
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const SCOPE_GMAIL_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
+// 🦀 A second OAuth scope. Adding it here means the next `connect()` requests BOTH scopes;
+//    because connect() always sends `prompt=consent`, Google re-prompts and grants the new
+//    scope — no migration needed for a user who reconnects.
+const SCOPE_CALENDAR_READONLY: &str = "https://www.googleapis.com/auth/calendar.readonly";
 pub const PRIMARY_ACCOUNT: &str = "primary";
 
 // 🦀 `SystemTime::now()` returns the current wall-clock time.
@@ -106,6 +110,7 @@ impl GoogleOAuth {
         let (auth_url, csrf) = client
             .authorize_url(CsrfToken::new_random)
             .add_scope(Scope::new(SCOPE_GMAIL_MODIFY.into()))
+            .add_scope(Scope::new(SCOPE_CALENDAR_READONLY.into()))
             .add_extra_param("access_type", "offline")
             .add_extra_param("prompt", "consent")
             .set_pkce_challenge(pkce_challenge)

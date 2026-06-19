@@ -1,4 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { CalendarEvent } from "./calendar";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek } from "./mock";
+
+export type { CalendarEvent };
 
 export interface MessagePreview {
   id: string;
@@ -17,16 +21,17 @@ export interface MessagePreview {
 export const connectGmail = (): Promise<string> =>
   invoke<string>("connect_gmail");
 export const getConnectedAccount = (): Promise<string | null> =>
-  invoke<string | null>("get_connected_account");
+  isTauri() ? invoke<string | null>("get_connected_account") : Promise.resolve(MOCK_ACCOUNT);
+
 export const fetchInboxPreview = (max = 20): Promise<MessagePreview[]> =>
-  invoke<MessagePreview[]>("fetch_inbox_preview", { max });
+  isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(MOCK_MESSAGES);
 export interface SyncSummary {
   added: number;
   removed: number;
 }
 
 export const syncInbox = (): Promise<SyncSummary> =>
-  invoke<SyncSummary>("sync_inbox");
+  isTauri() ? invoke<SyncSummary>("sync_inbox") : Promise.resolve(MOCK_SYNC);
 
 export interface MessageBody {
   html: string;
@@ -89,3 +94,8 @@ export const getSettings = (): Promise<Settings> =>
 export const setSettings = (settings: Settings): Promise<void> =>
   invoke<void>("set_settings", { settings });
 export const disconnect = (): Promise<void> => invoke<void>("disconnect");
+
+export const fetchCalendarWeek = (timeMin: string, timeMax: string): Promise<CalendarEvent[]> =>
+  isTauri()
+    ? invoke<CalendarEvent[]>("fetch_calendar_week", { timeMin, timeMax })
+    : Promise.resolve(mockCalendarWeek(timeMin, timeMax));

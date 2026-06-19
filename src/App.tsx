@@ -18,6 +18,10 @@ import {
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
 import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
+import { isTauri } from "@tauri-apps/api/core";
+import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
+import { CalendarView } from "./components/CalendarView";
+import type { View } from "./components/Header";
 import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { Header } from "./components/Header";
@@ -36,6 +40,10 @@ export default function App() {
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // M10: top-level Mail/Calendar view. Default to Calendar in browser mock mode so the
+  // maket shows immediately; the Tauri app opens on Mail.
+  const [view, setView] = useState<View>(isTauri() ? "mail" : "calendar");
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
 
   useEffect(() => {
     getConnectedAccount()
@@ -240,31 +248,43 @@ export default function App() {
         }}
         onCompose={openNewCompose}
         onSettings={() => setSettingsOpen(true)}
+        view={view}
+        onSelectView={setView}
+        calendar={{
+          rangeLabel: weekRangeLabel(weekStart),
+          onPrev: () => setWeekStart((w) => addWeeks(w, -1)),
+          onToday: () => setWeekStart(startOfWeek(new Date())),
+          onNext: () => setWeekStart((w) => addWeeks(w, 1)),
+        }}
       />
       {error && <div className="error-bar">{error}</div>}
-      <SplitView
-        left={
-          <MessageList
-            messages={messages}
-            stream={stream}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            onArchive={handleArchive}
-            onStar={toggleStar}
-          />
-        }
-        right={
-          <ReadingPane
-            msg={selected}
-            loadImages={settings.remote_images}
-            onArchive={handleArchive}
-            onTrash={handleTrash}
-            onToggleStar={toggleStar}
-            onMarkUnread={(m) => toggleRead(m, false)}
-            onReply={handleReply}
-          />
-        }
-      />
+      {view === "calendar" ? (
+        <CalendarView weekStart={weekStart} />
+      ) : (
+        <SplitView
+          left={
+            <MessageList
+              messages={messages}
+              stream={stream}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              onArchive={handleArchive}
+              onStar={toggleStar}
+            />
+          }
+          right={
+            <ReadingPane
+              msg={selected}
+              loadImages={settings.remote_images}
+              onArchive={handleArchive}
+              onTrash={handleTrash}
+              onToggleStar={toggleStar}
+              onMarkUnread={(m) => toggleRead(m, false)}
+              onReply={handleReply}
+            />
+          }
+        />
+      )}
       {compose && (
         <ComposeModal
           initial={compose}

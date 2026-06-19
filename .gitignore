@@ -43,3 +43,4 @@ CLAUDE.md
 *.njsproj
 *.sln
 *.sw?
+.superpowers/

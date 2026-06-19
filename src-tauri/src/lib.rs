@@ -15,6 +15,10 @@ pub mod auth;
 //    reach it as `ember_lib::gmail::GmailClient` — same as any external user.
 pub mod gmail;
 
+// 🦀 The read-only Google Calendar client, mirroring `gmail`. `pub` so integration
+//    tests in `tests/calendar_test.rs` (a separate crate) can reach `ember_lib::calendar`.
+pub mod calendar;
+
 // 🦀 `pub mod db;` declares the local SQLite store module. Rust resolves this
 //    to `src/db/mod.rs` (the `mod.rs` convention for a module that is itself a
 //    directory) or `src/db.rs` (single-file form) — whichever exists.
@@ -94,6 +98,7 @@ pub fn run() {
             commands::trash_message,
             commands::send_email,
             commands::get_reply_context,
+            commands::fetch_calendar_week,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
