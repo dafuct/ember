@@ -98,6 +98,7 @@ pub fn run() {
             commands::trash_message,
             commands::send_email,
             commands::get_reply_context,
+            commands::fetch_calendar_week,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,

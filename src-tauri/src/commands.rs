@@ -11,6 +11,8 @@ use crate::auth::{ensure_access_token, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::gmail::types::{MessagePreview, ReplyContext};
+use crate::calendar::types::CalendarEvent;
+use crate::calendar::{map_event, CalendarClient};
 use crate::gmail::GmailClient;
 use crate::html::sanitize_html;
 use crate::scorer;
@@ -29,6 +31,7 @@ pub struct SyncSummary {
 }
 
 const PREVIEW_CONCURRENCY: usize = 8;
+const CALENDAR_CONCURRENCY: usize = 6;
 const SYNC_WINDOW_DAYS: i64 = 30;
 
 /// Run the interactive Google sign-in. Returns the connected email address.
@@ -359,6 +362,59 @@ pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
     client.get_reply_context(&id).await
+}
+
+/// Fetch the user's events for the week window [time_min, time_max) (RFC3339 strings from the
+/// frontend, in local time). Reads all *selected* calendars concurrently, merges, and sorts.
+/// DB-free — calendar data is fetched live, not cached.
+#[tauri::command]
+pub async fn fetch_calendar_week(time_min: String, time_max: String) -> Result<Vec<CalendarEvent>> {
+    let stored = ensure_access_token().await?;
+    let client = CalendarClient::new(stored.access_token);
+
+    // 🦀 Google omits `selected` on the primary calendar; treat "absent" as shown. We only
+    //    drop calendars the user has explicitly hidden (`selected == Some(false)`).
+    let shown: Vec<_> = client
+        .list_calendars()
+        .await?
+        .into_iter()
+        .filter(|c| c.selected != Some(false))
+        .collect();
+
+    // 🦀 Borrow the client + window once; `async move` then copies these references (which are
+    //    Copy) into each per-calendar future, so all futures can run concurrently.
+    let client_ref = &client;
+    let tmin: &str = &time_min;
+    let tmax: &str = &time_max;
+
+    use futures::stream::StreamExt;
+    let results = futures::stream::iter(shown)
+        .map(|cal| async move {
+            let color = cal.background_color.clone();
+            let events = client_ref.list_events(&cal.id, tmin, tmax).await?;
+            let mapped: Vec<CalendarEvent> = events
+                .into_iter()
+                .filter_map(|e| map_event(e, &cal.id, color.as_deref()))
+                .collect();
+            Ok::<Vec<CalendarEvent>, AppError>(mapped)
+        })
+        .buffer_unordered(CALENDAR_CONCURRENCY)
+        .collect::<Vec<Result<Vec<CalendarEvent>>>>()
+        .await;
+
+    let mut all = Vec::new();
+    for r in results {
+        match r {
+            Ok(evts) => all.extend(evts),
+            // 🦀 An auth/scope error must surface so the UI can prompt reconnect; other
+            //    per-calendar failures are skipped (one broken calendar ≠ whole-week failure).
+            Err(AppError::Auth(m)) => return Err(AppError::Auth(m)),
+            Err(_) => {}
+        }
+    }
+    // Best-effort ordering; the frontend re-sorts/positions by parsed local time.
+    all.sort_by(|a, b| a.start.cmp(&b.start));
+    Ok(all)
 }
 
 /// Read persisted app settings (signature, remote-images), with defaults for first run.
