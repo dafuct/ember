@@ -34,11 +34,14 @@ async fn list_calendars_parses_and_paginates() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn missing_scope_maps_to_reconnect_error() {
+async fn insufficient_scope_403_maps_to_reconnect_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/calendar/v3/users/me/calendarList"))
-        .respond_with(ResponseTemplate::new(403))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": { "code": 403, "message": "Request had insufficient authentication scopes.",
+                       "status": "PERMISSION_DENIED" }
+        })))
         .mount(&server)
         .await;
 
@@ -46,6 +49,27 @@ async fn missing_scope_maps_to_reconnect_error() {
     let err = client.list_calendars().await.unwrap_err();
     // 🦀 We don't name the (private) AppError type — Display gives us the message string.
     assert!(err.to_string().to_lowercase().contains("reconnect"), "got: {err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn api_disabled_403_surfaces_google_message_not_reconnect() {
+    let server = MockServer::start().await;
+    // The Calendar API not being enabled for the project returns a 403 that reconnecting can't
+    // fix — its actual message must surface (with the enable URL), NOT a "reconnect" prompt.
+    Mock::given(method("GET"))
+        .and(path("/calendar/v3/users/me/calendarList"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": { "code": 403,
+                "message": "Google Calendar API has not been used in project 12345 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=12345 then retry.",
+                "status": "PERMISSION_DENIED" }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let err = client.list_calendars().await.unwrap_err().to_string().to_lowercase();
+    assert!(err.contains("has not been used") || err.contains("disabled"), "got: {err}");
+    assert!(!err.contains("reconnect"), "API-disabled must not be a reconnect error: {err}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

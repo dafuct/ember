@@ -25,18 +25,33 @@ impl CalendarClient {
         Self { base_url, access_token, http: reqwest::Client::new() }
     }
 
-    // 🦀 GET + bearer auth + JSON parse. We peek at the status BEFORE `error_for_status()` so a
-    //    401/403 (no calendar scope) becomes a friendly, actionable AppError::Auth instead of a
-    //    generic "http error: 403" — the same "inspect status first" trick GmailClient uses for 404.
+    // 🦀 GET + bearer auth + JSON parse. 401/403 need care: Google returns the SAME status for
+    //    two very different problems — (a) the token lacks the calendar scope → reconnecting fixes
+    //    it; (b) the Calendar API isn't enabled for the Cloud project (or another permission issue)
+    //    → reconnecting can NEVER fix it. We read the JSON error body and tell them apart, so we
+    //    don't trap the user in an endless "reconnect" loop and so the real cause is visible.
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
         let resp = self.http.get(url).bearer_auth(&self.access_token).send().await?;
-        if matches!(
-            resp.status(),
-            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
-        ) {
-            return Err(AppError::Auth(
-                "Calendar access not granted — reconnect Google to enable it.".into(),
-            ));
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            // 🦀 `resp.text()` consumes the response body; we only reach here on an error, so
+            //    there's no successful payload to preserve.
+            let body = resp.text().await.unwrap_or_default();
+            let msg = google_error_message(&body);
+            let lower = msg.to_lowercase();
+            // A bare 401, or a 403 whose message is about scopes/credentials → reconnect helps.
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || lower.contains("scope")
+                || lower.contains("insufficient")
+                || lower.contains("credential")
+            {
+                return Err(AppError::Auth(
+                    "Calendar access not granted — reconnect Google to enable it.".into(),
+                ));
+            }
+            // Any other 403 (e.g. "Google Calendar API has not been used in project … or it is
+            // disabled. Enable it by visiting … then retry.") → surface Google's own message.
+            return Err(AppError::Other(format!("Google Calendar API error: {msg}")));
         }
         let resp = resp.error_for_status()?;
         Ok(resp.json::<T>().await?)
@@ -122,4 +137,27 @@ pub fn map_event(ev: GEvent, calendar_id: &str, color: Option<&str>) -> Option<C
         location: ev.location,
         color: color.map(|c| c.to_string()),
     })
+}
+
+// 🦀 Pull the human-readable message out of Google's error JSON ({"error":{"message":"…"}}),
+//    falling back to the raw (truncated) body when it doesn't parse. `serde_json::Value` is a
+//    dynamically-typed JSON tree we can index without declaring a struct.
+fn google_error_message(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .map(String::from)
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let trimmed = body.trim();
+            if trimmed.is_empty() {
+                "permission denied".to_string()
+            } else {
+                trimmed.chars().take(300).collect()
+            }
+        })
 }
