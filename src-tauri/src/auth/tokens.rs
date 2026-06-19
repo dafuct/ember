@@ -88,6 +88,20 @@ pub fn load_token(account: &str) -> Result<Option<StoredToken>> {
     }
 }
 
+/// Remove the stored token for `account` from the Keychain. A missing entry is treated
+/// as success (idempotent), mirroring `load_token`'s NoEntry handling.
+pub fn delete_token(account: &str) -> Result<()> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, account)?;
+    // 🦀 `delete_credential()` (keyring 3) removes the secret. We `match` so a NoEntry
+    //    (nothing stored) is `Ok(())` — disconnect should be idempotent. Any other error
+    //    converts to AppError via `e.into()`.
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 // 🦀 `#[cfg(test)]` is a *conditional compilation* attribute.  The `mod tests`
 //    block and everything inside it is compiled ONLY when running `cargo test`.
 //    In a normal `cargo build`, this entire block is stripped out, so test helpers

@@ -7,16 +7,19 @@ import {
   fetchInboxPreview,
   getConnectedAccount,
   getReplyContext,
+  getSettings,
   setMessageRead,
   setMessageStarred,
   syncInbox,
   trashMessage,
   type MessagePreview,
+  type Settings,
 } from "./lib/api";
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
-import { parseAddress, replySubject, quoteBody } from "./lib/compose";
+import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
 import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
+import { SettingsModal } from "./components/SettingsModal";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
@@ -31,6 +34,8 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
+  const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     getConnectedAccount()
@@ -39,18 +44,40 @@ export default function App() {
     fetchInboxPreview(50)
       .then(setMessages)
       .catch(() => {});
+    getSettings()
+      .then(setSettings)
+      .catch(() => {}); // keep defaults on error
   }, []);
 
   async function handleConnect() {
     setBusy(true);
     setError(null);
+    setStatus(null);
     try {
-      setAccount(await connectGmail());
+      const acct = await connectGmail();
+      setAccount(acct);
+      // Onboarding: pull the inbox right away so the user doesn't land on an empty list.
+      setStatus("Syncing your inbox…");
+      const s = await syncInbox();
+      setStatus(`${s.added} new, ${s.removed} removed`);
+      setMessages(await fetchInboxPreview(50));
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleDisconnected() {
+    // Called by SettingsModal after the disconnect command succeeds.
+    setSettingsOpen(false);
+    setAccount(null);
+    setMessages([]);
+    setSelectedId(null);
+    setStatus(null);
+    setStream("all");
+    setCompose(null);
+    setError(null);
   }
 
   async function handleSync() {
@@ -140,7 +167,7 @@ export default function App() {
       to: "",
       cc: "",
       subject: "",
-      body: "",
+      body: appendSignature("", settings.signature),
       inReplyTo: null,
       references: null,
       threadId: null,
@@ -158,7 +185,7 @@ export default function App() {
         to: parseAddress(m.from),
         cc: "",
         subject: replySubject(m.subject),
-        body: quoteBody(m.from, dateLabel, ctx.quoted_text),
+        body: appendSignature(quoteBody(m.from, dateLabel, ctx.quoted_text), settings.signature),
         inReplyTo: ctx.message_id || null,
         references: ctx.references || ctx.message_id || null,
         threadId: m.thread_id || null,
@@ -182,7 +209,10 @@ export default function App() {
         <div className="connect-screen">
           <Flame size={40} className="brand-icon" />
           <h1 className="connect-title">Welcome to Ember</h1>
-          <p className="connect-sub">Connect your Gmail to get started.</p>
+          <p className="connect-sub">
+            A local-first Gmail client — your mail stays on your Mac. Connect to get
+            started; your inbox syncs automatically.
+          </p>
           <button
             className="btn btn-accent"
             onClick={handleConnect}
@@ -209,6 +239,7 @@ export default function App() {
           setSelectedId(null);
         }}
         onCompose={openNewCompose}
+        onSettings={() => setSettingsOpen(true)}
       />
       {error && <div className="error-bar">{error}</div>}
       <SplitView
@@ -225,6 +256,7 @@ export default function App() {
         right={
           <ReadingPane
             msg={selected}
+            loadImages={settings.remote_images}
             onArchive={handleArchive}
             onTrash={handleTrash}
             onToggleStar={toggleStar}
@@ -241,6 +273,18 @@ export default function App() {
             setCompose(null);
             setStatus("Sent ✓");
           }}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsModal
+          account={account}
+          initial={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            setSettings(s);
+            setSettingsOpen(false);
+          }}
+          onDisconnected={handleDisconnected}
         />
       )}
     </div>

@@ -40,6 +40,15 @@ pub struct SyncState {
     pub last_synced_at: i64,
 }
 
+// 🦀 App settings. `#[derive(Serialize, Deserialize)]` lets this cross the Tauri IPC
+//    boundary directly (the frontend reads/writes the same shape). Stored in the
+//    key-value `settings` table, one row per field.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Settings {
+    pub signature: String,
+    pub remote_images: bool,
+}
+
 /// Create tables and indexes if they don't exist. Safe to call on every startup.
 pub fn init(conn: &Connection) -> Result<()> {
     // 🦀 WAL (write-ahead logging) lets reads proceed while a write is in progress —
@@ -74,6 +83,10 @@ pub fn init(conn: &Connection) -> Result<()> {
             account         TEXT PRIMARY KEY,
             last_history_id INTEGER,
             last_synced_at  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         );",
     )?;
 
@@ -314,6 +327,60 @@ pub fn set_sync_state(
     Ok(())
 }
 
+// 🦀 Read one settings row's value, if present. Private helper for get_settings.
+fn get_setting_raw(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+    let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
+    match rows.next() {
+        Some(r) => Ok(Some(r?)),
+        None => Ok(None),
+    }
+}
+
+// 🦀 UPSERT one settings row (INSERT, or overwrite the value on key conflict).
+//    Encoding contract: bools are stored "1"/"0" (get_settings decodes `v == "1"`);
+//    only save_settings should call this, so the stored encoding stays consistent.
+fn set_setting_raw(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Read app settings, applying defaults for absent keys: empty signature, and
+/// remote_images = true (which preserves the pre-M9 always-load-images behavior).
+pub fn get_settings(conn: &Connection) -> Result<Settings> {
+    let signature = get_setting_raw(conn, "signature")?.unwrap_or_default();
+    // 🦀 Stored as "1"/"0"; default to true when the key was never written.
+    let remote_images = get_setting_raw(conn, "remote_images")?
+        .map(|v| v == "1")
+        .unwrap_or(true);
+    Ok(Settings { signature, remote_images })
+}
+
+/// Persist both settings in one transaction.
+pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    set_setting_raw(&tx, "signature", &s.signature)?;
+    set_setting_raw(&tx, "remote_images", if s.remote_images { "1" } else { "0" })?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Clear the local mail cache on disconnect: all `messages` and `sync_state` rows.
+/// `settings` (user prefs) are intentionally kept.
+pub fn clear_account_data(conn: &Connection) -> Result<()> {
+    // 🦀 `unchecked_transaction` borrows &Connection (no &mut needed) and is safe here
+    //    because we're not already inside another transaction — same pattern as apply_delta.
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM messages", [])?;
+    tx.execute("DELETE FROM sync_state", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,5 +563,41 @@ mod tests {
         assert_eq!(rows[0].category, "newsletters");
         assert!(rows[0].has_list_unsubscribe);
         assert_eq!(rows[0].label_ids, "INBOX,CATEGORY_PROMOTIONS");
+    }
+
+    #[test]
+    fn get_settings_returns_defaults_when_empty() {
+        let c = conn();
+        let s = get_settings(&c).unwrap();
+        assert_eq!(s.signature, "");
+        assert!(s.remote_images); // default: load images (preserves pre-M9 behavior)
+    }
+
+    #[test]
+    fn save_then_get_settings_round_trips() {
+        let c = conn();
+        save_settings(&c, &Settings { signature: "Cheers,\nDmytro".into(), remote_images: false }).unwrap();
+        let s = get_settings(&c).unwrap();
+        assert_eq!(s.signature, "Cheers,\nDmytro");
+        assert!(!s.remote_images);
+        // also exercise the "1" → true decode path
+        save_settings(&c, &Settings { signature: "Cheers,\nDmytro".into(), remote_images: true }).unwrap();
+        assert!(get_settings(&c).unwrap().remote_images);
+    }
+
+    #[test]
+    fn clear_account_data_wipes_cache_but_keeps_settings() {
+        let c = conn();
+        upsert_messages(&c, &[msg("a", 1)]).unwrap();
+        set_sync_state(&c, "primary", Some(7), 1).unwrap();
+        save_settings(&c, &Settings { signature: "sig".into(), remote_images: false }).unwrap();
+
+        clear_account_data(&c).unwrap();
+
+        assert_eq!(recent_previews(&c, 10).unwrap().len(), 0);
+        assert_eq!(get_sync_state(&c, "primary").unwrap(), None);
+        let s = get_settings(&c).unwrap();
+        assert_eq!(s.signature, "sig");
+        assert!(!s.remote_images);
     }
 }

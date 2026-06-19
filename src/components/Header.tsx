@@ -2,6 +2,7 @@ import {
   Flame,
   Pencil,
   RefreshCw,
+  Settings as SettingsIcon,
   Sun,
   Moon,
   Inbox,
@@ -26,6 +27,7 @@ export function Header({
   busy,
   onSync,
   onCompose,
+  onSettings,
   status,
   account = null,
   stream = "all",
@@ -34,6 +36,7 @@ export function Header({
   busy: boolean;
   onSync?: () => void;
   onCompose?: () => void;
+  onSettings?: () => void;
   status: string | null;
   account?: string | null;
   stream?: Stream;
@@ -86,6 +89,11 @@ export function Header({
           <div className="avatar">{account.charAt(0).toUpperCase()}</div>
           <span className="account-email">{account}</span>
         </div>
+      )}
+      {account && onSettings && (
+        <button className="icon-btn" onClick={onSettings} aria-label="Settings">
+          <SettingsIcon size={16} />
+        </button>
       )}
       <button
         className="icon-btn"

@@ -94,6 +94,9 @@ pub fn run() {
             commands::trash_message,
             commands::send_email,
             commands::get_reply_context,
+            commands::get_settings,
+            commands::set_settings,
+            commands::disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
