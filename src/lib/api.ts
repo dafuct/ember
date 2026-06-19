@@ -48,3 +48,33 @@ export const archiveMessage = (id: string): Promise<void> =>
   invoke<void>("archive_message", { id });
 export const trashMessage = (id: string): Promise<void> =>
   invoke<void>("trash_message", { id });
+
+export interface ReplyContext {
+  message_id: string;
+  references: string;
+  quoted_text: string;
+}
+
+export interface SendEmailPayload {
+  to: string[];
+  cc: string[];
+  subject: string;
+  body: string;
+  in_reply_to: string | null;
+  references: string | null;
+  thread_id: string | null;
+}
+
+export const sendEmail = (p: SendEmailPayload): Promise<void> =>
+  invoke<void>("send_email", {
+    to: p.to,
+    cc: p.cc,
+    subject: p.subject,
+    body: p.body,
+    inReplyTo: p.in_reply_to,
+    references: p.references,
+    threadId: p.thread_id,
+  });
+
+export const getReplyContext = (id: string): Promise<ReplyContext> =>
+  invoke<ReplyContext>("get_reply_context", { id });
