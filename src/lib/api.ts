@@ -10,6 +10,8 @@ export interface MessagePreview {
   internal_date: number;
   /** Smart-inbox stream from the backend scorer: "people" | "notifications" | "newsletters". */
   category: string;
+  /** Raw Gmail label ids (e.g. "INBOX", "UNREAD", "STARRED"). Drives read/star state. */
+  label_ids: string[];
 }
 
 export const connectGmail = (): Promise<string> =>
@@ -37,3 +39,12 @@ export const fetchMessageBody = (
   loadImages = false,
 ): Promise<MessageBody> =>
   invoke<MessageBody>("fetch_message_body", { id, loadImages });
+
+export const setMessageRead = (id: string, read: boolean): Promise<void> =>
+  invoke<void>("set_message_read", { id, read });
+export const setMessageStarred = (id: string, starred: boolean): Promise<void> =>
+  invoke<void>("set_message_starred", { id, starred });
+export const archiveMessage = (id: string): Promise<void> =>
+  invoke<void>("archive_message", { id });
+export const trashMessage = (id: string): Promise<void> =>
+  invoke<void>("trash_message", { id });

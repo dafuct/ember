@@ -114,8 +114,8 @@ pub fn init(conn: &Connection) -> Result<()> {
 //    column's name (index 1 of PRAGMA table_info), and `?` propagates row errors.
 fn column_exists(conn: &Connection, table: &str, col: &str) -> Result<bool> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let mut rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    while let Some(name) = rows.next() {
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows {
         if name? == col {
             return Ok(true);
         }
@@ -210,6 +210,20 @@ pub fn delete_messages(conn: &Connection, ids: &[String]) -> Result<()> {
         tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
     }
     tx.commit()?;
+    Ok(())
+}
+
+/// Replace one message's stored label set. Used by the read/star toggles: the
+/// message stays in the cache, only its `label_ids` column changes (so its
+/// category and the M6 scoring signals are preserved). A non-existent `id` is a
+/// silent no-op (0 rows updated) — callers only toggle messages already cached.
+pub fn update_message_labels(conn: &Connection, id: &str, label_ids_csv: &str) -> Result<()> {
+    // 🦀 `conn.execute` runs one statement with bound params (`?1`, `?2`), which
+    //    SQLite escapes for us — never string-format user values into SQL.
+    conn.execute(
+        "UPDATE messages SET label_ids = ?1 WHERE id = ?2",
+        params![label_ids_csv, id],
+    )?;
     Ok(())
 }
 
@@ -452,6 +466,22 @@ mod tests {
         let rows = recent_previews(&c, 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "fresh");
+    }
+
+    #[test]
+    fn update_message_labels_changes_only_labels() {
+        let c = conn();
+        let mut m = msg("a", 1);
+        m.category = "people".into();
+        m.label_ids = "INBOX,UNREAD".into();
+        upsert_messages(&c, &[m]).unwrap();
+
+        update_message_labels(&c, "a", "INBOX").unwrap();
+
+        let rows = recent_previews(&c, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].label_ids, "INBOX"); // UNREAD removed
+        assert_eq!(rows[0].category, "people"); // category untouched
     }
 
     #[test]

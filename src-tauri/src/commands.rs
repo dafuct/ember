@@ -245,6 +245,83 @@ pub async fn fetch_message_body(id: String, load_images: bool) -> Result<Message
     }
 }
 
+// 🦀 Shared core for the label-toggle actions (read/star). `present` decides whether
+//    the label is added or removed. We call Gmail FIRST; only on success do we take
+//    the DB lock and persist the label set Gmail returns, so a network failure leaves
+//    the local cache untouched (the frontend then rolls back its optimistic update).
+//    The std MutexGuard is created AFTER every `.await`, never held across one.
+async fn set_label(
+    id: &str,
+    label: &str,
+    present: bool,
+    state: &tauri::State<'_, Db>,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    // 🦀 Pass the one-element slice directly as an argument so its temporary lives
+    //    for the call (a `let` binding of `&[label]` would be dropped too early).
+    let modified = if present {
+        client.modify_message(id, &[label], &[]).await?
+    } else {
+        client.modify_message(id, &[], &[label]).await?
+    };
+    let csv = modified.label_ids.join(",");
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::update_message_labels(&conn, id, &csv)?;
+    Ok(())
+}
+
+/// Mark a message read (`read = true` → remove UNREAD) or unread (`read = false` → add UNREAD).
+#[tauri::command]
+pub async fn set_message_read(
+    id: String,
+    read: bool,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    // 🦀 read == true means the UNREAD label should be ABSENT, so `present = !read`.
+    set_label(&id, "UNREAD", !read, &state).await
+}
+
+/// Star (`starred = true`) or unstar (`starred = false`) a message via the STARRED label.
+#[tauri::command]
+pub async fn set_message_starred(
+    id: String,
+    starred: bool,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    set_label(&id, "STARRED", starred, &state).await
+}
+
+/// Archive: remove the INBOX label so the message leaves the inbox, then drop it from
+/// the local cache (the next sync's history delta would remove it too — delete is idempotent).
+#[tauri::command]
+pub async fn archive_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.modify_message(&id, &[], &["INBOX"]).await?;
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    // 🦀 `std::slice::from_ref(&id)` makes a one-element `&[String]` without allocating.
+    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    Ok(())
+}
+
+/// Move a message to Trash and drop it from the local cache.
+#[tauri::command]
+pub async fn trash_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.trash_message(&id).await?;
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

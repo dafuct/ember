@@ -4,9 +4,22 @@ import {
   type MessageBody,
   type MessagePreview,
 } from "../lib/api";
-import { Mail, CornerUpLeft, Archive, Trash2 } from "lucide-react";
+import { Mail, Archive, Trash2, Star, CornerUpLeft } from "lucide-react";
+import { isStarred } from "../lib/labels";
 
-export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
+export function ReadingPane({
+  msg,
+  onArchive,
+  onTrash,
+  onToggleStar,
+  onMarkUnread,
+}: {
+  msg: MessagePreview | null;
+  onArchive: (m: MessagePreview) => void;
+  onTrash: (m: MessagePreview) => void;
+  onToggleStar: (m: MessagePreview) => void;
+  onMarkUnread: (m: MessagePreview) => void;
+}) {
   const [body, setBody] = useState<MessageBody | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,10 +73,32 @@ export function ReadingPane({ msg }: { msg: MessagePreview | null }) {
         <button className="icon-btn" disabled aria-label="Reply (coming soon)">
           <CornerUpLeft size={15} />
         </button>
-        <button className="icon-btn" disabled aria-label="Archive (coming soon)">
+        <button
+          className={isStarred(msg) ? "icon-btn active" : "icon-btn"}
+          aria-label={isStarred(msg) ? "Unstar" : "Star"}
+          onClick={() => onToggleStar(msg)}
+        >
+          <Star size={15} fill={isStarred(msg) ? "currentColor" : "none"} />
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Mark as unread"
+          onClick={() => onMarkUnread(msg)}
+        >
+          <Mail size={15} />
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Archive"
+          onClick={() => onArchive(msg)}
+        >
           <Archive size={15} />
         </button>
-        <button className="icon-btn" disabled aria-label="Delete (coming soon)">
+        <button
+          className="icon-btn"
+          aria-label="Move to trash"
+          onClick={() => onTrash(msg)}
+        >
           <Trash2 size={15} />
         </button>
       </div>

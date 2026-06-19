@@ -85,6 +85,10 @@ pub fn run() {
             commands::fetch_inbox_preview,
             commands::sync_inbox,
             commands::fetch_message_body,
+            commands::set_message_read,
+            commands::set_message_starred,
+            commands::archive_message,
+            commands::trash_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

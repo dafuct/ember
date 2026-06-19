@@ -42,3 +42,16 @@ export function groupByStream(msgs: MessagePreview[]): StreamGroup[] {
     messages: msgs.filter((m) => m.category === cat),
   })).filter((g) => g.messages.length > 0);
 }
+
+// The messages in the exact order MessageList renders them: grouped
+// (people → notifications → newsletters) for "all", else the filtered flat list.
+// Shared with App's selection-advance so the two can't drift from what's on screen.
+export function orderedForStream(
+  msgs: MessagePreview[],
+  stream: Stream,
+): MessagePreview[] {
+  if (stream === "all") {
+    return groupByStream(msgs).flatMap((g) => g.messages);
+  }
+  return filterByStream(msgs, stream);
+}
