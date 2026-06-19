@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 
-use crate::auth::tokens::load_token;
+use crate::auth::tokens::{delete_token, load_token};
 use crate::auth::{ensure_access_token, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
@@ -359,6 +359,42 @@ pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
     client.get_reply_context(&id).await
+}
+
+/// Read persisted app settings (signature, remote-images), with defaults for first run.
+#[tauri::command]
+pub async fn get_settings(state: tauri::State<'_, Db>) -> Result<db::Settings> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::get_settings(&conn)
+}
+
+/// Persist app settings.
+#[tauri::command]
+pub async fn set_settings(settings: db::Settings, state: tauri::State<'_, Db>) -> Result<()> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::save_settings(&conn, &settings)
+}
+
+/// Sign out: delete the Keychain token and clear the local mail cache (messages +
+/// sync_state). Settings (user prefs) are kept. After this, the app returns to the
+/// connect screen.
+#[tauri::command]
+pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
+    // 🦀 `delete_token` is synchronous (keyring), so there's no `.await` between it and
+    //    taking the DB lock — no MutexGuard-across-await concern.
+    delete_token(PRIMARY_ACCOUNT)?;
+    // 🦀 Token-first ordering is deliberate: a sign-out must guarantee the credential is
+    //    gone (the privacy-critical part). If clear_account_data below then fails, the
+    //    cache rows are orphaned but harmless — get_connected_account still returns None
+    //    (token deleted → connect screen) and the stale rows are overwritten on next sync.
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::clear_account_data(&conn)
 }
 
 #[cfg(test)]
