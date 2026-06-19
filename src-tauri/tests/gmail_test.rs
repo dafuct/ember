@@ -365,3 +365,96 @@ async fn trash_message_posts_to_trash_endpoint() {
     // 🦀 We only care that it succeeded; the response body is ignored.
     client.trash_message("a1").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_reply_context_extracts_message_id_references_and_text() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/r1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "r1",
+            "payload": {
+                "mimeType": "multipart/alternative",
+                "headers": [
+                    {"name": "Message-ID", "value": "<orig@mail.example>"},
+                    {"name": "References", "value": "<a@x> <b@y>"}
+                ],
+                "parts": [
+                    {"mimeType": "text/plain", "body": {"data": b64url("Original body")}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let rc = client.get_reply_context("r1").await.unwrap();
+    assert_eq!(rc.message_id, "<orig@mail.example>");
+    assert_eq!(rc.references, "<a@x> <b@y>");
+    assert_eq!(rc.quoted_text, "Original body");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_reply_context_returns_empty_references_when_absent() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/r2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "r2",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [{"name": "Message-ID", "value": "<only-id@mail>"}],
+                "body": {"data": b64url("Body text")}
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let rc = client.get_reply_context("r2").await.unwrap();
+    assert_eq!(rc.message_id, "<only-id@mail>");
+    assert_eq!(rc.references, ""); // absent header → empty string (frontend maps "" → null)
+    assert_eq!(rc.quoted_text, "Body text");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_message_posts_base64url_raw_with_thread_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/send"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "sent1"})))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client
+        .send_message("From: a@b\r\n\r\nhi", Some("thread-9"))
+        .await
+        .unwrap();
+
+    // 🦀 Inspect the request the mock server actually received.
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(reqs.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
+    assert_eq!(body["threadId"], "thread-9");
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(body["raw"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "From: a@b\r\n\r\nhi");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_message_omits_thread_id_when_none() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/send"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "sent2"})))
+        .mount(&server)
+        .await;
+
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.send_message("hello", None).await.unwrap();
+    let reqs = server.received_requests().await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
+    assert!(body.get("threadId").is_none());
+}

@@ -13,12 +13,14 @@ export function ReadingPane({
   onTrash,
   onToggleStar,
   onMarkUnread,
+  onReply,
 }: {
   msg: MessagePreview | null;
   onArchive: (m: MessagePreview) => void;
   onTrash: (m: MessagePreview) => void;
   onToggleStar: (m: MessagePreview) => void;
   onMarkUnread: (m: MessagePreview) => void;
+  onReply: (m: MessagePreview) => void;
 }) {
   const [body, setBody] = useState<MessageBody | null>(null);
   const [loading, setLoading] = useState(false);
@@ -70,7 +72,11 @@ export function ReadingPane({
   return (
     <section className="reading">
       <div className="reading-toolbar">
-        <button className="icon-btn" disabled aria-label="Reply (coming soon)">
+        <button
+          className="icon-btn"
+          aria-label="Reply"
+          onClick={() => onReply(msg)}
+        >
           <CornerUpLeft size={15} />
         </button>
         <button

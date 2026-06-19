@@ -6,6 +6,7 @@ import {
   connectGmail,
   fetchInboxPreview,
   getConnectedAccount,
+  getReplyContext,
   setMessageRead,
   setMessageStarred,
   syncInbox,
@@ -14,6 +15,8 @@ import {
 } from "./lib/api";
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
+import { parseAddress, replySubject, quoteBody } from "./lib/compose";
+import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
@@ -27,6 +30,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compose, setCompose] = useState<ComposeInitial | null>(null);
 
   useEffect(() => {
     getConnectedAccount()
@@ -131,6 +135,39 @@ export default function App() {
   const handleTrash = (m: MessagePreview) =>
     removeWithAction(m, () => trashMessage(m.id));
 
+  function openNewCompose() {
+    setCompose({
+      to: "",
+      cc: "",
+      subject: "",
+      body: "",
+      inReplyTo: null,
+      references: null,
+      threadId: null,
+    });
+  }
+
+  async function handleReply(m: MessagePreview) {
+    setError(null);
+    try {
+      const ctx = await getReplyContext(m.id);
+      const dateLabel = m.internal_date
+        ? new Date(m.internal_date).toLocaleString()
+        : m.date;
+      setCompose({
+        to: parseAddress(m.from),
+        cc: "",
+        subject: replySubject(m.subject),
+        body: quoteBody(m.from, dateLabel, ctx.quoted_text),
+        inReplyTo: ctx.message_id || null,
+        references: ctx.references || ctx.message_id || null,
+        threadId: m.thread_id || null,
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   // Selecting a message opens it and (if unread) marks it read — like every mail client.
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -171,6 +208,7 @@ export default function App() {
           setStream(s);
           setSelectedId(null);
         }}
+        onCompose={openNewCompose}
       />
       {error && <div className="error-bar">{error}</div>}
       <SplitView
@@ -191,9 +229,20 @@ export default function App() {
             onTrash={handleTrash}
             onToggleStar={toggleStar}
             onMarkUnread={(m) => toggleRead(m, false)}
+            onReply={handleReply}
           />
         }
       />
+      {compose && (
+        <ComposeModal
+          initial={compose}
+          onClose={() => setCompose(null)}
+          onSent={() => {
+            setCompose(null);
+            setStatus("Sent ✓");
+          }}
+        />
+      )}
     </div>
   );
 }

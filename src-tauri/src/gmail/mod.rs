@@ -3,7 +3,10 @@
 pub mod types;
 
 use std::collections::HashMap;
-use types::{FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage, Profile, RawMessage};
+use types::{
+    FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
+    Profile, RawMessage, ReplyContext,
+};
 
 use crate::error::Result;
 
@@ -384,6 +387,56 @@ impl GmailClient {
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
         Ok(RawBody { html, text })
+    }
+
+    /// Fetch what a reply needs: the original's `Message-ID` + `References` headers (for
+    /// threading) and its decoded plain-text body (for quoting). One `format=full` fetch.
+    pub async fn get_reply_context(&self, id: &str) -> Result<ReplyContext> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}?format=full", self.base_url, id);
+        let full: FullMessage = self.get_json(&url).await?;
+        // 🦀 Closure that borrows the payload headers and finds one case-insensitively
+        //    ("Message-ID" vs "Message-Id"), cloning the matched value out.
+        let header = |name: &str| {
+            full.payload
+                .headers
+                .iter()
+                .find(|h| h.name.eq_ignore_ascii_case(name))
+                .map(|h| h.value.clone())
+                .unwrap_or_default()
+        };
+        let message_id = header("Message-ID");
+        let references = header("References");
+        // 🦀 Reuse the existing recursive MIME walk to pull the text/plain part.
+        let mut html = None;
+        let mut text = None;
+        collect_body(&full.payload, &mut html, &mut text);
+        Ok(ReplyContext {
+            message_id,
+            references,
+            quoted_text: text.unwrap_or_default(),
+        })
+    }
+
+    /// Send a raw RFC822 message. `thread_id` threads a reply into its conversation.
+    pub async fn send_message(&self, raw_rfc822: &str, thread_id: Option<&str>) -> Result<()> {
+        use base64::Engine;
+        // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding)
+        //    in the `raw` field — the same encoding the read path decodes with.
+        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822.as_bytes());
+        // 🦀 Short-lived request struct. `skip_serializing_if` drops `threadId` entirely
+        //    (not `null`) when there's no thread — Gmail rejects a null threadId.
+        #[derive(serde::Serialize)]
+        struct SendRequest<'a> {
+            raw: String,
+            #[serde(rename = "threadId", skip_serializing_if = "Option::is_none")]
+            thread_id: Option<&'a str>,
+        }
+        let url = format!("{}/gmail/v1/users/me/messages/send", self.base_url);
+        let body = SendRequest { raw, thread_id };
+        // 🦀 We don't use the returned Message resource; deserialize into a throwaway
+        //    `serde_json::Value` and drop it.
+        let _: serde_json::Value = self.post_json(&url, &body).await?;
+        Ok(())
     }
 
     /// Move a single message to Trash (recoverable in Gmail for ~30 days).
