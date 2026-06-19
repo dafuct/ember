@@ -139,3 +139,7 @@
 
 /* M7 actions — keyboard focus ring for action buttons */
 .row-act:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* M7 — unread marker: a filled accent dot (right of the timestamp), distinct from
+   the left category dot so unread mail can't be confused with its category. */
+.unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }

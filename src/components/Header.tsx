@@ -7,10 +7,6 @@ import {
   Users,
   Bell,
   Newspaper,
-  Star,
-  Send,
-  Archive,
-  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme, type Theme } from "../theme";
@@ -24,13 +20,6 @@ const STREAM_ICON: Record<Stream, LucideIcon> = {
   notifications: Bell,
   newsletters: Newspaper,
 };
-
-const FOLDERS: { icon: LucideIcon; label: string }[] = [
-  { icon: Star, label: "Starred" },
-  { icon: Send, label: "Sent" },
-  { icon: Archive, label: "Archive" },
-  { icon: Trash2, label: "Trash" },
-];
 
 export function Header({
   busy,
@@ -71,19 +60,6 @@ export function Header({
                 onClick={() => onSelectStream?.(s.key)}
               >
                 <Icon size={15} /> <span className="nav-label">{s.label}</span>
-              </button>
-            );
-          })}
-          {FOLDERS.map((f) => {
-            const Icon = f.icon;
-            return (
-              <button
-                key={f.label}
-                className="header-nav-item"
-                title={f.label}
-                disabled
-              >
-                <Icon size={15} /> <span className="nav-label">{f.label}</span>
               </button>
             );
           })}

@@ -37,6 +37,7 @@ export function MessageItem({
             {msg.from || "(unknown sender)"}
           </span>
           <span className="msg-time">{relativeTime(msg.internal_date)}</span>
+          {unread && <span className="unread-dot" title="Unread" aria-hidden />}
         </div>
         <span className="msg-subject">{msg.subject || "(no subject)"}</span>
         <span className="msg-snippet">{msg.snippet}</span>
