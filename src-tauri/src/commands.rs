@@ -190,6 +190,8 @@ fn to_rows(previews: Vec<MessagePreview>) -> Vec<db::StoredMessage> {
                 date_header: p.date,
                 internal_date: p.internal_date,
                 // 🦀 Persist the raw signals so a future re-score needs no Gmail refetch.
+                //    Stored comma-joined: Gmail label ids are uppercase-ASCII / "Label_<n>"
+                //    tokens that never contain commas, so this CSV round-trips losslessly.
                 label_ids: p.label_ids.join(","),
                 to_addr: p.to_addr,
                 has_list_unsubscribe: p.has_list_unsubscribe,
@@ -277,5 +279,7 @@ mod tests {
         assert_eq!(rows[0].label_ids, "INBOX,CATEGORY_PROMOTIONS");
         assert_eq!(rows[1].category, "people");
         assert_eq!(rows[2].category, "newsletters");
+        // empty input labels join to "" (so the read-side split yields [] later)
+        assert_eq!(rows[2].label_ids, "");
     }
 }
