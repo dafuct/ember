@@ -1,7 +1,8 @@
-import type { MessagePreview } from "../lib/api";
-import { isStarred, isUnread } from "../lib/labels";
+import type { MessagePreview, Label } from "../lib/api";
+import { isStarred, isUnread, userLabelChips } from "../lib/labels";
 import { relativeTime } from "../lib/time";
 import { Archive, Star } from "lucide-react";
+import { LabelChips } from "./LabelChips";
 
 export function MessageItem({
   msg,
@@ -12,6 +13,7 @@ export function MessageItem({
   onArchive,
   onStar,
   showRecipient = false,
+  labelsById,
 }: {
   msg: MessagePreview;
   selected: boolean;
@@ -21,6 +23,7 @@ export function MessageItem({
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   showRecipient?: boolean;
+  labelsById?: Map<string, Label>;
 }) {
   const unread = isUnread(msg);
   const starred = isStarred(msg);
@@ -58,6 +61,7 @@ export function MessageItem({
           {unread && <span className="unread-dot" title="Unread" aria-hidden />}
         </div>
         <span className="msg-subject">{msg.subject || "(no subject)"}</span>
+        {labelsById && <LabelChips labels={userLabelChips(msg, labelsById)} />}
         <span className="msg-snippet">{msg.snippet}</span>
       </button>
       <div className="msg-actions">

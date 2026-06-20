@@ -279,3 +279,6 @@
 .undo-text { white-space: nowrap; }
 .undo-btn { background: transparent; color: var(--accent, #4ade80); border: none; font-weight: 700; cursor: pointer; font-size: 13px; }
 .undo-close { background: transparent; color: #bbb; border: none; cursor: pointer; font-size: 12px; }
+
+.label-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
+.label-chip { font-size: 10px; line-height: 1.4; padding: 0 6px; border-radius: 8px; background: var(--accent-weak); color: var(--accent-text); white-space: nowrap; }
