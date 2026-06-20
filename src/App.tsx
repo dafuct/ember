@@ -16,6 +16,10 @@ import {
   setMessageRead,
   setMessageStarred,
   syncInbox,
+  listLabels,
+  createLabel,
+  fetchLabel,
+  type Label,
   type MessagePreview,
   type Settings,
 } from "./lib/api";
@@ -37,6 +41,7 @@ import { UndoToast } from "./components/UndoToast";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { FolderRail } from "./components/FolderRail";
+import { LabelPicker } from "./components/LabelPicker";
 import { FOLDERS } from "./lib/folders";
 
 // M13 new-mail notifications.
@@ -90,13 +95,19 @@ export default function App() {
   const [undo, setUndo] = useState<{ verb: string; count: number; onUndo: () => void } | null>(null);
   const undoTimer = useRef<number | null>(null);
 
+  // M16 labels.
+  const [labels, setLabels] = useState<Label[]>([]);
+  const labelsById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
+  const [labelPicker, setLabelPicker] = useState<MessagePreview[] | null>(null);
+
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
     if (folder === "inbox") return;
     let cancelled = false;
     setFolderLoading(true);
     setError(null);
-    fetchFolder(folder, 50)
+    const isSystem = FOLDERS.some((f) => f.key === folder);
+    (isSystem ? fetchFolder(folder, 50) : fetchLabel(folder, 50))
       .then((r) => {
         if (!cancelled) {
           setFolderResults(r);
@@ -128,6 +139,9 @@ export default function App() {
     getSettings()
       .then(setSettings)
       .catch(() => {}); // keep defaults on error
+    listLabels()
+      .then(setLabels)
+      .catch(() => {}); // labels are non-critical; keep [] on error
   }, []);
 
   async function handleConnect() {
@@ -427,6 +441,37 @@ export default function App() {
     });
   }
 
+  // Apply or remove a user label on `targets` (1 message from the reading pane, or the
+  // selection). Optimistic withLabel on the active list, then persist via the M15 batch
+  // command; roll back on error.
+  function applyLabel(targets: MessagePreview[], labelId: string, add: boolean) {
+    if (targets.length === 0) return;
+    const ids = targets.map((m) => m.id);
+    const idSet = new Set(ids);
+    const snap = activeList;
+    setActiveList(snap.map((m) => (idSet.has(m.id) ? withLabel(m, labelId, add) : m)));
+    setError(null);
+    batchModifyMessages(ids, add ? [labelId] : [], add ? [] : [labelId]).catch((e) => {
+      setActiveList(snap);
+      setError(String(e));
+    });
+  }
+
+  async function handleCreateLabel(name: string, targets: MessagePreview[]) {
+    setError(null);
+    try {
+      const created = await createLabel(name);
+      const next = await listLabels();
+      setLabels(next);
+      // applyLabel snapshots the current activeList; after the awaits above that snapshot is
+      // captured fresh here, so a created label applies to the (still-open) targets. Benign if
+      // the list shifted during the awaits — the next fetch reconciles.
+      applyLabel(targets, created.id, true);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   function openNewCompose() {
     setCompose({
       to: "",
@@ -634,7 +679,7 @@ export default function App() {
         <CalendarView weekStart={weekStart} />
       ) : (
         <div className="mail-body">
-          <FolderRail folder={folder} onSelectFolder={handleSelectFolder} />
+          <FolderRail folder={folder} onSelectFolder={handleSelectFolder} labels={labels} />
           <SplitView
             left={
               <MessageList
@@ -652,12 +697,14 @@ export default function App() {
                 onBatchTrash={batchTrash}
                 onBatchMarkRead={batchMarkRead}
                 onBatchStar={batchStar}
+                onBatchLabel={() => setLabelPicker(selectedMsgs)}
+                labelsById={labelsById}
                 flat={inSearch || inFolder}
                 title={
                   inSearch
                     ? "Results"
                     : inFolder
-                      ? FOLDERS.find((f) => f.key === folder)?.label
+                      ? FOLDERS.find((f) => f.key === folder)?.label ?? labelsById.get(folder)?.name ?? "Label"
                       : undefined
                 }
                 emptyText={
@@ -686,6 +733,8 @@ export default function App() {
                 folder={folder}
                 onRestore={handleRestore}
                 onDeleteForever={handleDeleteForever}
+                labelsById={labelsById}
+                onOpenLabels={(m) => setLabelPicker([m])}
               />
             }
           />
@@ -724,6 +773,15 @@ export default function App() {
           count={undo.count}
           onUndo={undo.onUndo}
           onDismiss={clearUndo}
+        />
+      )}
+      {labelPicker && (
+        <LabelPicker
+          labels={labels}
+          targets={labelPicker}
+          onApply={(labelId, add) => applyLabel(labelPicker, labelId, add)}
+          onCreate={(name) => handleCreateLabel(name, labelPicker)}
+          onClose={() => setLabelPicker(null)}
         />
       )}
     </div>
