@@ -102,3 +102,12 @@ pub struct CalendarEvent {
     pub html_link: Option<String>,
     pub attendees: Vec<String>,
 }
+
+/// A calendar the user can write to (for the create-event picker).
+#[derive(Debug, Serialize)]
+pub struct CalendarSummary {
+    pub id: String,
+    pub summary: String,
+    pub primary: bool,
+    pub writable: bool,
+}

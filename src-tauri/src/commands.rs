@@ -11,7 +11,7 @@ use crate::auth::{ensure_access_token, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::gmail::types::{MessagePreview, ReplyContext};
-use crate::calendar::types::CalendarEvent;
+use crate::calendar::types::{CalendarEvent, CalendarSummary, EventWrite};
 use crate::calendar::{map_event, CalendarClient};
 use crate::gmail::GmailClient;
 use crate::html::sanitize_html;
@@ -727,6 +727,60 @@ pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     db::clear_account_data(&conn)
+}
+
+/// List the user's calendars (for the create-event calendar picker). DB-free.
+#[tauri::command]
+pub async fn list_calendars() -> Result<Vec<CalendarSummary>> {
+    let stored = ensure_access_token().await?;
+    let client = CalendarClient::new(stored.access_token);
+    let entries = client.list_calendars().await?;
+    // 🦀 `.into_iter().map(...).collect()` is the idiomatic way to transform an owned Vec
+    //    into another Vec of a different type — no explicit loop needed.
+    // 🦀 `matches!(expr, pat1 | pat2)` is a macro that evaluates to `true` when the value
+    //    matches any of the listed patterns; it's terser than an explicit `match` or `||` chain.
+    Ok(entries
+        .into_iter()
+        .map(|c| CalendarSummary {
+            id: c.id,
+            summary: c.summary.unwrap_or_else(|| "(unnamed)".to_string()),
+            primary: c.primary.unwrap_or(false),
+            // writable = the user has owner or writer access to this calendar
+            writable: matches!(c.access_role.as_deref(), Some("owner") | Some("writer")),
+        })
+        .collect())
+}
+
+/// Create a calendar event (optionally a Meet meeting). DB-free.
+#[tauri::command]
+pub async fn create_calendar_event(
+    calendar_id: String,
+    event: EventWrite,
+    add_meet: bool,
+) -> Result<CalendarEvent> {
+    let stored = ensure_access_token().await?;
+    let client = CalendarClient::new(stored.access_token);
+    client.create_event(&calendar_id, &event, add_meet).await
+}
+
+/// Edit a calendar event. DB-free.
+#[tauri::command]
+pub async fn update_calendar_event(
+    calendar_id: String,
+    event_id: String,
+    event: EventWrite,
+) -> Result<CalendarEvent> {
+    let stored = ensure_access_token().await?;
+    let client = CalendarClient::new(stored.access_token);
+    client.update_event(&calendar_id, &event_id, &event).await
+}
+
+/// Delete a calendar event. DB-free.
+#[tauri::command]
+pub async fn delete_calendar_event(calendar_id: String, event_id: String) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = CalendarClient::new(stored.access_token);
+    client.delete_event(&calendar_id, &event_id).await
 }
 
 #[cfg(test)]
