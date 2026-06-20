@@ -477,10 +477,8 @@ impl GmailClient {
 
     /// Send a raw RFC822 message. `thread_id` threads a reply into its conversation.
     pub async fn send_message(&self, raw_rfc822: &str, thread_id: Option<&str>) -> Result<()> {
-        use base64::Engine;
-        // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding)
-        //    in the `raw` field — the same encoding the read path decodes with.
-        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822.as_bytes());
+        // 🦀 Reuse the shared base64url helper (same encoding the read path decodes with).
+        let raw = encode_raw(raw_rfc822);
         // 🦀 Short-lived request struct. `skip_serializing_if` drops `threadId` entirely
         //    (not `null`) when there's no thread — Gmail rejects a null threadId.
         #[derive(serde::Serialize)]
@@ -611,11 +609,33 @@ impl GmailClient {
             thread_id,
         })
     }
+
+    /// Send an existing draft, applying the latest edits, in one call. Gmail removes it
+    /// from Drafts. (Single-call form: `POST /drafts/send` with `{ id, message:{raw} }`.
+    /// If a future live test shows it doesn't apply edits, switch to `update_draft` then
+    /// `POST /drafts/send` with `{ id }` — the public signature is unaffected.)
+    pub async fn send_draft(&self, draft_id: &str, raw_rfc822: &str, thread_id: Option<&str>) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/drafts/send", self.base_url);
+        let body = DraftSendBody {
+            id: draft_id,
+            message: DraftWriteMessage { raw: encode_raw(raw_rfc822), thread_id },
+        };
+        // 🦀 Discard the returned Message resource into a throwaway Value, like send_message.
+        let _: serde_json::Value = self.post_json(&url, &body).await?;
+        Ok(())
+    }
+
+    /// Permanently delete a draft (drafts.delete). No reading-pane equivalent — drafts
+    /// aren't trashed, they're removed.
+    pub async fn delete_draft(&self, draft_id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/drafts/{}", self.base_url, draft_id);
+        self.delete_no_body(&url).await
+    }
 }
 
 // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
-//    `raw`. Factored out so create/update/send share one encoding (send_message inlines
-//    its own; leaving that untouched to avoid churn).
+//    `raw`. Shared by every send/draft path (create/update/send_draft and send_message)
+//    so the encoding lives in exactly one place.
 fn encode_raw(raw_rfc822: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822.as_bytes())
@@ -627,6 +647,14 @@ fn encode_raw(raw_rfc822: &str) -> String {
 struct DraftWriteBody<'a> {
     message: DraftWriteMessage<'a>,
 }
+
+// 🦀 drafts.send wants a Draft resource: the draft id PLUS the (edited) message.
+#[derive(serde::Serialize)]
+struct DraftSendBody<'a> {
+    id: &'a str,
+    message: DraftWriteMessage<'a>,
+}
+
 #[derive(serde::Serialize)]
 struct DraftWriteMessage<'a> {
     raw: String,

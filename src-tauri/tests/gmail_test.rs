@@ -633,3 +633,28 @@ async fn get_draft_parses_headers_and_text_body() {
     assert_eq!(d.thread_id.as_deref(), Some("t1"));
     assert_eq!(d.cc, "");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_draft_posts_id_and_raw() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/drafts/send"))
+        .and(body_json(json!({ "id": "dr1", "message": { "raw": b64url("final") } })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "sent1" })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.send_draft("dr1", "final", None).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_draft_issues_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/gmail/v1/users/me/drafts/dr1"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.delete_draft("dr1").await.unwrap();
+}
