@@ -521,14 +521,23 @@ impl GmailClient {
         };
         let message_id = header("Message-ID");
         let references = header("References");
+        // 🦀 New: the original recipients (for reply-all) — same case-insensitive closure.
+        let to = header("To");
+        let cc = header("Cc");
         // 🦀 Reuse the existing recursive MIME walk to pull the text/plain part.
         let mut html = None;
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
+        // 🦀 New: the original's attachments (for forward) — reuses the M17 walk on the same payload.
+        let mut attachments = Vec::new();
+        collect_attachments(&full.payload, &mut attachments);
         Ok(ReplyContext {
             message_id,
             references,
             quoted_text: text.unwrap_or_default(),
+            to,
+            cc,
+            attachments,
         })
     }
 

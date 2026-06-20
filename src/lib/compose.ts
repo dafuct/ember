@@ -44,3 +44,50 @@ export function appendSignature(body: string, signature: string): string {
   if (!sig) return body;
   return `${body}\n\n-- \n${sig}`;
 }
+
+// Prefix "Fwd: " unless already present (case-insensitive). Mirrors replySubject.
+export function forwardSubject(subject: string): string {
+  return /^fwd:/i.test(subject.trim()) ? subject : `Fwd: ${subject}`;
+}
+
+// Compute reply-all recipients from the original message.
+// To = the original sender (bare address). Cc = the original To + Cc addresses, deduped
+// case-insensitively, with YOUR address and the sender removed. Display names are dropped
+// (bare addresses only) — a deliberate lean-v1 simplification.
+export function replyAllRecipients(
+  from: string,
+  to: string,
+  cc: string,
+  self: string,
+): { to: string; cc: string } {
+  const selfAddr = parseAddress(self).toLowerCase();
+  const fromAddr = parseAddress(from).toLowerCase();
+  const seen = new Set<string>([selfAddr, fromAddr].filter((a) => a.length > 0));
+  const ccOut: string[] = [];
+  for (const raw of [...parseRecipients(to), ...parseRecipients(cc)]) {
+    const bare = parseAddress(raw);
+    const key = bare.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    ccOut.push(bare);
+  }
+  return { to: parseAddress(from), cc: ccOut.join(", ") };
+}
+
+// The plain-text forwarded-message header block (a blank line trails it, before the body).
+export function forwardBlock(
+  from: string,
+  dateLabel: string,
+  subject: string,
+  to: string,
+): string {
+  return [
+    "---------- Forwarded message ---------",
+    `From: ${from}`,
+    `Date: ${dateLabel}`,
+    `Subject: ${subject}`,
+    `To: ${to}`,
+    "",
+    "",
+  ].join("\n");
+}

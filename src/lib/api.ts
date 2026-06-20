@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext } from "./mock";
 
 export type { CalendarEvent };
 
@@ -94,6 +94,16 @@ export interface ReplyContext {
   message_id: string;
   references: string;
   quoted_text: string;
+  to: string;
+  cc: string;
+  attachments: Attachment[];
+}
+
+export interface ForwardedAttachmentRef {
+  message_id: string;
+  attachment_id: string;
+  filename: string;
+  mime_type: string;
 }
 
 export interface SendEmailPayload {
@@ -105,6 +115,7 @@ export interface SendEmailPayload {
   references: string | null;
   thread_id: string | null;
   attachment_paths: string[];
+  forwarded_attachments: ForwardedAttachmentRef[];
 }
 
 export const sendEmail = (p: SendEmailPayload): Promise<void> =>
@@ -117,10 +128,13 @@ export const sendEmail = (p: SendEmailPayload): Promise<void> =>
     references: p.references,
     threadId: p.thread_id,
     attachmentPaths: p.attachment_paths,
+    forwardedAttachments: p.forwarded_attachments,
   });
 
 export const getReplyContext = (id: string): Promise<ReplyContext> =>
-  invoke<ReplyContext>("get_reply_context", { id });
+  isTauri()
+    ? invoke<ReplyContext>("get_reply_context", { id })
+    : Promise.resolve(mockReplyContext(id));
 
 export interface DraftContent {
   draft_id: string;

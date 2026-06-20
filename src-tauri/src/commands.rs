@@ -359,10 +359,22 @@ pub async fn batch_modify_messages(
     Ok(())
 }
 
-/// Send a plain-text message, optionally with file attachments. With no attachments this
-/// is the original single-part path; with attachments it builds a multipart/mixed message.
+/// A reference to an attachment on an existing message, for forwarding. The bytes are
+/// NOT carried from JS — the backend re-fetches them via `get_attachment` at send time.
+// 🦀 `Deserialize` so Tauri can build it from the JS object. Field names are snake_case,
+//    so the JS side must pass `{ message_id, attachment_id, filename, mime_type }`.
+#[derive(serde::Deserialize)]
+pub struct ForwardedAttachmentRef {
+    pub message_id: String,
+    pub attachment_id: String,
+    pub filename: String,
+    pub mime_type: String,
+}
+
+/// Send a plain-text message, optionally with file attachments and/or forwarded attachments.
+/// No attachments of either kind → the original single-part path; otherwise multipart/mixed.
 // 🦀 `#[allow(clippy::too_many_arguments)]` — these flat args mirror the JS `invoke` payload;
-//    a shared `OutgoingFields` struct is a noted follow-up (kept out of M17 to stay focused).
+//    a shared `OutgoingFields` struct is a noted follow-up (kept out of M18 to stay focused).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn send_email(
@@ -374,6 +386,7 @@ pub async fn send_email(
     references: Option<String>,
     thread_id: Option<String>,
     attachment_paths: Vec<String>,
+    forwarded_attachments: Vec<ForwardedAttachmentRef>,
 ) -> Result<()> {
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
@@ -386,19 +399,19 @@ pub async fn send_email(
         in_reply_to,
         references,
     };
-    // 🦀 No files → the unchanged single-part path. `return` short-circuits before any file I/O.
-    if attachment_paths.is_empty() {
+    // 🦀 Neither kind of attachment → the unchanged single-part path.
+    if attachment_paths.is_empty() && forwarded_attachments.is_empty() {
         let raw = crate::mime::build_rfc822(&msg);
         return client.send_message(&raw, thread_id.as_deref()).await;
     }
-    // 🦀 Read each picked file into memory, tagging it with a best-effort MIME type.
     let mut attachments = Vec::new();
     let mut total = 0usize;
+    // 🦀 (a) Files the user picked from disk (M17 path).
     for path in &attachment_paths {
         let bytes = std::fs::read(path)
             .map_err(|e| AppError::Other(format!("could not read attachment {path}: {e}")))?;
-        // 🦀 `saturating_add` clamps at usize::MAX instead of wrapping, so the cap check
-        //    below stays a true guarantee even on a (hypothetical) 32-bit target.
+        // 🦀 `saturating_add` clamps at usize::MAX instead of wrapping, so the combined cap
+        //    check below stays a true guarantee even on a (hypothetical) 32-bit target.
         total = total.saturating_add(bytes.len());
         let filename = std::path::Path::new(path)
             .file_name()
@@ -408,7 +421,17 @@ pub async fn send_email(
         let mime_type = crate::mime::mime_for_ext(&filename).to_string();
         attachments.push(crate::mime::OutgoingAttachment { filename, mime_type, bytes });
     }
-    // 🦀 Reject oversized payloads before base64 inflation pushes us past the send ceiling.
+    // 🦀 (b) Attachments forwarded from an existing message — re-fetched from Gmail by id.
+    for fa in &forwarded_attachments {
+        let bytes = client.get_attachment(&fa.message_id, &fa.attachment_id).await?;
+        total = total.saturating_add(bytes.len());
+        attachments.push(crate::mime::OutgoingAttachment {
+            filename: fa.filename.clone(),
+            mime_type: fa.mime_type.clone(),
+            bytes,
+        });
+    }
+    // 🦀 Cap the COMBINED total before base64 inflation pushes us past the send ceiling.
     if total > crate::mime::MAX_ATTACHMENT_BYTES {
         return Err(AppError::Other(format!(
             "attachments total {total} bytes exceed the {} MB limit",

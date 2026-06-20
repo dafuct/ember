@@ -167,12 +167,18 @@ pub struct PartBody {
     pub size: i64,
 }
 
-/// What a reply needs from the original message: threading headers + the quoted text.
+/// What a reply needs from the original message: threading headers + the quoted text,
+/// plus (for reply-all / forward) the original recipients and attachment list.
 #[derive(Debug, Serialize)]
 pub struct ReplyContext {
     pub message_id: String,
     pub references: String,
     pub quoted_text: String,
+    // 🦀 Raw header values (may hold several comma-separated addresses); "" when absent.
+    pub to: String,
+    pub cc: String,
+    // 🦀 The original's attachments — reuses the M17 `AttachmentMeta` (same module).
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 /// A draft reference: the draft's own id plus the id of its underlying message

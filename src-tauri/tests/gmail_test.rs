@@ -789,3 +789,34 @@ async fn get_attachment_decodes_base64url_bytes() {
     let bytes = client.get_attachment("m3", "att1").await.unwrap();
     assert_eq!(bytes, payload.as_bytes());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_reply_context_extracts_to_cc_and_attachments() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/r3"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "r3",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "headers": [
+                    {"name": "Message-ID", "value": "<orig@mail>"},
+                    {"name": "To", "value": "alice@x.com, Bob <bob@y.com>"},
+                    {"name": "Cc", "value": "carol@z.com"}
+                ],
+                "parts": [
+                    {"mimeType": "text/plain", "body": {"data": b64url("hi")}},
+                    {"mimeType": "application/pdf", "filename": "spec.pdf", "body": {"attachmentId": "aa1", "size": 99}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let rc = client.get_reply_context("r3").await.unwrap();
+    assert_eq!(rc.to, "alice@x.com, Bob <bob@y.com>");
+    assert_eq!(rc.cc, "carol@z.com");
+    assert_eq!(rc.attachments.len(), 1);
+    assert_eq!(rc.attachments[0].filename, "spec.pdf");
+    assert_eq!(rc.attachments[0].attachment_id, "aa1");
+}

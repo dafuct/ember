@@ -2,7 +2,7 @@
 // Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext } from "./api";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -139,4 +139,23 @@ export function mockMessageBody(id: string): MessageBody {
 /** Browser-maket: pretend the user picked a file so the compose chips are demoable. */
 export function mockPickFiles(): string[] {
   return ["/Users/you/Documents/proposal.pdf"];
+}
+
+/** Browser-maket reply/forward context: gives m1 a Cc (for reply-all) + attachments (for forward). */
+export function mockReplyContext(id: string): ReplyContext {
+  const attachments: Attachment[] =
+    id === "m1"
+      ? [
+          { filename: "Q3-roadmap.pdf", mime_type: "application/pdf", size: 248000, attachment_id: "att1" },
+          { filename: "budget.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 18500, attachment_id: "att2" },
+        ]
+      : [];
+  return {
+    message_id: `<${id}@mock>`,
+    references: "",
+    quoted_text: "Here's the draft for review…",
+    to: "you@example.com, Dana <dana@corp.io>",
+    cc: id === "m1" ? "Sam <sam@team.io>" : "",
+    attachments,
+  };
 }
