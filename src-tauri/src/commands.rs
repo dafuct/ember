@@ -505,6 +505,36 @@ pub async fn delete_draft(draft_id: String) -> Result<()> {
     client.delete_draft(&draft_id).await
 }
 
+/// List the user's user-created labels (DB-free). Drives the rail labels section + picker + chips.
+#[tauri::command]
+pub async fn list_labels() -> Result<Vec<crate::gmail::types::Label>> {
+    let stored = ensure_access_token().await?; // 🦀 refresh token if expired, same pattern as every DB-free command
+    let client = GmailClient::new(stored.access_token); // 🦀 thin wrapper around an access token + reqwest client
+    client.list_labels().await // 🦀 delegate straight to GmailClient; ? propagates any AppError
+}
+
+/// Create a new user label (DB-free). Returns the created label.
+#[tauri::command]
+pub async fn create_label(name: String) -> Result<crate::gmail::types::Label> {
+    let stored = ensure_access_token().await?; // 🦀 same token-refresh dance
+    let client = GmailClient::new(stored.access_token);
+    client.create_label(&name).await // 🦀 &name borrows the owned String as &str — no copy needed
+}
+
+/// Fetch one label's messages (DB-free) — a user label is just a label id, so this mirrors
+/// fetch_folder's generic arm over list_message_ids.
+#[tauri::command]
+pub async fn fetch_label(label_id: String, max: u32) -> Result<Vec<MessagePreview>> {
+    let max = max.clamp(1, SEARCH_MAX); // 🦀 clamp: saturate to [1, SEARCH_MAX] regardless of frontend input
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    // 🦀 `Some(label_id.as_str())` → Option<&str> to match list_message_ids' `label` param.
+    let ids = client.list_message_ids(Some(label_id.as_str()), "", max, false).await?;
+    let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
+    previews.sort_by_key(|p| std::cmp::Reverse(p.internal_date)); // 🦀 newest-first, same as fetch_folder
+    Ok(previews)
+}
+
 /// Restore a trashed message (untrash). DB-free — the Trash folder isn't cached.
 #[tauri::command]
 pub async fn restore_message(id: String) -> Result<()> {
