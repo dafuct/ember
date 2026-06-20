@@ -113,28 +113,6 @@ export interface PositionedEvent {
 }
 
 /** Lay out one day's timed events into equal-width lanes so overlaps sit side-by-side. */
-/** RFC3339 local-time string from a "YYYY-MM-DD" date + "HH:MM" time (with the local offset). */
-export function rfc3339Local(ymd: string, hhmm: string): string {
-  const [y, mo, d] = ymd.split("-").map(Number);
-  const [h, mi] = hhmm.split(":").map(Number);
-  const dt = new Date(y, (mo || 1) - 1, d || 1, h || 0, mi || 0, 0);
-  const off = -dt.getTimezoneOffset();
-  const sign = off >= 0 ? "+" : "-";
-  const oh = pad(Math.floor(Math.abs(off) / 60));
-  const om = pad(Math.abs(off) % 60);
-  return (
-    `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}` +
-    `T${pad(dt.getHours())}:${pad(dt.getMinutes())}:00${sign}${oh}:${om}`
-  );
-}
-
-/** Google all-day end is EXCLUSIVE: a YYYY-MM-DD one day after the user-picked end date. */
-export function allDayEndExclusive(ymd: string): string {
-  const [y, mo, d] = ymd.split("-").map(Number);
-  const dt = new Date(y, (mo || 1) - 1, (d || 1) + 1);
-  return toYmd(dt);
-}
-
 export function layoutDay(timed: CalendarEvent[], day: Date): PositionedEvent[] {
   const midnight = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
   const items = eventsForDay(timed, day)
@@ -176,4 +154,26 @@ export function layoutDay(timed: CalendarEvent[], day: Date): PositionedEvent[] 
   }
   flush();
   return out;
+}
+
+/** RFC3339 local-time string from a "YYYY-MM-DD" date + "HH:MM" time (with the local offset). */
+export function rfc3339Local(ymd: string, hhmm: string): string {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const [h, mi] = hhmm.split(":").map(Number);
+  const dt = new Date(y, (mo || 1) - 1, d || 1, h || 0, mi || 0, 0);
+  const off = -dt.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  const oh = pad(Math.floor(Math.abs(off) / 60));
+  const om = pad(Math.abs(off) % 60);
+  return (
+    `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}` +
+    `T${pad(dt.getHours())}:${pad(dt.getMinutes())}:00${sign}${oh}:${om}`
+  );
+}
+
+/** Google all-day end is EXCLUSIVE: a YYYY-MM-DD one day after the user-picked end date. */
+export function allDayEndExclusive(ymd: string): string {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const dt = new Date(y, (mo || 1) - 1, (d || 1) + 1);
+  return toYmd(dt);
 }
