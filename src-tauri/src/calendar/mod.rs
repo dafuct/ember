@@ -150,6 +150,41 @@ impl CalendarClient {
         map_event(g, calendar_id, None)
             .ok_or_else(|| AppError::Other("calendar returned an unusable event".into()))
     }
+
+    /// Edit an existing event (PATCH — partial update). Sending the body fields replaces them;
+    /// omitting `conferenceData` PRESERVES any existing Meet link. `sendUpdates=all` notifies guests.
+    pub async fn update_event(
+        &self,
+        calendar_id: &str,
+        event_id: &str,
+        ev: &types::EventWrite,
+    ) -> Result<CalendarEvent> {
+        // 🦀 Percent-encode both path segments — real calendar/event ids contain '@'/'#'.
+        let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+        let url = format!(
+            "{}/calendar/v3/calendars/{}/events/{}?sendUpdates=all",
+            self.base_url, enc(calendar_id), enc(event_id)
+        );
+        let body = event_body(ev); // conference_data stays None → existing Meet link preserved
+        let resp = self.http.patch(&url).bearer_auth(&self.access_token).json(&body).send().await?;
+        let resp = self.check_auth_status(resp).await?;
+        let g: GEvent = resp.json().await?;
+        map_event(g, calendar_id, None)
+            .ok_or_else(|| AppError::Other("calendar returned an unusable event".into()))
+    }
+
+    /// Delete an event. `sendUpdates=all` sends guests the cancellation.
+    pub async fn delete_event(&self, calendar_id: &str, event_id: &str) -> Result<()> {
+        let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+        let url = format!(
+            "{}/calendar/v3/calendars/{}/events/{}?sendUpdates=all",
+            self.base_url, enc(calendar_id), enc(event_id)
+        );
+        let resp = self.http.delete(&url).bearer_auth(&self.access_token).send().await?;
+        // 🦀 We don't need a body back; `check_auth_status` still maps 401/403 + `error_for_status`.
+        self.check_auth_status(resp).await?;
+        Ok(())
+    }
 }
 
 // 🦀 Serialize-only shapes for the Google event-write body. Lifetimes (`'a`) let the body

@@ -200,3 +200,46 @@ async fn create_event_with_meet_posts_conference_and_attendees() {
     assert_eq!(created.id, "new1");
     assert_eq!(created.meet_link.as_deref(), Some("https://meet.google.com/xyz"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_event_patches_without_conference_data() {
+    use ember_lib::calendar::types::EventWrite;
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .and(query_param("sendUpdates", "all"))
+        .and(body_partial_json(json!({ "summary": "Renamed" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e9",
+            "summary": "Renamed",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end": { "dateTime": "2026-06-21T11:00:00-07:00" }
+        })))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let ev = EventWrite {
+        title: "Renamed".into(),
+        start: "2026-06-21T10:00:00-07:00".into(),
+        end: "2026-06-21T11:00:00-07:00".into(),
+        all_day: false,
+        description: None,
+        location: None,
+        attendees: vec![],
+    };
+    let updated = client.update_event("primary", "e9", &ev).await.unwrap();
+    assert_eq!(updated.title, "Renamed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_event_issues_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .and(query_param("sendUpdates", "all"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    client.delete_event("primary", "e9").await.unwrap();
+}
