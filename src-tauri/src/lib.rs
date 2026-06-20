@@ -100,6 +100,7 @@ pub fn run() {
             commands::set_message_starred,
             commands::archive_message,
             commands::trash_message,
+            commands::batch_modify_messages,
             commands::send_email,
             commands::get_reply_context,
             commands::search_messages,

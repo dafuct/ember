@@ -327,6 +327,42 @@ pub async fn trash_message(id: String, state: tauri::State<'_, Db>) -> Result<()
     Ok(())
 }
 
+/// Add/remove labels on many messages in one Gmail call, then reconcile the local cache.
+/// Archive (remove INBOX) / trash (add TRASH) drop the rows from the inbox cache like the
+/// M7 single actions; everything else (read/star) applies the delta in place. DB-aware,
+/// but a no-op on the DB for ids that aren't cached (search/folder results).
+#[tauri::command]
+pub async fn batch_modify_messages(
+    ids: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    // 🦀 Gmail rejects a batchModify with no ids or no label changes (400). Both are
+    //    vacuous no-ops, so short-circuit before the network call.
+    if ids.is_empty() || (add.is_empty() && remove.is_empty()) {
+        return Ok(());
+    }
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    // 🦀 `&[&str]` is what batch_modify wants; map the owned Strings to borrowed &str.
+    let add_refs: Vec<&str> = add.iter().map(String::as_str).collect();
+    let remove_refs: Vec<&str> = remove.iter().map(String::as_str).collect();
+    client.batch_modify(&ids, &add_refs, &remove_refs).await?;
+
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    // 🦀 `iter().any(|l| l == "TRASH")` — does the slice contain this label? Archiving
+    //    (remove INBOX) or trashing (add TRASH) means the row leaves the inbox cache.
+    if add.iter().any(|l| l == "TRASH") || remove.iter().any(|l| l == "INBOX") {
+        db::delete_messages(&conn, &ids)?;
+    } else {
+        db::apply_label_delta(&conn, &ids, &add, &remove)?;
+    }
+    Ok(())
+}
+
 /// Build an RFC822 message from the compose fields and send it via Gmail. DB-free —
 /// sent mail lands in Gmail's Sent folder, which Ember does not cache.
 #[tauri::command]
