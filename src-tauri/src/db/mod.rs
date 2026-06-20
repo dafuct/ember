@@ -47,6 +47,9 @@ pub struct SyncState {
 pub struct Settings {
     pub signature: String,
     pub remote_images: bool,
+    // 🦀 A plain `bool` field — the serde derives on this struct serialize it to/from
+    //    JSON for the Tauri IPC boundary automatically, same as `remote_images`.
+    pub notifications: bool,
 }
 
 /// Create tables and indexes if they don't exist. Safe to call on every startup.
@@ -357,14 +360,22 @@ pub fn get_settings(conn: &Connection) -> Result<Settings> {
     let remote_images = get_setting_raw(conn, "remote_images")?
         .map(|v| v == "1")
         .unwrap_or(true);
-    Ok(Settings { signature, remote_images })
+    // 🦀 Same "1"/"0" decode as remote_images; `unwrap_or(true)` makes notifications
+    //    default ON when the key was never written (existing installs included).
+    let notifications = get_setting_raw(conn, "notifications")?
+        .map(|v| v == "1")
+        .unwrap_or(true);
+    Ok(Settings { signature, remote_images, notifications })
 }
 
-/// Persist both settings in one transaction.
+/// Persist all settings in one transaction.
 pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     set_setting_raw(&tx, "signature", &s.signature)?;
     set_setting_raw(&tx, "remote_images", if s.remote_images { "1" } else { "0" })?;
+    // 🦀 `if cond { "1" } else { "0" }` is an expression (Rust ifs yield values), so it
+    //    slots straight into the call as the encoded value.
+    set_setting_raw(&tx, "notifications", if s.notifications { "1" } else { "0" })?;
     tx.commit()?;
     Ok(())
 }
@@ -571,18 +582,30 @@ mod tests {
         let s = get_settings(&c).unwrap();
         assert_eq!(s.signature, "");
         assert!(s.remote_images); // default: load images (preserves pre-M9 behavior)
+        assert!(s.notifications); // default: notifications on out of the box
     }
 
     #[test]
     fn save_then_get_settings_round_trips() {
         let c = conn();
-        save_settings(&c, &Settings { signature: "Cheers,\nDmytro".into(), remote_images: false }).unwrap();
+        save_settings(
+            &c,
+            &Settings { signature: "Cheers,\nDmytro".into(), remote_images: false, notifications: false },
+        )
+        .unwrap();
         let s = get_settings(&c).unwrap();
         assert_eq!(s.signature, "Cheers,\nDmytro");
         assert!(!s.remote_images);
-        // also exercise the "1" → true decode path
-        save_settings(&c, &Settings { signature: "Cheers,\nDmytro".into(), remote_images: true }).unwrap();
-        assert!(get_settings(&c).unwrap().remote_images);
+        assert!(!s.notifications);
+        // also exercise the "1" → true decode path for both bools
+        save_settings(
+            &c,
+            &Settings { signature: "Cheers,\nDmytro".into(), remote_images: true, notifications: true },
+        )
+        .unwrap();
+        let s = get_settings(&c).unwrap();
+        assert!(s.remote_images);
+        assert!(s.notifications);
     }
 
     #[test]
@@ -590,7 +613,7 @@ mod tests {
         let c = conn();
         upsert_messages(&c, &[msg("a", 1)]).unwrap();
         set_sync_state(&c, "primary", Some(7), 1).unwrap();
-        save_settings(&c, &Settings { signature: "sig".into(), remote_images: false }).unwrap();
+        save_settings(&c, &Settings { signature: "sig".into(), remote_images: false, notifications: false }).unwrap();
 
         clear_account_data(&c).unwrap();
 
@@ -599,5 +622,6 @@ mod tests {
         let s = get_settings(&c).unwrap();
         assert_eq!(s.signature, "sig");
         assert!(!s.remote_images);
+        assert!(!s.notifications);
     }
 }
