@@ -77,6 +77,9 @@ fn collect_body(part: &MessagePart, html: &mut Option<String>, text: &mut Option
 // 🦀 Sibling of `collect_body`: a recursive MIME walk gathering attachment parts.
 //    A part is an attachment when it has a non-empty `filename` AND an `attachmentId`
 //    (the handle for fetching its bytes separately). `out` is an out-param Vec to push into.
+//    Parts with a filename but NO `attachmentId` are intentionally skipped — Gmail inlines
+//    small attachments that way (body.data holds the bytes directly); fetching them requires
+//    no separate handle and is out of M17 scope.
 fn collect_attachments(part: &MessagePart, out: &mut Vec<AttachmentMeta>) {
     if !part.filename.is_empty() {
         if let Some(id) = &part.body.attachment_id {

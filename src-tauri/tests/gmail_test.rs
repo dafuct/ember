@@ -744,3 +744,31 @@ async fn get_message_body_enumerates_attachments() {
     assert_eq!(a.size, 1024);
     assert_eq!(a.attachment_id, "att1");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_body_skips_filename_parts_without_attachment_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m4"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m4",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [
+                    // 🦀 An inline small "attachment": has a filename but Gmail put the
+                    //    content in `data` with NO attachmentId — must be skipped.
+                    { "mimeType": "image/png", "filename": "inline.png", "body": { "data": b64url("notreal") } },
+                    // A real attachment (filename + attachmentId) — must be enumerated.
+                    { "mimeType": "application/pdf", "filename": "real.pdf", "body": { "attachmentId": "att9", "size": 42 } }
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let body = client.get_message_body("m4").await.unwrap();
+    // Only the part WITH an attachmentId is enumerated.
+    assert_eq!(body.attachments.len(), 1);
+    assert_eq!(body.attachments[0].filename, "real.pdf");
+    assert_eq!(body.attachments[0].attachment_id, "att9");
+}
