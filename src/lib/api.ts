@@ -102,6 +102,7 @@ export const getReplyContext = (id: string): Promise<ReplyContext> =>
 export interface Settings {
   signature: string;
   remote_images: boolean;
+  notifications: boolean;
 }
 
 export const getSettings = (): Promise<Settings> =>

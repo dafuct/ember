@@ -44,7 +44,7 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
-  const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true });
+  const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
   // M10: top-level Mail/Calendar view. Default to Calendar in browser mock mode so the
   // maket shows immediately; the Tauri app opens on Mail.

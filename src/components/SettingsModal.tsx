@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { setSettings, disconnect, type Settings } from "../lib/api";
+import { ensureNotificationPermission } from "../lib/notify";
 import { useTheme, type Theme } from "../theme";
 import { X } from "lucide-react";
 
@@ -19,6 +20,7 @@ export function SettingsModal({
   const { theme, setTheme } = useTheme();
   const [signature, setSignature] = useState(initial.signature);
   const [remoteImages, setRemoteImages] = useState(initial.remote_images);
+  const [notifications, setNotifications] = useState(initial.notifications);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export function SettingsModal({
   }, [onClose]);
 
   async function handleSave() {
-    const next: Settings = { signature, remote_images: remoteImages };
+    const next: Settings = { signature, remote_images: remoteImages, notifications };
     setBusy(true);
     setError(null);
     try {
@@ -104,6 +106,23 @@ export function SettingsModal({
               onChange={(e) => setRemoteImages(e.target.checked)}
             />
             <span>{remoteImages ? "Load automatically" : "Blocked"}</span>
+          </label>
+        </div>
+
+        <div className="settings-row">
+          <span className="settings-label">New-mail notifications</span>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={notifications}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setNotifications(on);
+                // Prompt for OS permission immediately when switching on.
+                if (on) void ensureNotificationPermission();
+              }}
+            />
+            <span>{notifications ? "On" : "Off"}</span>
           </label>
         </div>
 
