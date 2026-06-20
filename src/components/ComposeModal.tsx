@@ -72,6 +72,7 @@ export function ComposeModal({
       references: initial.references,
       thread_id: initial.threadId,
       attachment_paths: attachPaths,
+      forwarded_attachments: [], // wired to forwarded-attachment chips in the compose-modes task
     };
   }
 
