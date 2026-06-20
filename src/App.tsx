@@ -26,7 +26,7 @@ import {
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
 import { pickNewMail, notifyNewMail, ensureNotificationPermission } from "./lib/notify";
-import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
+import { appendSignature, parseAddress, replySubject, quoteBody, forwardSubject, replyAllRecipients, forwardBlock } from "./lib/compose";
 import { isTauri } from "@tauri-apps/api/core";
 import { onAction } from "@tauri-apps/plugin-notification";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -507,6 +507,58 @@ export default function App() {
     }
   }
 
+  async function handleReplyAll(m: MessagePreview) {
+    setError(null);
+    try {
+      const ctx = await getReplyContext(m.id);
+      const dateLabel = m.internal_date ? new Date(m.internal_date).toLocaleString() : m.date;
+      const r = replyAllRecipients(m.from, ctx.to, ctx.cc, account ?? "");
+      setCompose({
+        to: r.to,
+        cc: r.cc,
+        subject: replySubject(m.subject),
+        body: appendSignature(quoteBody(m.from, dateLabel, ctx.quoted_text), settings.signature),
+        inReplyTo: ctx.message_id || null,
+        references: ctx.references || ctx.message_id || null,
+        threadId: m.thread_id || null,
+        draftId: null,
+        mode: "replyAll",
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleForward(m: MessagePreview) {
+    setError(null);
+    try {
+      const ctx = await getReplyContext(m.id);
+      const dateLabel = m.internal_date ? new Date(m.internal_date).toLocaleString() : m.date;
+      setCompose({
+        to: "",
+        cc: "",
+        subject: forwardSubject(m.subject),
+        body: appendSignature(
+          forwardBlock(m.from, dateLabel, m.subject, ctx.to) + ctx.quoted_text,
+          settings.signature,
+        ),
+        inReplyTo: null,
+        references: null,
+        threadId: null, // forward starts a fresh conversation
+        draftId: null,
+        mode: "forward",
+        forwardedAttachments: ctx.attachments.map((a) => ({
+          message_id: m.id,
+          attachment_id: a.attachment_id,
+          filename: a.filename,
+          mime_type: a.mime_type,
+        })),
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   // Selecting a message opens it and (if unread) marks it read — like every mail client.
   function handleSelect(id: string) {
     setActiveSelectedId(id);
@@ -730,6 +782,8 @@ export default function App() {
                 onToggleStar={toggleStar}
                 onMarkUnread={(m) => toggleRead(m, false)}
                 onReply={handleReply}
+                onReplyAll={handleReplyAll}
+                onForward={handleForward}
                 folder={folder}
                 onRestore={handleRestore}
                 onDeleteForever={handleDeleteForever}

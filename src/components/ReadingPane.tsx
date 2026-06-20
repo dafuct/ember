@@ -9,7 +9,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { formatBytes } from "../lib/attachments";
-import { Mail, Archive, Trash2, Star, CornerUpLeft, RotateCcw, Tag, Paperclip } from "lucide-react";
+import { Mail, Archive, Trash2, Star, CornerUpLeft, RotateCcw, Tag, Paperclip, ReplyAll, Forward } from "lucide-react";
 import { isStarred, userLabelChips } from "../lib/labels";
 import { LabelChips } from "./LabelChips";
 import type { Label } from "../lib/api";
@@ -22,6 +22,8 @@ export function ReadingPane({
   onToggleStar,
   onMarkUnread,
   onReply,
+  onReplyAll,
+  onForward,
   folder = "inbox",
   onRestore,
   onDeleteForever,
@@ -35,6 +37,8 @@ export function ReadingPane({
   onToggleStar: (m: MessagePreview) => void;
   onMarkUnread: (m: MessagePreview) => void;
   onReply: (m: MessagePreview) => void;
+  onReplyAll: (m: MessagePreview) => void;
+  onForward: (m: MessagePreview) => void;
   folder?: string;
   onRestore?: (m: MessagePreview) => void;
   onDeleteForever?: (m: MessagePreview) => void;
@@ -120,6 +124,12 @@ export function ReadingPane({
       <div className="reading-toolbar">
         <button className="icon-btn" aria-label="Reply" onClick={() => onReply(msg)}>
           <CornerUpLeft size={15} />
+        </button>
+        <button className="icon-btn" aria-label="Reply all" onClick={() => onReplyAll(msg)}>
+          <ReplyAll size={15} />
+        </button>
+        <button className="icon-btn" aria-label="Forward" onClick={() => onForward(msg)}>
+          <Forward size={15} />
         </button>
         <button
           className={isStarred(msg) ? "icon-btn active" : "icon-btn"}
