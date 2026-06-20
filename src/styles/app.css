@@ -294,3 +294,6 @@
 .picker-name { font-size: 13px; }
 .picker-create { display: flex; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .picker-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; font-size: 13px; }
+
+.rail-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 12px 12px 4px; }
+.rail-label-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); display: inline-block; }

@@ -6,7 +6,6 @@ import {
 } from "../lib/api";
 import { Mail, Archive, Trash2, Star, CornerUpLeft, RotateCcw } from "lucide-react";
 import { isStarred } from "../lib/labels";
-import type { Folder } from "../lib/folders";
 
 export function ReadingPane({
   msg,
@@ -27,7 +26,7 @@ export function ReadingPane({
   onToggleStar: (m: MessagePreview) => void;
   onMarkUnread: (m: MessagePreview) => void;
   onReply: (m: MessagePreview) => void;
-  folder?: Folder;
+  folder?: string;
   onRestore?: (m: MessagePreview) => void;
   onDeleteForever?: (m: MessagePreview) => void;
 }) {

@@ -37,7 +37,7 @@ import { UndoToast } from "./components/UndoToast";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { FolderRail } from "./components/FolderRail";
-import { FOLDERS, type Folder } from "./lib/folders";
+import { FOLDERS } from "./lib/folders";
 
 // M13 new-mail notifications.
 const POLL_MS = 60_000; // background sync cadence while the app is open
@@ -69,7 +69,7 @@ export default function App() {
 
   // M12 folders. `folder === "inbox"` means the cached smart inbox; any other value is a live-
   // fetched mailbox. `folderReloadKey` lets re-clicking a folder (or the same one) refetch.
-  const [folder, setFolder] = useState<Folder>("inbox");
+  const [folder, setFolder] = useState<string>("inbox");
   const [folderResults, setFolderResults] = useState<MessagePreview[]>([]);
   const [folderSelectedId, setFolderSelectedId] = useState<string | null>(null);
   const [folderLoading, setFolderLoading] = useState(false);
@@ -557,7 +557,7 @@ export default function App() {
     setError(null);
   }
 
-  function handleSelectFolder(f: Folder) {
+  function handleSelectFolder(f: string) {
     clearSelection();
     clearUndo();
     // Switching mailbox leaves any active search; bumping the key refetches even on re-click.
