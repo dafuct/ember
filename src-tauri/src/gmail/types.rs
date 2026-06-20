@@ -199,3 +199,22 @@ pub struct ModifiedMessage {
     #[serde(rename = "labelIds", default)]
     pub label_ids: Vec<String>,
 }
+
+/// A user-created Gmail label (system labels are filtered out by `list_labels`).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Label {
+    pub id: String,
+    pub name: String,
+    // 🦀 `Option` — Gmail omits `color` for labels with no custom color (then `None`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<LabelColor>,
+}
+
+/// A label's Gmail color (hex). Both fields present when a label is colored.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LabelColor {
+    #[serde(rename = "textColor", default)]
+    pub text: String,
+    #[serde(rename = "backgroundColor", default)]
+    pub background: String,
+}

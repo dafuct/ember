@@ -4,8 +4,8 @@ pub mod types;
 
 use std::collections::HashMap;
 use types::{
-    FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
-    Profile, RawMessage, ReplyContext,
+    FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart, MessagePreview,
+    ModifiedMessage, Profile, RawMessage, ReplyContext,
 };
 use types::{DraftContent, DraftRef};
 
@@ -658,6 +658,20 @@ impl GmailClient {
         let body = BatchModifyRequest { ids, add_label_ids: add, remove_label_ids: remove };
         self.post_json_no_response(&url, &body).await
     }
+
+    /// List the user's *user-created* labels (system labels like INBOX/UNREAD are dropped —
+    /// they're handled by the rail's fixed folders + the scorer). Gmail `users.labels.list`.
+    pub async fn list_labels(&self) -> Result<Vec<Label>> {
+        let url = format!("{}/gmail/v1/users/me/labels", self.base_url);
+        let resp: LabelsListResponse = self.get_json(&url).await?;
+        // 🦀 `filter` keeps only user labels; `map` drops the wire-only `label_type` field.
+        Ok(resp
+            .labels
+            .into_iter()
+            .filter(|l| l.label_type == "user")
+            .map(|l| Label { id: l.id, name: l.name, color: l.color })
+            .collect())
+    }
 }
 
 // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
@@ -723,4 +737,21 @@ struct DraftGetMessage {
     #[serde(rename = "threadId", default)]
     thread_id: String,
     payload: MessagePart,
+}
+
+// 🦀 users.labels.list shape. `RawLabel` carries `type` (a Rust keyword → `serde(rename)`
+//    onto `label_type`) so we can filter to user labels.
+#[derive(serde::Deserialize)]
+struct LabelsListResponse {
+    #[serde(default)]
+    labels: Vec<RawLabel>,
+}
+#[derive(serde::Deserialize)]
+struct RawLabel {
+    id: String,
+    name: String,
+    #[serde(rename = "type", default)]
+    label_type: String,
+    #[serde(default)]
+    color: Option<LabelColor>,
 }
