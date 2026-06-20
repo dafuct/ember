@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft } from "./mock";
 
 export type { CalendarEvent };
 
@@ -18,6 +18,7 @@ export interface MessagePreview {
   label_ids: string[];
   /** Recipient (To header). Shown instead of `from` in the Sent folder. */
   to_addr: string;
+  draft_id?: string;
 }
 
 export const connectGmail = (): Promise<string> =>
@@ -98,6 +99,52 @@ export const sendEmail = (p: SendEmailPayload): Promise<void> =>
 
 export const getReplyContext = (id: string): Promise<ReplyContext> =>
   invoke<ReplyContext>("get_reply_context", { id });
+
+export interface DraftContent {
+  draft_id: string;
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  in_reply_to: string | null;
+  references: string | null;
+  thread_id: string | null;
+}
+
+export const getDraft = (id: string): Promise<DraftContent> =>
+  isTauri() ? invoke<DraftContent>("get_draft", { draftId: id }) : Promise.resolve(mockGetDraft(id));
+
+// A save payload is a send payload plus the draft id (null when creating a new draft).
+export const saveDraft = (p: SendEmailPayload & { draft_id: string | null }): Promise<string> =>
+  isTauri()
+    ? invoke<string>("save_draft", {
+        draftId: p.draft_id,
+        to: p.to,
+        cc: p.cc,
+        subject: p.subject,
+        body: p.body,
+        inReplyTo: p.in_reply_to,
+        references: p.references,
+        threadId: p.thread_id,
+      })
+    : Promise.resolve(mockSaveDraft());
+
+export const sendDraft = (p: SendEmailPayload & { draft_id: string }): Promise<void> =>
+  isTauri()
+    ? invoke<void>("send_draft", {
+        draftId: p.draft_id,
+        to: p.to,
+        cc: p.cc,
+        subject: p.subject,
+        body: p.body,
+        inReplyTo: p.in_reply_to,
+        references: p.references,
+        threadId: p.thread_id,
+      })
+    : Promise.resolve();
+
+export const deleteDraft = (id: string): Promise<void> =>
+  isTauri() ? invoke<void>("delete_draft", { draftId: id }) : Promise.resolve();
 
 export interface Settings {
   signature: string;
