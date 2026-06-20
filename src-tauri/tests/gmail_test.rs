@@ -576,3 +576,60 @@ async fn update_draft_puts_raw_with_thread_id() {
     let id = client.update_draft("dr1", "edited", Some("t9")).await.unwrap();
     assert_eq!(id, "dr1");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_drafts_returns_draft_and_message_ids() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/drafts"))
+        .and(query_param("maxResults", "25"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "drafts": [
+                { "id": "dr1", "message": { "id": "m1", "threadId": "t1" } },
+                { "id": "dr2", "message": { "id": "m2" } }
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let refs = client.list_drafts(25).await.unwrap();
+    assert_eq!(refs.len(), 2);
+    assert_eq!(refs[0].id, "dr1");
+    assert_eq!(refs[0].message_id, "m1");
+    assert_eq!(refs[1].message_id, "m2");
+    assert_eq!(refs[1].id, "dr2");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_draft_parses_headers_and_text_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/drafts/dr1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "dr1",
+            "message": {
+                "threadId": "t1",
+                "payload": {
+                    "mimeType": "text/plain",
+                    "headers": [
+                        { "name": "To", "value": "maya@studio.co" },
+                        { "name": "Subject", "value": "Re: Q3" },
+                        { "name": "References", "value": "<a@x>" }
+                    ],
+                    "body": { "data": b64url("draft body text") }
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let d = client.get_draft("dr1").await.unwrap();
+    assert_eq!(d.draft_id, "dr1");
+    assert_eq!(d.to, "maya@studio.co");
+    assert_eq!(d.subject, "Re: Q3");
+    assert_eq!(d.body, "draft body text");
+    assert_eq!(d.references.as_deref(), Some("<a@x>"));
+    assert_eq!(d.in_reply_to, None);
+    assert_eq!(d.thread_id.as_deref(), Some("t1"));
+    assert_eq!(d.cc, "");
+}

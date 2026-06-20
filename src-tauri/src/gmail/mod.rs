@@ -7,11 +7,6 @@ use types::{
     FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
     Profile, RawMessage, ReplyContext,
 };
-// 🦀 `#[allow(unused_imports)]` silences the "unused" lint for items imported here
-//    but not yet referenced in this file. `DraftRef` and `DraftContent` are the
-//    public draft types used by later tasks (send_draft, list_drafts); keeping them
-//    in the `use` list now ensures the module's public surface is consistent.
-#[allow(unused_imports)]
 use types::{DraftContent, DraftRef};
 
 use crate::error::Result;
@@ -566,6 +561,56 @@ impl GmailClient {
         let resp: DraftIdResponse = self.put_json(&url, &body).await?;
         Ok(resp.id)
     }
+
+    /// List up to `max` drafts as (draft id, message id) pairs (for the Drafts folder).
+    pub async fn list_drafts(&self, max: u32) -> Result<Vec<DraftRef>> {
+        let url = format!("{}/gmail/v1/users/me/drafts?maxResults={}", self.base_url, max);
+        let resp: DraftListResponse = self.get_json(&url).await?;
+        // 🦀 `into_iter().map(...).collect()` builds the clean Vec<DraftRef> from the
+        //    nested wire items, moving the owned ids out (no clones).
+        Ok(resp
+            .drafts
+            .into_iter()
+            .map(|d| DraftRef { id: d.id, message_id: d.message.id })
+            .collect())
+    }
+
+    /// Fetch one draft's editable content (recipients, subject, plain-text body, threading).
+    pub async fn get_draft(&self, draft_id: &str) -> Result<DraftContent> {
+        let url = format!("{}/gmail/v1/users/me/drafts/{}?format=full", self.base_url, draft_id);
+        let resp: DraftGetResponse = self.get_json(&url).await?;
+        // 🦀 Same case-insensitive header closure as get_reply_context, but returning
+        //    Option so absent In-Reply-To/References become None (not "").
+        let header = |name: &str| {
+            resp.message
+                .payload
+                .headers
+                .iter()
+                .find(|h| h.name.eq_ignore_ascii_case(name))
+                .map(|h| h.value.clone())
+        };
+        // 🦀 collect_body fills both; we keep only the text/plain part (the editor is plain-text),
+        //    so `html` is intentionally discarded.
+        let mut html = None;
+        let mut text = None;
+        collect_body(&resp.message.payload, &mut html, &mut text);
+        // 🦀 Empty threadId string → None (a draft for a brand-new message has no thread).
+        let thread_id = if resp.message.thread_id.is_empty() {
+            None
+        } else {
+            Some(resp.message.thread_id)
+        };
+        Ok(DraftContent {
+            draft_id: resp.id,
+            to: header("To").unwrap_or_default(),
+            cc: header("Cc").unwrap_or_default(),
+            subject: header("Subject").unwrap_or_default(),
+            body: text.unwrap_or_default(),
+            in_reply_to: header("In-Reply-To"),
+            references: header("References"),
+            thread_id,
+        })
+    }
 }
 
 // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
@@ -593,4 +638,34 @@ struct DraftWriteMessage<'a> {
 #[derive(serde::Deserialize)]
 struct DraftIdResponse {
     id: String,
+}
+
+// 🦀 drafts.list shape: a list of { id (draft), message: { id (message) } }.
+#[derive(serde::Deserialize)]
+struct DraftListResponse {
+    #[serde(default)]
+    drafts: Vec<DraftListItem>,
+}
+#[derive(serde::Deserialize)]
+struct DraftListItem {
+    id: String,
+    message: DraftMsgRef,
+}
+#[derive(serde::Deserialize)]
+struct DraftMsgRef {
+    id: String,
+}
+
+// 🦀 drafts.get?format=full shape: the draft id + its full message (threadId + payload).
+//    Reuses the existing MessagePart type for the MIME payload.
+#[derive(serde::Deserialize)]
+struct DraftGetResponse {
+    id: String,
+    message: DraftGetMessage,
+}
+#[derive(serde::Deserialize)]
+struct DraftGetMessage {
+    #[serde(rename = "threadId", default)]
+    thread_id: String,
+    payload: MessagePart,
 }
