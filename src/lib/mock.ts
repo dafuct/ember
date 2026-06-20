@@ -2,7 +2,7 @@
 // Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -139,6 +139,36 @@ export function mockMessageBody(id: string): MessageBody {
 /** Browser-maket: pretend the user picked a file so the compose chips are demoable. */
 export function mockPickFiles(): string[] {
   return ["/Users/you/Documents/proposal.pdf"];
+}
+
+/** Browser-maket: echo a created event (fake id, a mock Meet link when requested). */
+export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boolean): CalendarEvent {
+  return {
+    id: `mock-${ev.title.replace(/\s+/g, "-")}`,
+    calendar_id: calendarId,
+    title: ev.title,
+    start: ev.start,
+    end: ev.end,
+    all_day: ev.all_day,
+    location: ev.location,
+    color: "#16a34a",
+    description: ev.description,
+    meet_link: addMeet ? "https://meet.google.com/mock-abc" : null,
+    html_link: null,
+    attendees: ev.attendees,
+  };
+}
+export function mockUpdateEvent(calendarId: string, eventId: string, ev: EventWrite): CalendarEvent {
+  return { ...mockCreateEvent(calendarId, ev, false), id: eventId };
+}
+export function mockDeleteEvent(_calendarId: string, _eventId: string): void {
+  // no-op in maket
+}
+export function mockListCalendars(): CalendarSummary[] {
+  return [
+    { id: "primary", summary: "you@example.com", primary: true, writable: true },
+    { id: "personal@group", summary: "Personal", primary: false, writable: true },
+  ];
 }
 
 /** Browser-maket reply/forward context: gives m1 a Cc (for reply-all) + attachments (for forward). */
