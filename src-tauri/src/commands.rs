@@ -410,6 +410,8 @@ pub async fn send_email(
     for path in &attachment_paths {
         let bytes = std::fs::read(path)
             .map_err(|e| AppError::Other(format!("could not read attachment {path}: {e}")))?;
+        // 🦀 `saturating_add` clamps at usize::MAX instead of wrapping, so the combined cap
+        //    check below stays a true guarantee even on a (hypothetical) 32-bit target.
         total = total.saturating_add(bytes.len());
         let filename = std::path::Path::new(path)
             .file_name()
@@ -436,7 +438,9 @@ pub async fn send_email(
             crate::mime::MAX_ATTACHMENT_BYTES / (1024 * 1024)
         )));
     }
-    // 🦀 Unique-enough multipart boundary from the wall clock; mime.rs itself stays clock-free.
+    // 🦀 A unique-enough multipart boundary from the wall clock; mime.rs itself stays clock-free.
+    //    The `ember_boundary_` prefix + standard base64's alphabet (which has no `_`) guarantees the
+    //    boundary string can never appear inside an encoded attachment body — so framing is safe.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
