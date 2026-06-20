@@ -122,9 +122,11 @@ impl CalendarClient {
         ev: &types::EventWrite,
         add_meet: bool,
     ) -> Result<CalendarEvent> {
+        // 🦀 Percent-encode the calendar id in the path — real ids contain '@'/'#' (same as list_events).
+        let cal = url::form_urlencoded::byte_serialize(calendar_id.as_bytes()).collect::<String>();
         let url = format!(
             "{}/calendar/v3/calendars/{}/events?conferenceDataVersion=1&sendUpdates=all",
-            self.base_url, calendar_id
+            self.base_url, cal
         );
         let mut body = event_body(ev);
         if add_meet {
