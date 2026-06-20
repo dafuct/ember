@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Flame } from "lucide-react";
 import "./styles/app.css";
 import {
-  archiveMessage,
+  batchModifyMessages,
   connectGmail,
   fetchFolder,
   fetchInboxPreview,
@@ -16,7 +16,6 @@ import {
   setMessageRead,
   setMessageStarred,
   syncInbox,
-  trashMessage,
   type MessagePreview,
   type Settings,
 } from "./lib/api";
@@ -34,6 +33,7 @@ import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
+import { UndoToast } from "./components/UndoToast";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { FolderRail } from "./components/FolderRail";
@@ -84,6 +84,11 @@ export default function App() {
   function seedKnown(list: MessagePreview[]) {
     for (const m of list) knownIdsRef.current.add(m.id);
   }
+
+  // M15 batch selection (over the active list) + a single-level undo for archive/trash.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [undo, setUndo] = useState<{ verb: string; count: number; onUndo: () => void } | null>(null);
+  const undoTimer = useRef<number | null>(null);
 
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
@@ -251,6 +256,55 @@ export default function App() {
     [activeList, activeSelectedId],
   );
 
+  const selectedMsgs = useMemo(
+    () => activeList.filter((m) => selectedIds.has(m.id)),
+    [activeList, selectedIds],
+  );
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+  function selectAllVisible(ids: string[]) {
+    setSelectedIds((prev) => {
+      const allSelected = ids.length > 0 && ids.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(ids);
+    });
+  }
+  function clearUndo() {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = null;
+    setUndo(null);
+  }
+  function registerUndo(
+    verb: string,
+    rows: MessagePreview[],
+    ids: string[],
+    inverse: { add: string[]; remove: string[] },
+  ) {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    const onUndo = () => {
+      clearUndo();
+      setActiveList((cur) => {
+        const have = new Set(cur.map((m) => m.id));
+        const merged = [...cur, ...rows.filter((r) => !have.has(r.id))];
+        merged.sort((a, b) => b.internal_date - a.internal_date);
+        return merged;
+      });
+      // Best-effort inverse: the rows are already restored client-side; if the server call
+      // fails we surface the error and let the next sync reconcile (no re-removal here).
+      batchModifyMessages(ids, inverse.add, inverse.remove).catch((e) => setError(String(e)));
+    };
+    setUndo({ verb, count: ids.length, onUndo });
+    undoTimer.current = window.setTimeout(() => setUndo(null), 6000);
+  }
+
   // Pick the row to select after the current one is removed (archive/trash): next visible, else
   // previous, else nothing. Inbox uses the stream ordering; search results are already a flat list.
   function nextSelectedId(removedId: string): string | null {
@@ -305,10 +359,73 @@ export default function App() {
     });
   }
 
+  // Optimistically remove `msgs` from the active list, batch-modify on the server, and
+  // register an Undo (inverse labels). Powers single (reading-pane) AND batch archive/trash.
+  function removeMessages(
+    msgs: MessagePreview[],
+    op: { add: string[]; remove: string[]; verb: string },
+  ) {
+    if (msgs.length === 0) return;
+    const ids = msgs.map((m) => m.id);
+    const idSet = new Set(ids);
+    const listSnap = activeList;
+    const selSnap = activeSelectedId;
+    setActiveList(listSnap.filter((m) => !idSet.has(m.id)));
+    if (activeSelectedId && idSet.has(activeSelectedId)) {
+      setActiveSelectedId(ids.length === 1 ? nextSelectedId(activeSelectedId) : null);
+    }
+    clearSelection();
+    setError(null);
+    batchModifyMessages(ids, op.add, op.remove)
+      .then(() => registerUndo(op.verb, msgs, ids, { add: op.remove, remove: op.add }))
+      .catch((e) => {
+        // On failure the rows + reading-pane cursor roll back, but the multi-select set
+        // stays cleared (a transient error is rare; re-select to retry). Deliberate v1.
+        setActiveList(listSnap);
+        setActiveSelectedId(selSnap);
+        setError(String(e));
+      });
+  }
+
   const handleArchive = (m: MessagePreview) =>
-    removeWithAction(m, () => archiveMessage(m.id));
+    removeMessages([m], { add: [], remove: ["INBOX"], verb: "Archived" });
   const handleTrash = (m: MessagePreview) =>
-    removeWithAction(m, () => trashMessage(m.id));
+    removeMessages([m], { add: ["TRASH"], remove: [], verb: "Trashed" });
+
+  const batchArchive = () =>
+    removeMessages(selectedMsgs, { add: [], remove: ["INBOX"], verb: "Archived" });
+  const batchTrash = () =>
+    removeMessages(selectedMsgs, { add: ["TRASH"], remove: [], verb: "Trashed" });
+
+  // Read/star: in-place label toggle, no undo toast (reversible via the row controls).
+  function batchMarkRead() {
+    const msgs = selectedMsgs;
+    if (msgs.length === 0) return;
+    const ids = msgs.map((m) => m.id);
+    const idSet = new Set(ids);
+    const snap = activeList;
+    setActiveList(snap.map((m) => (idSet.has(m.id) ? withLabel(m, UNREAD, false) : m)));
+    clearSelection();
+    setError(null);
+    batchModifyMessages(ids, [], ["UNREAD"]).catch((e) => {
+      setActiveList(snap);
+      setError(String(e));
+    });
+  }
+  function batchStar() {
+    const msgs = selectedMsgs;
+    if (msgs.length === 0) return;
+    const ids = msgs.map((m) => m.id);
+    const idSet = new Set(ids);
+    const snap = activeList;
+    setActiveList(snap.map((m) => (idSet.has(m.id) ? withLabel(m, STARRED, true) : m)));
+    clearSelection();
+    setError(null);
+    batchModifyMessages(ids, ["STARRED"], []).catch((e) => {
+      setActiveList(snap);
+      setError(String(e));
+    });
+  }
 
   function openNewCompose() {
     setCompose({
@@ -411,6 +528,8 @@ export default function App() {
   }
 
   async function handleSearch(q: string) {
+    clearSelection();
+    clearUndo();
     const query = q.trim();
     if (!query) return;
     setInSearch(true);
@@ -429,6 +548,8 @@ export default function App() {
   }
 
   function handleClearSearch() {
+    clearSelection();
+    clearUndo();
     setInSearch(false);
     setSearchResults([]);
     setSearchSelectedId(null);
@@ -437,6 +558,8 @@ export default function App() {
   }
 
   function handleSelectFolder(f: Folder) {
+    clearSelection();
+    clearUndo();
     // Switching mailbox leaves any active search; bumping the key refetches even on re-click.
     setInSearch(false);
     setSearchResults([]);
@@ -487,6 +610,8 @@ export default function App() {
         onSelectStream={(s) => {
           setStream(s);
           setSelectedId(null);
+          clearSelection();
+          clearUndo();
         }}
         onCompose={openNewCompose}
         onSettings={() => setSettingsOpen(true)}
@@ -519,6 +644,14 @@ export default function App() {
                 onSelect={handleRowSelect}
                 onArchive={handleArchive}
                 onStar={toggleStar}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onSelectAllVisible={selectAllVisible}
+                onClearSelection={clearSelection}
+                onBatchArchive={batchArchive}
+                onBatchTrash={batchTrash}
+                onBatchMarkRead={batchMarkRead}
+                onBatchStar={batchStar}
                 flat={inSearch || inFolder}
                 title={
                   inSearch
@@ -583,6 +716,14 @@ export default function App() {
             setSettingsOpen(false);
           }}
           onDisconnected={handleDisconnected}
+        />
+      )}
+      {undo && (
+        <UndoToast
+          verb={undo.verb}
+          count={undo.count}
+          onUndo={undo.onUndo}
+          onDismiss={clearUndo}
         />
       )}
     </div>
