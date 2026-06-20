@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { sendEmail, saveDraft, sendDraft, deleteDraft, type SendEmailPayload } from "../lib/api";
+import { sendEmail, saveDraft, sendDraft, deleteDraft, type SendEmailPayload, type ForwardedAttachmentRef } from "../lib/api";
 import { parseRecipients, isPlausibleEmail } from "../lib/compose";
 import { X, Paperclip } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -16,6 +16,8 @@ export interface ComposeInitial {
   references: string | null;
   threadId: string | null;
   draftId?: string | null; // set when editing an existing Gmail draft
+  mode?: "new" | "reply" | "replyAll" | "forward" | "draft"; // drives the title
+  forwardedAttachments?: ForwardedAttachmentRef[]; // original's attachments, for forward
 }
 
 export function ComposeModal({
@@ -40,11 +42,13 @@ export function ComposeModal({
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(initial.draftId ?? null);
   const [attachPaths, setAttachPaths] = useState<string[]>([]);
+  const [forwardedAtts, setForwardedAtts] = useState<ForwardedAttachmentRef[]>(initial.forwardedAttachments ?? []);
 
   // "Dirty" = worth offering to save. A brand-new compose holding only its seeded body
   // (signature) is not dirty; editing a draft is dirty as soon as the body changes.
   const dirty =
-    to.trim() !== "" || cc.trim() !== "" || subject.trim() !== "" || body !== initial.body || attachPaths.length > 0;
+    to.trim() !== "" || cc.trim() !== "" || subject.trim() !== "" || body !== initial.body ||
+    attachPaths.length > 0 || forwardedAtts.length > 0;
 
   function attemptClose() {
     if (dirty) setConfirmingClose(true);
@@ -60,7 +64,12 @@ export function ComposeModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, dirty]);
 
-  const title = draftId ? "Draft" : initial.threadId ? "Reply" : "New message";
+  const title =
+    initial.mode === "forward" ? "Forward"
+    : initial.mode === "replyAll" ? "Reply all"
+    : draftId ? "Draft"
+    : initial.threadId ? "Reply"
+    : "New message";
 
   function fields(): SendEmailPayload {
     return {
@@ -72,7 +81,7 @@ export function ComposeModal({
       references: initial.references,
       thread_id: initial.threadId,
       attachment_paths: attachPaths,
-      forwarded_attachments: [], // wired to forwarded-attachment chips in the compose-modes task
+      forwarded_attachments: forwardedAtts,
     };
   }
 
@@ -159,6 +168,10 @@ export function ComposeModal({
     setAttachPaths((p) => p.filter((x) => x !== path));
   }
 
+  function removeForwarded(attachmentId: string) {
+    setForwardedAtts((p) => p.filter((x) => x.attachment_id !== attachmentId));
+  }
+
   return (
     <div className="compose-overlay">
       <div
@@ -220,6 +233,19 @@ export function ComposeModal({
                 <Paperclip size={12} />
                 {basename(p)}
                 <button className="attach-remove" aria-label={`Remove ${basename(p)}`} onClick={() => removeAttach(p)} type="button">
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {forwardedAtts.length > 0 && (
+          <div className="attach-file-chips">
+            {forwardedAtts.map((fa) => (
+              <span key={fa.attachment_id} className="attach-file-chip">
+                <Paperclip size={12} />
+                {fa.filename}
+                <button className="attach-remove" aria-label={`Remove ${fa.filename}`} onClick={() => removeForwarded(fa.attachment_id)} type="button">
                   ×
                 </button>
               </span>
