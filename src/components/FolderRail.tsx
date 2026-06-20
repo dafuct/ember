@@ -1,9 +1,10 @@
-import { Inbox, Send, Star, Archive, Trash2, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Inbox, Send, FileEdit, Star, Archive, Trash2, ShieldAlert, type LucideIcon } from "lucide-react";
 import { FOLDERS, type Folder } from "../lib/folders";
 
 const ICON: Record<Folder, LucideIcon> = {
   inbox: Inbox,
   sent: Send,
+  drafts: FileEdit,
   starred: Star,
   archive: Archive,
   trash: Trash2,

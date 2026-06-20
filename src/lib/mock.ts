@@ -2,7 +2,7 @@
 // Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent } from "./api";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -86,7 +86,25 @@ export function mockFolder(folder: string): MessagePreview[] {
       return [base("d1", "Spammer <promo@deals.biz>", "you@example.com", "50% OFF!!!", "Trashed.")];
     case "spam":
       return [base("sp1", "Prince <prince@scam.test>", "you@example.com", "Urgent transfer", "Definitely spam.")];
+    case "drafts":
+      return [
+        { ...base("dm1", MOCK_ACCOUNT, "Maya <maya@studio.co>", "Re: Q3 roadmap", "Draft: I think we should…"), draft_id: "dr1" },
+        { ...base("dm2", MOCK_ACCOUNT, "", "(no recipient)", "Half-written idea…"), draft_id: "dr2" },
+      ];
     default:
       return [];
   }
+}
+
+/** Browser-maket: return editable content for a mock draft. */
+export function mockGetDraft(draftId: string): DraftContent {
+  if (draftId === "dr2") {
+    return { draft_id: "dr2", to: "", cc: "", subject: "", body: "Half-written idea…", in_reply_to: null, references: null, thread_id: null };
+  }
+  return { draft_id: "dr1", to: "Maya <maya@studio.co>", cc: "", subject: "Re: Q3 roadmap", body: "Draft: I think we should…", in_reply_to: null, references: null, thread_id: null };
+}
+
+/** Browser-maket: pretend a save succeeded, returning a stable fake draft id. */
+export function mockSaveDraft(): string {
+  return "dr-mock";
 }

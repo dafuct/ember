@@ -166,6 +166,7 @@ pub async fn fetch_inbox_preview(
             has_list_unsubscribe: m.has_list_unsubscribe,
             has_list_id: m.has_list_id,
             category: m.category,
+            draft_id: None,
         })
         .collect())
 }
@@ -399,8 +400,27 @@ pub async fn search_messages(query: String, max: u32) -> Result<Vec<MessagePrevi
 #[tauri::command]
 pub async fn fetch_folder(folder: String, max: u32) -> Result<Vec<MessagePreview>> {
     let max = max.clamp(1, SEARCH_MAX);
-    // 🦀 A match returning a tuple: each folder picks its (label, query, includeSpamTrash). The
-    //    annotation pins the element types so `None` is inferred as `Option<&str>`, not `Option<_>`.
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+
+    // Drafts have their own API (a draft id wraps a message id), so they can't go through
+    // the generic label/query path — fetch the (draft id, message id) pairs, hydrate the
+    // messages, then stamp each preview's draft_id so the editor can open it.
+    if folder == "drafts" {
+        let refs = client.list_drafts(max).await?;
+        let ids: Vec<String> = refs.iter().map(|d| d.message_id.clone()).collect();
+        let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
+        // 🦀 Build a message_id -> draft_id lookup, then stamp each hydrated preview.
+        let by_msg: std::collections::HashMap<&str, &str> =
+            refs.iter().map(|d| (d.message_id.as_str(), d.id.as_str())).collect();
+        for p in &mut previews {
+            p.draft_id = by_msg.get(p.id.as_str()).map(|s| s.to_string());
+        }
+        previews.sort_by_key(|p| std::cmp::Reverse(p.internal_date));
+        return Ok(previews);
+    }
+
+    // 🦀 A match returning a tuple: each folder picks its (label, query, includeSpamTrash).
     let (label, query, include_spam_trash): (Option<&str>, &str, bool) = match folder.as_str() {
         "sent" => (Some("SENT"), "", false),
         "starred" => (Some("STARRED"), "", false),
@@ -409,12 +429,71 @@ pub async fn fetch_folder(folder: String, max: u32) -> Result<Vec<MessagePreview
         "archive" => (None, "-in:inbox -in:sent -in:trash -in:spam", false),
         other => return Err(AppError::Other(format!("unknown folder: {other}"))),
     };
-    let stored = ensure_access_token().await?;
-    let client = GmailClient::new(stored.access_token);
     let ids = client.list_message_ids(label, query, max, include_spam_trash).await?;
     let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
     previews.sort_by_key(|p| std::cmp::Reverse(p.internal_date));
     Ok(previews)
+}
+
+/// Fetch one draft's editable content (DB-free). Used to open a draft in the compose editor.
+#[tauri::command]
+pub async fn get_draft(draft_id: String) -> Result<crate::gmail::types::DraftContent> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.get_draft(&draft_id).await
+}
+
+/// Create (when `draft_id` is None) or update an existing draft. Returns the draft id.
+/// DB-free. Reuses the M8 RFC822 builder. No recipient validation — drafts may be partial.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn save_draft(
+    draft_id: Option<String>,
+    to: Vec<String>,
+    cc: Vec<String>,
+    subject: String,
+    body: String,
+    in_reply_to: Option<String>,
+    references: Option<String>,
+    thread_id: Option<String>,
+) -> Result<String> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let msg = crate::mime::OutgoingMessage { from: stored.email, to, cc, subject, body, in_reply_to, references };
+    let raw = crate::mime::build_rfc822(&msg);
+    // 🦀 `match` on the Option: Some(id) updates that draft, None creates a fresh one.
+    match draft_id {
+        Some(id) => client.update_draft(&id, &raw, thread_id.as_deref()).await,
+        None => client.create_draft(&raw, thread_id.as_deref()).await,
+    }
+}
+
+/// Send an existing draft (applying the latest field edits). DB-free.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn send_draft(
+    draft_id: String,
+    to: Vec<String>,
+    cc: Vec<String>,
+    subject: String,
+    body: String,
+    in_reply_to: Option<String>,
+    references: Option<String>,
+    thread_id: Option<String>,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let msg = crate::mime::OutgoingMessage { from: stored.email, to, cc, subject, body, in_reply_to, references };
+    let raw = crate::mime::build_rfc822(&msg);
+    client.send_draft(&draft_id, &raw, thread_id.as_deref()).await
+}
+
+/// Permanently delete a draft. DB-free.
+#[tauri::command]
+pub async fn delete_draft(draft_id: String) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.delete_draft(&draft_id).await
 }
 
 /// Restore a trashed message (untrash). DB-free — the Trash folder isn't cached.
@@ -547,6 +626,7 @@ mod tests {
             has_list_unsubscribe: lu,
             has_list_id: false,
             category: String::new(),
+            draft_id: None,
         }
     }
 

@@ -119,6 +119,11 @@ pub struct MessagePreview {
     pub has_list_id: bool,
     /// Filled by the scorer at sync time (empty on the raw Gmail-fetch path).
     pub category: String,
+    /// Set only on the drafts-fetch path (a draft id wraps a message id); `None` elsewhere.
+    // 🦀 `skip_serializing_if` omits the key from JSON when None, so the frontend sees
+    //    `undefined` (matching `draft_id?: string`) rather than an explicit `null`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<String>,
 }
 
 // 🦀 `format=full` response — wraps the top-level MIME part.
@@ -158,6 +163,29 @@ pub struct ReplyContext {
     pub message_id: String,
     pub references: String,
     pub quoted_text: String,
+}
+
+/// A draft reference: the draft's own id plus the id of its underlying message
+/// (drafts and messages have *different* ids; editing/sending needs the draft id).
+// 🦀 A plain struct we build by hand from Gmail's nested JSON — not `Deserialize`,
+//    because the wire shape nests the message id one level down (mapped in mod.rs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DraftRef {
+    pub id: String,
+    pub message_id: String,
+}
+
+/// One draft's editable content, sent to the frontend to seed the compose editor.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct DraftContent {
+    pub draft_id: String,
+    pub to: String,
+    pub cc: String,
+    pub subject: String,
+    pub body: String,
+    pub in_reply_to: Option<String>,
+    pub references: Option<String>,
+    pub thread_id: Option<String>,
 }
 
 /// The subset of the `users.messages.modify` response we use: the id and the
