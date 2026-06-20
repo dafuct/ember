@@ -374,9 +374,9 @@ export default function App() {
     }
   }
 
-  // Row click: in the Drafts folder, open the editor; everywhere else, normal select.
+  // Row click: in the Drafts folder (and not searching), open the editor; otherwise normal select.
   function handleRowSelect(id: string) {
-    if (folder === "drafts") {
+    if (!inSearch && folder === "drafts") {
       const m = activeList.find((x) => x.id === id);
       if (m) void handleOpenDraft(m);
     } else {
