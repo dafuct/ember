@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { setSettings, disconnect, type Settings } from "../lib/api";
+import { ensureNotificationPermission } from "../lib/notify";
+import { isTauri } from "@tauri-apps/api/core";
 import { useTheme, type Theme } from "../theme";
 import { X } from "lucide-react";
 
@@ -19,6 +21,8 @@ export function SettingsModal({
   const { theme, setTheme } = useTheme();
   const [signature, setSignature] = useState(initial.signature);
   const [remoteImages, setRemoteImages] = useState(initial.remote_images);
+  const [notifications, setNotifications] = useState(initial.notifications);
+  const [permBlocked, setPermBlocked] = useState(false);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export function SettingsModal({
   }, [onClose]);
 
   async function handleSave() {
-    const next: Settings = { signature, remote_images: remoteImages };
+    const next: Settings = { signature, remote_images: remoteImages, notifications };
     setBusy(true);
     setError(null);
     try {
@@ -104,6 +108,30 @@ export function SettingsModal({
               onChange={(e) => setRemoteImages(e.target.checked)}
             />
             <span>{remoteImages ? "Load automatically" : "Blocked"}</span>
+          </label>
+        </div>
+
+        <div className="settings-row">
+          <span className="settings-label">New-mail notifications</span>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={notifications}
+              onChange={async (e) => {
+                const on = e.target.checked;
+                setNotifications(on);
+                if (on) {
+                  // Request OS permission immediately. A `false` result inside Tauri means
+                  // the user denied it at the OS level; reflect that in the toggle. Outside
+                  // Tauri (browser maket) the helper always returns false — not a denial.
+                  const ok = await ensureNotificationPermission();
+                  setPermBlocked(isTauri() && !ok);
+                } else {
+                  setPermBlocked(false);
+                }
+              }}
+            />
+            <span>{notifications ? (permBlocked ? "On — blocked in System Settings" : "On") : "Off"}</span>
           </label>
         </div>
 

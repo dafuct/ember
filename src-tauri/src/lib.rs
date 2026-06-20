@@ -73,6 +73,10 @@ pub fn run() {
     //    Rust async fns as IPC handlers.  After this, the JS frontend can call
     //    `invoke("connect_gmail")` and Tauri will route it to `commands::connect_gmail`.
     tauri::Builder::default()
+        // 🦀 `.plugin(...)` registers a Tauri plugin's commands + setup on the builder.
+        //    `tauri_plugin_notification::init()` returns the plugin value; the JS side
+        //    reaches it through `@tauri-apps/plugin-notification`.
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // 🦀 The setup hook runs once at startup with the App handle. `app.path()`
             //    (Manager trait) resolves OS-standard dirs; on macOS app_data_dir is

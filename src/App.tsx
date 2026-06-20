@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Flame } from "lucide-react";
 import "./styles/app.css";
 import {
@@ -21,8 +21,11 @@ import {
 } from "./lib/api";
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
+import { pickNewMail, notifyNewMail, ensureNotificationPermission } from "./lib/notify";
 import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
 import { isTauri } from "@tauri-apps/api/core";
+import { onAction } from "@tauri-apps/plugin-notification";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
 import { CalendarView } from "./components/CalendarView";
 import type { View } from "./components/Header";
@@ -35,6 +38,10 @@ import { SplitView } from "./components/SplitView";
 import { FolderRail } from "./components/FolderRail";
 import { FOLDERS, type Folder } from "./lib/folders";
 
+// M13 new-mail notifications.
+const POLL_MS = 60_000; // background sync cadence while the app is open
+const MAX_NOTIFY_PER_SYNC = 5; // cap banners per cycle so a backlog can't flood
+
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessagePreview[]>([]);
@@ -44,7 +51,7 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
-  const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true });
+  const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
   // M10: top-level Mail/Calendar view. Default to Calendar in browser mock mode so the
   // maket shows immediately; the Tauri app opens on Mail.
@@ -67,6 +74,15 @@ export default function App() {
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderReloadKey, setFolderReloadKey] = useState(0);
   const inFolder = folder !== "inbox";
+
+  // M13: track inbox ids we've already seen so only genuinely-new mail notifies.
+  const syncingRef = useRef(false); // guards against overlapping syncs
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const notifyAllowedRef = useRef(false); // OS permission granted AND feature enabled
+  const lastNotifiedIdRef = useRef<string | null>(null); // newest notified id (opened on banner click, next task)
+  function seedKnown(list: MessagePreview[]) {
+    for (const m of list) knownIdsRef.current.add(m.id);
+  }
 
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
@@ -98,7 +114,10 @@ export default function App() {
       .then(setAccount)
       .catch(() => setAccount(null));
     fetchInboxPreview(50)
-      .then(setMessages)
+      .then((list) => {
+        setMessages(list);
+        seedKnown(list); // baseline: mail already present at launch never notifies
+      })
       .catch(() => {});
     getSettings()
       .then(setSettings)
@@ -116,13 +135,53 @@ export default function App() {
       setStatus("Syncing your inbox…");
       const s = await syncInbox();
       setStatus(`${s.added} new, ${s.removed} removed`);
-      setMessages(await fetchInboxPreview(50));
+      const list = await fetchInboxPreview(50);
+      setMessages(list);
+      seedKnown(list);
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
+
+  // Resolve OS notification permission once per session and whenever notifications are
+  // switched on. Stored in a ref so runSync can read it without re-rendering.
+  useEffect(() => {
+    if (!account || !settings.notifications) {
+      notifyAllowedRef.current = false;
+      return;
+    }
+    ensureNotificationPermission().then((ok) => {
+      notifyAllowedRef.current = ok;
+    });
+  }, [account, settings.notifications]);
+
+  // Background poll: sync every POLL_MS while connected with notifications on. Tearing
+  // down on dep change means disconnect / toggle-off / unmount all stop the timer.
+  useEffect(() => {
+    if (!account || !settings.notifications) return;
+    const id = setInterval(() => void runSyncRef.current(false), POLL_MS);
+    return () => clearInterval(id);
+  }, [account, settings.notifications]);
+
+  // M13: when the user clicks a banner, foreground Ember and open the most-recently
+  // notified message. onAction fires for a notification tap/action on desktop.
+  useEffect(() => {
+    if (!isTauri()) return;
+    // onAction resolves to a PluginListener; clean up via its unregister() method.
+    let listener: Awaited<ReturnType<typeof onAction>> | undefined;
+    onAction(() => {
+      void getCurrentWindow().setFocus();
+      const id = lastNotifiedIdRef.current;
+      if (id) openMessageFromNotification(id);
+    })
+      .then((un) => {
+        listener = un;
+      })
+      .catch((e) => console.warn("[ember] onAction subscribe failed:", e));
+    return () => void listener?.unregister();
+  }, []);
 
   function handleDisconnected() {
     // Called by SettingsModal after the disconnect command succeeds.
@@ -136,20 +195,48 @@ export default function App() {
     setError(null);
   }
 
-  async function handleSync() {
-    setBusy(true);
-    setError(null);
-    setStatus(null);
+  // Shared sync path. surfaceErrors=true (manual Sync button): drive busy/status and
+  // show failures in the error bar. surfaceErrors=false (background timer): stay silent
+  // — a transient failure must NOT flash the error bar every POLL_MS. Guarded so a slow
+  // sync is never overlapped by the next tick.
+  async function runSync(surfaceErrors: boolean) {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    if (surfaceErrors) {
+      setBusy(true);
+      setError(null);
+      setStatus(null);
+    }
     try {
       const s = await syncInbox();
-      setStatus(`${s.added} new, ${s.removed} removed`);
-      setMessages(await fetchInboxPreview(50));
+      const list = await fetchInboxPreview(50);
+      setMessages(list);
+      if (surfaceErrors) setStatus(`${s.added} new, ${s.removed} removed`);
+
+      // New-mail notifications: one banner per fresh id (newest-first, capped) when the
+      // window is unfocused. Always fold the current ids into `known` afterward so a
+      // message never notifies twice. Manual syncs are naturally silent (window focused).
+      const fresh = pickNewMail(knownIdsRef.current, list, MAX_NOTIFY_PER_SYNC);
+      for (const m of list) knownIdsRef.current.add(m.id);
+      if (fresh.length && notifyAllowedRef.current && !document.hasFocus()) {
+        lastNotifiedIdRef.current = fresh[0].id; // newest — opened on banner click (next task)
+        for (const m of fresh) void notifyNewMail(m);
+      }
     } catch (e) {
-      setError(String(e));
+      if (surfaceErrors) setError(String(e));
+      else console.warn("[ember] background sync failed:", e);
     } finally {
-      setBusy(false);
+      syncingRef.current = false;
+      if (surfaceErrors) setBusy(false);
     }
   }
+
+  const handleSync = () => runSync(true);
+
+  // Live ref to runSync so the interval always calls the latest closure without
+  // re-subscribing the timer on every render.
+  const runSyncRef = useRef(runSync);
+  runSyncRef.current = runSync;
 
   // Active list: search results > a live folder > the cached inbox. All selection + action
   // handlers operate on it, so they work identically across inbox, search, and folders.
@@ -260,6 +347,32 @@ export default function App() {
     setActiveSelectedId(id);
     const m = activeList.find((x) => x.id === id);
     if (m && isUnread(m)) toggleRead(m, true);
+  }
+
+  // Open a specific inbox message (used when a notification banner is clicked): leave
+  // search/folder, return to the smart inbox, select it, and mark it read — mirroring
+  // handleSelect. It's normally already in `messages` because the sync that notified just
+  // refreshed the list.
+  function openMessageFromNotification(id: string) {
+    setView("mail");
+    setInSearch(false);
+    setSearchResults([]);
+    setSearchQuery("");
+    setSearchSelectedId(null);
+    setFolder("inbox");
+    setFolderSelectedId(null);
+    setStream("all");
+    setSelectedId(id);
+    // Mark read optimistically against `messages` directly: the view resets above are
+    // batched and haven't flushed, so the derived activeList still points at the previous
+    // mode. Roll back on failure, like toggleRead/withActiveRollback.
+    const m = messages.find((x) => x.id === id);
+    if (m && isUnread(m)) {
+      setMessages((prev) => prev.map((x) => (x.id === id ? withLabel(x, UNREAD, false) : x)));
+      void setMessageRead(id, true).catch(() =>
+        setMessages((prev) => prev.map((x) => (x.id === id ? withLabel(x, UNREAD, true) : x))),
+      );
+    }
   }
 
   async function handleSearch(q: string) {
