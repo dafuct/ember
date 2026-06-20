@@ -658,3 +658,23 @@ async fn delete_draft_issues_delete() {
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     client.delete_draft("dr1").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn batch_modify_posts_ids_and_labels() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/batchModify"))
+        .and(body_json(json!({
+            "ids": ["a", "b"],
+            "addLabelIds": ["TRASH"],
+            "removeLabelIds": []
+        })))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client
+        .batch_modify(&["a".to_string(), "b".to_string()], &["TRASH"], &[])
+        .await
+        .unwrap();
+}
