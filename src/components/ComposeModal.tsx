@@ -182,6 +182,9 @@ export function ComposeModal({
         {confirmingClose ? (
           <div className="compose-actions">
             <span className="settings-label">Save this draft before closing?</span>
+            <button className="btn" onClick={() => setConfirmingClose(false)} disabled={busy}>
+              Keep editing
+            </button>
             <button className="btn" onClick={onClose} disabled={busy}>
               Discard
             </button>
