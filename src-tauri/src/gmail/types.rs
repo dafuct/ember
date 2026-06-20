@@ -143,6 +143,9 @@ pub struct MessagePart {
     // 🦀 `format=full` includes the part's headers; `default` → empty Vec when absent.
     #[serde(default)]
     pub headers: Vec<Header>,
+    // 🦀 Non-empty only on attachment parts (the download filename); `default` → "".
+    #[serde(default)]
+    pub filename: String,
     #[serde(default)]
     pub body: PartBody,
     #[serde(default)]
@@ -150,11 +153,18 @@ pub struct MessagePart {
 }
 
 // 🦀 `Default` lets `#[serde(default)]` on the parent field create an empty
-//    `PartBody { data: "" }` when the JSON has no `"body"` key.
+//    `PartBody` when the JSON has no `"body"` key.
 #[derive(Debug, Default, Deserialize)]
 pub struct PartBody {
     #[serde(default)]
     pub data: String,
+    // 🦀 Attachment parts carry a separate handle instead of inline `data`. `Option`
+    //    because text/html parts have none. rename: Gmail's JSON key is camelCase.
+    #[serde(rename = "attachmentId", default)]
+    pub attachment_id: Option<String>,
+    // 🦀 Byte size of the part's content; `default` → 0 when Gmail omits it.
+    #[serde(default)]
+    pub size: i64,
 }
 
 /// What a reply needs from the original message: threading headers + the quoted text.
@@ -217,4 +227,15 @@ pub struct LabelColor {
     pub text: String,
     #[serde(rename = "backgroundColor", default)]
     pub background: String,
+}
+
+/// One attachment on a received message: enough to list it and fetch its bytes.
+// 🦀 `Serialize` (not `Deserialize`) — Tauri hands it to the frontend as JSON; we build
+//    it by hand from the MIME walk, not from a single wire shape.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AttachmentMeta {
+    pub filename: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub attachment_id: String,
 }

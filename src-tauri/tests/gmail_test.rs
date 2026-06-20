@@ -710,3 +710,82 @@ async fn create_label_posts_name_and_parses_result() {
     assert_eq!(label.name, "Receipts");
     assert!(label.color.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_body_enumerates_attachments() {
+    let server = MockServer::start().await;
+    let text = "See attached.";
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m3"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m3",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [
+                    { "mimeType": "text/plain", "body": { "data": b64url(text) } },
+                    {
+                        "mimeType": "application/pdf",
+                        "filename": "report.pdf",
+                        "body": { "attachmentId": "att1", "size": 1024 }
+                    }
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let body = client.get_message_body("m3").await.unwrap();
+    // text body still extracted, and the attachment part is enumerated (text part is not)
+    assert_eq!(body.text.as_deref(), Some(text));
+    assert_eq!(body.attachments.len(), 1);
+    let a = &body.attachments[0];
+    assert_eq!(a.filename, "report.pdf");
+    assert_eq!(a.mime_type, "application/pdf");
+    assert_eq!(a.size, 1024);
+    assert_eq!(a.attachment_id, "att1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_message_body_skips_filename_parts_without_attachment_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m4"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m4",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [
+                    // 🦀 An inline small "attachment": has a filename but Gmail put the
+                    //    content in `data` with NO attachmentId — must be skipped.
+                    { "mimeType": "image/png", "filename": "inline.png", "body": { "data": b64url("notreal") } },
+                    // A real attachment (filename + attachmentId) — must be enumerated.
+                    { "mimeType": "application/pdf", "filename": "real.pdf", "body": { "attachmentId": "att9", "size": 42 } }
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let body = client.get_message_body("m4").await.unwrap();
+    // Only the part WITH an attachmentId is enumerated.
+    assert_eq!(body.attachments.len(), 1);
+    assert_eq!(body.attachments[0].filename, "real.pdf");
+    assert_eq!(body.attachments[0].attachment_id, "att9");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_attachment_decodes_base64url_bytes() {
+    let server = MockServer::start().await;
+    let payload = "PDF-BYTES-HERE";
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m3/attachments/att1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "size": payload.len(),
+            "data": b64url(payload)
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let bytes = client.get_attachment("m3", "att1").await.unwrap();
+    assert_eq!(bytes, payload.as_bytes());
+}

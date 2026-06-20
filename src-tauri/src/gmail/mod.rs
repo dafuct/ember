@@ -4,12 +4,12 @@ pub mod types;
 
 use std::collections::HashMap;
 use types::{
-    FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart, MessagePreview,
-    ModifiedMessage, Profile, RawMessage, ReplyContext,
+    AttachmentMeta, FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart,
+    MessagePreview, ModifiedMessage, Profile, RawMessage, ReplyContext,
 };
 use types::{DraftContent, DraftRef};
 
-use crate::error::Result;
+use crate::error::{AppError, Result};
 
 const DEFAULT_BASE: &str = "https://gmail.googleapis.com";
 
@@ -38,15 +38,13 @@ pub struct HistoryDelta {
 pub struct RawBody {
     pub html: Option<String>,
     pub text: Option<String>,
+    // 🦀 Attachments found on the message (metadata only — bytes fetched on demand).
+    pub attachments: Vec<AttachmentMeta>,
 }
 
-// 🦀 base64url-decode a part's data into a String. `URL_SAFE_NO_PAD` is the web-safe
-//    base64 variant Gmail uses ('+' → '-', '/' → '_', no '=' padding).
-//    `Engine` is a trait from the `base64` crate — `.decode()` lives on the engine,
-//    so we `use base64::Engine` to bring the trait method into scope.
-//    `from_utf8_lossy` turns the byte vec into a String, replacing any invalid UTF-8
-//    sequences with the U+FFFD replacement character so we never panic.
-fn decode_b64url(data: &str) -> Option<String> {
+// 🦀 base64url-decode to raw BYTES (attachments are binary). `URL_SAFE_NO_PAD` is the
+//    web-safe base64 variant Gmail uses. Returns None on empty/invalid input.
+fn decode_b64url_bytes(data: &str) -> Option<Vec<u8>> {
     if data.is_empty() {
         return None;
     }
@@ -54,7 +52,12 @@ fn decode_b64url(data: &str) -> Option<String> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(data.trim().trim_end_matches('='))
         .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+// 🦀 Text parts decode to a String: bytes first, then lossily interpret as UTF-8 so
+//    invalid sequences become U+FFFD rather than panicking.
+fn decode_b64url(data: &str) -> Option<String> {
+    decode_b64url_bytes(data).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 // 🦀 Recursive tree walk: `&mut Option<String>` are *out-params* — the caller passes
@@ -69,6 +72,28 @@ fn collect_body(part: &MessagePart, html: &mut Option<String>, text: &mut Option
     }
     for child in &part.parts {
         collect_body(child, html, text);
+    }
+}
+
+// 🦀 Sibling of `collect_body`: a recursive MIME walk gathering attachment parts.
+//    A part is an attachment when it has a non-empty `filename` AND an `attachmentId`
+//    (the handle for fetching its bytes separately). `out` is an out-param Vec to push into.
+//    Parts with a filename but NO `attachmentId` are intentionally skipped — Gmail inlines
+//    small attachments that way (body.data holds the bytes directly); fetching them requires
+//    no separate handle and is out of M17 scope.
+fn collect_attachments(part: &MessagePart, out: &mut Vec<AttachmentMeta>) {
+    if !part.filename.is_empty() {
+        if let Some(id) = &part.body.attachment_id {
+            out.push(AttachmentMeta {
+                filename: part.filename.clone(),
+                mime_type: part.mime_type.clone(),
+                size: part.body.size,
+                attachment_id: id.clone(),
+            });
+        }
+    }
+    for child in &part.parts {
+        collect_attachments(child, out);
     }
 }
 
@@ -459,7 +484,24 @@ impl GmailClient {
         let mut html = None;
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
-        Ok(RawBody { html, text })
+        // 🦀 The same payload also yields the attachment list — no extra round-trip.
+        let mut attachments = Vec::new();
+        collect_attachments(&full.payload, &mut attachments);
+        Ok(RawBody { html, text, attachments })
+    }
+
+    /// Fetch one attachment's raw bytes. Gmail returns base64url `data` from a separate
+    /// `messages/{id}/attachments/{attachmentId}` endpoint (the message payload carries only
+    /// the handle). Returns the decoded bytes ready to write to disk.
+    pub async fn get_attachment(&self, message_id: &str, attachment_id: &str) -> Result<Vec<u8>> {
+        let url = format!(
+            "{}/gmail/v1/users/me/messages/{}/attachments/{}",
+            self.base_url, message_id, attachment_id
+        );
+        let resp: AttachmentResponse = self.get_json(&url).await?;
+        // 🦀 `ok_or_else` turns Option→Result, raising our AppError when the data was empty/invalid.
+        decode_b64url_bytes(&resp.data)
+            .ok_or_else(|| AppError::Other("attachment data was empty or not valid base64url".into()))
     }
 
     /// Fetch what a reply needs: the original's `Message-ID` + `References` headers (for
@@ -730,6 +772,13 @@ struct DraftWriteMessage<'a> {
 #[derive(serde::Deserialize)]
 struct DraftIdResponse {
     id: String,
+}
+
+// 🦀 users.messages.attachments.get response: { size, data (base64url) }. We only need `data`.
+#[derive(serde::Deserialize)]
+struct AttachmentResponse {
+    #[serde(default)]
+    data: String,
 }
 
 // 🦀 drafts.list shape: a list of { id (draft), message: { id (message) } }.

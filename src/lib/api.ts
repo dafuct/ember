@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody } from "./mock";
 
 export type { CalendarEvent };
 
@@ -49,17 +49,34 @@ export interface SyncSummary {
 export const syncInbox = (): Promise<SyncSummary> =>
   isTauri() ? invoke<SyncSummary>("sync_inbox") : Promise.resolve(MOCK_SYNC);
 
+export interface Attachment {
+  filename: string;
+  mime_type: string;
+  size: number;
+  attachment_id: string;
+}
+
 export interface MessageBody {
   html: string;
   is_html: boolean;
   blocked_images: boolean;
+  attachments: Attachment[];
 }
 
 export const fetchMessageBody = (
   id: string,
   loadImages = false,
 ): Promise<MessageBody> =>
-  invoke<MessageBody>("fetch_message_body", { id, loadImages });
+  isTauri()
+    ? invoke<MessageBody>("fetch_message_body", { id, loadImages })
+    : Promise.resolve(mockMessageBody(id));
+
+export const downloadAttachment = (
+  messageId: string,
+  attachmentId: string,
+  destPath: string,
+): Promise<void> =>
+  invoke<void>("download_attachment", { messageId, attachmentId, destPath });
 
 export const setMessageRead = (id: string, read: boolean): Promise<void> =>
   invoke<void>("set_message_read", { id, read });
@@ -87,6 +104,7 @@ export interface SendEmailPayload {
   in_reply_to: string | null;
   references: string | null;
   thread_id: string | null;
+  attachment_paths: string[];
 }
 
 export const sendEmail = (p: SendEmailPayload): Promise<void> =>
@@ -98,6 +116,7 @@ export const sendEmail = (p: SendEmailPayload): Promise<void> =>
     inReplyTo: p.in_reply_to,
     references: p.references,
     threadId: p.thread_id,
+    attachmentPaths: p.attachment_paths,
   });
 
 export const getReplyContext = (id: string): Promise<ReplyContext> =>

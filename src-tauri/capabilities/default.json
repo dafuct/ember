@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-focus",
-    "notification:default"
+    "notification:default",
+    "dialog:default"
   ]
 }

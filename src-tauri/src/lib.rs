@@ -77,6 +77,7 @@ pub fn run() {
         //    `tauri_plugin_notification::init()` returns the plugin value; the JS side
         //    reaches it through `@tauri-apps/plugin-notification`.
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // 🦀 The setup hook runs once at startup with the App handle. `app.path()`
             //    (Manager trait) resolves OS-standard dirs; on macOS app_data_dir is
@@ -96,6 +97,7 @@ pub fn run() {
             commands::fetch_inbox_preview,
             commands::sync_inbox,
             commands::fetch_message_body,
+            commands::download_attachment,
             commands::set_message_read,
             commands::set_message_starred,
             commands::batch_modify_messages,

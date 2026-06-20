@@ -2,7 +2,7 @@
 // Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent, Label } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment } from "./api";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -117,4 +117,26 @@ export const MOCK_LABELS: Label[] = [
 /** Browser-maket: messages "in" a label = the mock messages carrying that label id. */
 export function mockFetchLabel(labelId: string): MessagePreview[] {
   return MOCK_MESSAGES.filter((m) => m.label_ids.includes(labelId));
+}
+
+/** Browser-maket: a message body, with attachments on m1 so the strip is demoable. */
+export function mockMessageBody(id: string): MessageBody {
+  const attachments: Attachment[] =
+    id === "m1"
+      ? [
+          { filename: "Q3-roadmap.pdf", mime_type: "application/pdf", size: 248000, attachment_id: "att1" },
+          { filename: "budget.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 18500, attachment_id: "att2" },
+        ]
+      : [];
+  return {
+    html: `<p style="font-family:system-ui">(mock body for ${id})</p>`,
+    is_html: true,
+    blocked_images: false,
+    attachments,
+  };
+}
+
+/** Browser-maket: pretend the user picked a file so the compose chips are demoable. */
+export function mockPickFiles(): string[] {
+  return ["/Users/you/Documents/proposal.pdf"];
 }

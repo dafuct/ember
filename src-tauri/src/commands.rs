@@ -216,12 +216,14 @@ fn now_secs() -> u64 {
 }
 
 // 🦀 The body payload sent to the frontend. `is_html` tells the UI whether to render
-//    `html` as sanitized HTML (in a sandboxed iframe) or as plain text.
+//    `html` as sanitized HTML (sandboxed iframe) or as plain text.
 #[derive(serde::Serialize)]
 pub struct MessageBody {
     pub html: String,
     pub is_html: bool,
     pub blocked_images: bool,
+    // 🦀 Attachment metadata for the reading-pane strip (bytes fetched on click). Empty when none.
+    pub attachments: Vec<crate::gmail::types::AttachmentMeta>,
 }
 
 /// Fetch one message's body and sanitize it. With `load_images = false`, remote images
@@ -240,14 +242,35 @@ pub async fn fetch_message_body(id: String, load_images: bool) -> Result<Message
     //    Option and binds the inner String in one move.
     if let Some(html) = raw.html {
         let (clean, blocked) = sanitize_html(&html, load_images);
-        Ok(MessageBody { html: clean, is_html: true, blocked_images: blocked })
+        Ok(MessageBody { html: clean, is_html: true, blocked_images: blocked, attachments: raw.attachments })
     } else {
         Ok(MessageBody {
             html: raw.text.unwrap_or_default(),
             is_html: false,
             blocked_images: false,
+            attachments: raw.attachments,
         })
     }
+}
+
+/// Download one attachment to a path the user chose (via the frontend Save dialog).
+/// DB-free: fetch the bytes from Gmail, then write them with std::fs.
+// 🦀 `dest_path` arrives from JS (the native save-dialog result). The byte WRITE happens
+//    here in Rust — Tauri commands have full OS access — so no `fs` capability is needed.
+#[tauri::command]
+pub async fn download_attachment(
+    message_id: String,
+    attachment_id: String,
+    dest_path: String,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let bytes = client.get_attachment(&message_id, &attachment_id).await?;
+    // 🦀 `map_err` converts the std::io::Error into our AppError so `?` can propagate it
+    //    (io::Error has no `#[from]` impl on AppError, unlike reqwest/keyring/rusqlite).
+    std::fs::write(&dest_path, &bytes)
+        .map_err(|e| AppError::Other(format!("could not save attachment: {e}")))?;
+    Ok(())
 }
 
 // 🦀 Shared core for the label-toggle actions (read/star). `present` decides whether
@@ -336,9 +359,12 @@ pub async fn batch_modify_messages(
     Ok(())
 }
 
-/// Build an RFC822 message from the compose fields and send it via Gmail. DB-free —
-/// sent mail lands in Gmail's Sent folder, which Ember does not cache.
+/// Send a plain-text message, optionally with file attachments. With no attachments this
+/// is the original single-part path; with attachments it builds a multipart/mixed message.
+// 🦀 `#[allow(clippy::too_many_arguments)]` — these flat args mirror the JS `invoke` payload;
+//    a shared `OutgoingFields` struct is a noted follow-up (kept out of M17 to stay focused).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn send_email(
     to: Vec<String>,
     cc: Vec<String>,
@@ -347,10 +373,9 @@ pub async fn send_email(
     in_reply_to: Option<String>,
     references: Option<String>,
     thread_id: Option<String>,
+    attachment_paths: Vec<String>,
 ) -> Result<()> {
     let stored = ensure_access_token().await?;
-    // 🦀 Partial move: `access_token` moves into the client, then `email` moves into the
-    //    message — Rust allows moving distinct fields out of `stored` separately.
     let client = GmailClient::new(stored.access_token);
     let msg = crate::mime::OutgoingMessage {
         from: stored.email,
@@ -361,8 +386,44 @@ pub async fn send_email(
         in_reply_to,
         references,
     };
-    let raw = crate::mime::build_rfc822(&msg);
-    // 🦀 `Option<String>::as_deref()` → `Option<&str>` to match send_message's signature.
+    // 🦀 No files → the unchanged single-part path. `return` short-circuits before any file I/O.
+    if attachment_paths.is_empty() {
+        let raw = crate::mime::build_rfc822(&msg);
+        return client.send_message(&raw, thread_id.as_deref()).await;
+    }
+    // 🦀 Read each picked file into memory, tagging it with a best-effort MIME type.
+    let mut attachments = Vec::new();
+    let mut total = 0usize;
+    for path in &attachment_paths {
+        let bytes = std::fs::read(path)
+            .map_err(|e| AppError::Other(format!("could not read attachment {path}: {e}")))?;
+        // 🦀 `saturating_add` clamps at usize::MAX instead of wrapping, so the cap check
+        //    below stays a true guarantee even on a (hypothetical) 32-bit target.
+        total = total.saturating_add(bytes.len());
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("attachment")
+            .to_string();
+        let mime_type = crate::mime::mime_for_ext(&filename).to_string();
+        attachments.push(crate::mime::OutgoingAttachment { filename, mime_type, bytes });
+    }
+    // 🦀 Reject oversized payloads before base64 inflation pushes us past the send ceiling.
+    if total > crate::mime::MAX_ATTACHMENT_BYTES {
+        return Err(AppError::Other(format!(
+            "attachments total {total} bytes exceed the {} MB limit",
+            crate::mime::MAX_ATTACHMENT_BYTES / (1024 * 1024)
+        )));
+    }
+    // 🦀 A unique-enough multipart boundary from the wall clock; mime.rs itself stays clock-free.
+    //    The `ember_boundary_` prefix + standard base64's alphabet (which has no `_`) guarantees the
+    //    boundary string can never appear inside an encoded attachment body — so framing is safe.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let boundary = format!("ember_boundary_{nanos}");
+    let raw = crate::mime::build_multipart_rfc822(&msg, &attachments, &boundary);
     client.send_message(&raw, thread_id.as_deref()).await
 }
 

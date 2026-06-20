@@ -297,3 +297,55 @@
 
 .rail-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 12px 12px 4px; }
 .rail-label-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); display: inline-block; }
+
+.attachments-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.attach-chip:hover { border-color: var(--accent); }
+.attach-name { font-weight: 500; }
+.attach-size { color: var(--text-muted); }
+.attach-status { color: var(--accent); }
+
+.attach-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.attach-hint { font-size: 11px; color: var(--text-muted); }
+.attach-file-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 4px; }
+.attach-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.attach-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.attach-remove:hover { color: var(--danger, #c0392b); }

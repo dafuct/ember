@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { sendEmail, saveDraft, sendDraft, deleteDraft, type SendEmailPayload } from "../lib/api";
 import { parseRecipients, isPlausibleEmail } from "../lib/compose";
-import { X } from "lucide-react";
+import { X, Paperclip } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
+import { basename } from "../lib/attachments";
+import { mockPickFiles } from "../lib/mock";
 
 export interface ComposeInitial {
   to: string; // comma-separated text (prefilled for reply)
@@ -35,11 +39,12 @@ export function ComposeModal({
   const [busy, setBusy] = useState(false); // save/discard in flight
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(initial.draftId ?? null);
+  const [attachPaths, setAttachPaths] = useState<string[]>([]);
 
   // "Dirty" = worth offering to save. A brand-new compose holding only its seeded body
   // (signature) is not dirty; editing a draft is dirty as soon as the body changes.
   const dirty =
-    to.trim() !== "" || cc.trim() !== "" || subject.trim() !== "" || body !== initial.body;
+    to.trim() !== "" || cc.trim() !== "" || subject.trim() !== "" || body !== initial.body || attachPaths.length > 0;
 
   function attemptClose() {
     if (dirty) setConfirmingClose(true);
@@ -66,6 +71,7 @@ export function ComposeModal({
       in_reply_to: initial.inReplyTo,
       references: initial.references,
       thread_id: initial.threadId,
+      attachment_paths: attachPaths,
     };
   }
 
@@ -91,7 +97,11 @@ export function ComposeModal({
         const id = await saveDraft({ ...f, draft_id: draftId });
         setDraftId(id);
         onDraftsChanged?.();
-        setError(`Couldn't send (${String(e)}). Saved to Drafts — retry from there.`);
+        setError(
+          attachPaths.length > 0
+            ? `Couldn't send (${String(e)}). Saved text to Drafts — attachments were NOT saved; re-attach and retry.`
+            : `Couldn't send (${String(e)}). Saved to Drafts — retry from there.`,
+        );
       } catch {
         setError("Couldn't send or save — you appear to be offline. Your message is still here.");
       }
@@ -130,6 +140,22 @@ export function ComposeModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleAttach() {
+    if (!isTauri()) {
+      // Browser maket: stub a picked file so the chips render.
+      setAttachPaths((p) => [...p, ...mockPickFiles()]);
+      return;
+    }
+    const picked = await open({ multiple: true });
+    if (!picked) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    setAttachPaths((p) => [...p, ...paths]);
+  }
+
+  function removeAttach(path: string) {
+    setAttachPaths((p) => p.filter((x) => x !== path));
   }
 
   return (
@@ -178,6 +204,27 @@ export function ComposeModal({
           onChange={(e) => setBody(e.target.value)}
           rows={12}
         />
+        <div className="attach-row">
+          <button className="compose-cc-toggle" onClick={handleAttach} type="button">
+            <Paperclip size={13} /> Attach
+          </button>
+          {attachPaths.length > 0 && (
+            <span className="attach-hint">Attachments send with the message but aren't saved to drafts yet.</span>
+          )}
+        </div>
+        {attachPaths.length > 0 && (
+          <div className="attach-file-chips">
+            {attachPaths.map((p) => (
+              <span key={p} className="attach-file-chip">
+                <Paperclip size={12} />
+                {basename(p)}
+                <button className="attach-remove" aria-label={`Remove ${basename(p)}`} onClick={() => removeAttach(p)} type="button">
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {error && <div className="compose-error">{error}</div>}
         {confirmingClose ? (
           <div className="compose-actions">
