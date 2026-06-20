@@ -7,6 +7,12 @@ use types::{
     FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
     Profile, RawMessage, ReplyContext,
 };
+// 🦀 `#[allow(unused_imports)]` silences the "unused" lint for items imported here
+//    but not yet referenced in this file. `DraftRef` and `DraftContent` are the
+//    public draft types used by later tasks (send_draft, list_drafts); keeping them
+//    in the `use` list now ensures the module's public surface is consistent.
+#[allow(unused_imports)]
+use types::{DraftContent, DraftRef};
 
 use crate::error::Result;
 
@@ -154,6 +160,24 @@ impl GmailClient {
         let resp = self
             .http
             .post(url)
+            .bearer_auth(&self.access_token)
+            .json(body)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(resp.json::<T>().await?)
+    }
+
+    // 🦀 PUT twin of post_json — Gmail's drafts.update replaces a draft via PUT.
+    //    Same generics: `B` the request body, `T` the parsed response.
+    async fn put_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<T> {
+        let resp = self
+            .http
+            .put(url)
             .bearer_auth(&self.access_token)
             .json(body)
             .send()
@@ -522,4 +546,51 @@ impl GmailClient {
         };
         self.post_json(&url, &body).await
     }
+
+    /// Create a new draft from a raw RFC822 message. Returns the new draft's id.
+    pub async fn create_draft(&self, raw_rfc822: &str, thread_id: Option<&str>) -> Result<String> {
+        let url = format!("{}/gmail/v1/users/me/drafts", self.base_url);
+        let body = DraftWriteBody {
+            message: DraftWriteMessage { raw: encode_raw(raw_rfc822), thread_id },
+        };
+        let resp: DraftIdResponse = self.post_json(&url, &body).await?;
+        Ok(resp.id)
+    }
+
+    /// Replace an existing draft's message (drafts.update). Returns the draft id.
+    pub async fn update_draft(&self, draft_id: &str, raw_rfc822: &str, thread_id: Option<&str>) -> Result<String> {
+        let url = format!("{}/gmail/v1/users/me/drafts/{}", self.base_url, draft_id);
+        let body = DraftWriteBody {
+            message: DraftWriteMessage { raw: encode_raw(raw_rfc822), thread_id },
+        };
+        let resp: DraftIdResponse = self.put_json(&url, &body).await?;
+        Ok(resp.id)
+    }
+}
+
+// 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
+//    `raw`. Factored out so create/update/send share one encoding (send_message inlines
+//    its own; leaving that untouched to avoid churn).
+fn encode_raw(raw_rfc822: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822.as_bytes())
+}
+
+// 🦀 Request bodies for drafts.create/update/send. `skip_serializing_if` drops `threadId`
+//    entirely (not null) when there's no thread — Gmail rejects a null threadId.
+#[derive(serde::Serialize)]
+struct DraftWriteBody<'a> {
+    message: DraftWriteMessage<'a>,
+}
+#[derive(serde::Serialize)]
+struct DraftWriteMessage<'a> {
+    raw: String,
+    #[serde(rename = "threadId", skip_serializing_if = "Option::is_none")]
+    thread_id: Option<&'a str>,
+}
+
+// 🦀 We only need the draft id back from create/update; ignore the nested message.
+#[derive(serde::Deserialize)]
+struct DraftIdResponse {
+    id: String,
 }

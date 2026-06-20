@@ -548,3 +548,31 @@ async fn delete_message_forever_issues_delete() {
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     client.delete_message_forever("m1").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_draft_posts_raw_and_returns_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/drafts"))
+        .and(body_json(json!({ "message": { "raw": b64url("hello-draft") } })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "dr1", "message": { "id": "m1" } })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let id = client.create_draft("hello-draft", None).await.unwrap();
+    assert_eq!(id, "dr1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_draft_puts_raw_with_thread_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/gmail/v1/users/me/drafts/dr1"))
+        .and(body_json(json!({ "message": { "raw": b64url("edited"), "threadId": "t9" } })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "dr1", "message": { "id": "m2" } })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let id = client.update_draft("dr1", "edited", Some("t9")).await.unwrap();
+    assert_eq!(id, "dr1");
+}

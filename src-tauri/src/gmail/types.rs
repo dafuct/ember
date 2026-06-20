@@ -160,6 +160,29 @@ pub struct ReplyContext {
     pub quoted_text: String,
 }
 
+/// A draft reference: the draft's own id plus the id of its underlying message
+/// (drafts and messages have *different* ids; editing/sending needs the draft id).
+// 🦀 A plain struct we build by hand from Gmail's nested JSON — not `Deserialize`,
+//    because the wire shape nests the message id one level down (mapped in mod.rs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DraftRef {
+    pub id: String,
+    pub message_id: String,
+}
+
+/// One draft's editable content, sent to the frontend to seed the compose editor.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct DraftContent {
+    pub draft_id: String,
+    pub to: String,
+    pub cc: String,
+    pub subject: String,
+    pub body: String,
+    pub in_reply_to: Option<String>,
+    pub references: Option<String>,
+    pub thread_id: Option<String>,
+}
+
 /// The subset of the `users.messages.modify` response we use: the id and the
 /// label set after the change. We don't request `payload`, so we don't model it —
 /// keeping this type small means the parse never fails on a missing `payload`.
