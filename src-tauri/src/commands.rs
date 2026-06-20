@@ -299,33 +299,6 @@ pub async fn set_message_starred(
     set_label(&id, "STARRED", starred, &state).await
 }
 
-/// Archive: remove the INBOX label so the message leaves the inbox, then drop it from
-/// the local cache (the next sync's history delta would remove it too — delete is idempotent).
-#[tauri::command]
-pub async fn archive_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
-    let stored = ensure_access_token().await?;
-    let client = GmailClient::new(stored.access_token);
-    client.modify_message(&id, &[], &["INBOX"]).await?;
-    let conn = state
-        .lock()
-        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    // 🦀 `std::slice::from_ref(&id)` makes a one-element `&[String]` without allocating.
-    db::delete_messages(&conn, std::slice::from_ref(&id))?;
-    Ok(())
-}
-
-/// Move a message to Trash and drop it from the local cache.
-#[tauri::command]
-pub async fn trash_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
-    let stored = ensure_access_token().await?;
-    let client = GmailClient::new(stored.access_token);
-    client.trash_message(&id).await?;
-    let conn = state
-        .lock()
-        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_messages(&conn, std::slice::from_ref(&id))?;
-    Ok(())
-}
 
 /// Add/remove labels on many messages in one Gmail call, then reconcile the local cache.
 /// Archive (remove INBOX) / trash (add TRASH) drop the rows from the inbox cache like the

@@ -510,12 +510,6 @@ impl GmailClient {
         Ok(())
     }
 
-    /// Move a single message to Trash (recoverable in Gmail for ~30 days).
-    pub async fn trash_message(&self, id: &str) -> Result<()> {
-        let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
-        self.post_no_body(&url).await
-    }
-
     /// Restore a trashed message (removes the TRASH label). Gmail `messages/{id}/untrash`.
     pub async fn untrash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base_url, id);
