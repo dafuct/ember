@@ -216,12 +216,14 @@ fn now_secs() -> u64 {
 }
 
 // 🦀 The body payload sent to the frontend. `is_html` tells the UI whether to render
-//    `html` as sanitized HTML (in a sandboxed iframe) or as plain text.
+//    `html` as sanitized HTML (sandboxed iframe) or as plain text.
 #[derive(serde::Serialize)]
 pub struct MessageBody {
     pub html: String,
     pub is_html: bool,
     pub blocked_images: bool,
+    // 🦀 Attachment metadata for the reading-pane strip (bytes fetched on click). Empty when none.
+    pub attachments: Vec<crate::gmail::types::AttachmentMeta>,
 }
 
 /// Fetch one message's body and sanitize it. With `load_images = false`, remote images
@@ -240,14 +242,35 @@ pub async fn fetch_message_body(id: String, load_images: bool) -> Result<Message
     //    Option and binds the inner String in one move.
     if let Some(html) = raw.html {
         let (clean, blocked) = sanitize_html(&html, load_images);
-        Ok(MessageBody { html: clean, is_html: true, blocked_images: blocked })
+        Ok(MessageBody { html: clean, is_html: true, blocked_images: blocked, attachments: raw.attachments })
     } else {
         Ok(MessageBody {
             html: raw.text.unwrap_or_default(),
             is_html: false,
             blocked_images: false,
+            attachments: raw.attachments,
         })
     }
+}
+
+/// Download one attachment to a path the user chose (via the frontend Save dialog).
+/// DB-free: fetch the bytes from Gmail, then write them with std::fs.
+// 🦀 `dest_path` arrives from JS (the native save-dialog result). The byte WRITE happens
+//    here in Rust — Tauri commands have full OS access — so no `fs` capability is needed.
+#[tauri::command]
+pub async fn download_attachment(
+    message_id: String,
+    attachment_id: String,
+    dest_path: String,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    let bytes = client.get_attachment(&message_id, &attachment_id).await?;
+    // 🦀 `map_err` converts the std::io::Error into our AppError so `?` can propagate it
+    //    (io::Error has no `#[from]` impl on AppError, unlike reqwest/keyring/rusqlite).
+    std::fs::write(&dest_path, &bytes)
+        .map_err(|e| AppError::Other(format!("could not save attachment: {e}")))?;
+    Ok(())
 }
 
 // 🦀 Shared core for the label-toggle actions (read/star). `present` decides whether
