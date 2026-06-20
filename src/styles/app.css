@@ -240,3 +240,20 @@
 .search-clear { padding: 2px; }
 .search-spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong);
   border-top-color: var(--accent); border-radius: 50%; animation: ember-spin 0.7s linear infinite; }
+
+/* ===== M12 Folder rail ===== */
+.mail-body { flex: 1; min-height: 0; display: flex; }
+/* SplitView is the second child — make it fill the width left of the rail. */
+.mail-body > :last-child { flex: 1; min-width: 0; }
+.folder-rail { width: 78px; flex: none; border-right: 1px solid var(--border); background: var(--surface-2);
+  padding: 8px 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.folder-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0;
+  border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; }
+.folder-item:hover { color: var(--text); }
+.folder-item.active { color: var(--accent-text); }
+.folder-item.active svg { background: var(--accent-weak); border-radius: 9px; padding: 5px; box-sizing: content-box; }
+.folder-label { line-height: 1; }
+
+/* ===== M12 — permanent-delete confirm button ===== */
+.btn-danger { background: var(--danger); color: #fff; border: 0; border-radius: 8px;
+  padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }

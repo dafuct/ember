@@ -131,6 +131,18 @@ impl GmailClient {
         Ok(())
     }
 
+    // 🦀 DELETE with no body — Gmail's permanent-delete endpoint. Like post_no_body but the verb is
+    //    DELETE. We only need success; there's no response body to read.
+    async fn delete_no_body(&self, url: &str) -> Result<()> {
+        self.http
+            .delete(url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     // 🦀 The write-side twin of get_json: serialize `body` to JSON, POST it with
     //    bearer auth, turn 4xx/5xx into errors, then deserialize the response into T.
     //    `B: serde::Serialize` is the request body type; `T` the response type.
@@ -237,15 +249,16 @@ impl GmailClient {
         })
     }
 
-    /// Shared paging loop for `messages.list`. `label = Some("INBOX")` restricts to a label;
-    /// `None` searches across all mail. Follows `nextPageToken` up to `max_total` ids.
-    // 🦀 `Option<&str>` is a borrowed, maybe-absent string: `Some("INBOX")` or `None`. Passing a
-    //    reference (not `String`) means callers lend us the label without giving up ownership.
-    async fn list_message_ids(
+    /// Shared paging loop for `messages.list`. `label = Some("INBOX")` restricts to a label; `None`
+    /// searches all mail. `include_spam_trash` adds `&includeSpamTrash=true` — Gmail omits Trash/Spam
+    /// messages without it. Follows `nextPageToken` up to `max_total` ids.
+    // 🦀 Now `pub` so the folder command can call it directly with a label + the spam/trash flag.
+    pub async fn list_message_ids(
         &self,
         label: Option<&str>,
         query: &str,
         max_total: u32,
+        include_spam_trash: bool,
     ) -> Result<Vec<String>> {
         // 🦀 Percent-encode the query value so characters like ':' are URL-safe.
         let encoded_q: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
@@ -260,6 +273,10 @@ impl GmailClient {
             //    the inner `&str` to `l`. No label → search across all mail.
             if let Some(l) = label {
                 url.push_str(&format!("&labelIds={l}"));
+            }
+            // 🦀 Only add the flag when asked — keeps the inbox/search requests byte-identical.
+            if include_spam_trash {
+                url.push_str("&includeSpamTrash=true");
             }
             if let Some(token) = &page_token {
                 url.push_str(&format!("&pageToken={token}"));
@@ -286,13 +303,13 @@ impl GmailClient {
         query: &str,
         max_total: u32,
     ) -> Result<Vec<String>> {
-        self.list_message_ids(Some("INBOX"), query, max_total).await
+        self.list_message_ids(Some("INBOX"), query, max_total, false).await
     }
 
     /// Search across ALL mail (no label restriction) for `query`. Gmail excludes Spam/Trash by
     /// default. Follows pagination up to `max_total` ids.
     pub async fn search_message_ids(&self, query: &str, max_total: u32) -> Result<Vec<String>> {
-        self.list_message_ids(None, query, max_total).await
+        self.list_message_ids(None, query, max_total, false).await
     }
 
     /// Replay INBOX history since `start_history_id`, returning the net set of added
@@ -465,6 +482,18 @@ impl GmailClient {
     pub async fn trash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
         self.post_no_body(&url).await
+    }
+
+    /// Restore a trashed message (removes the TRASH label). Gmail `messages/{id}/untrash`.
+    pub async fn untrash_message(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base_url, id);
+        self.post_no_body(&url).await
+    }
+
+    /// PERMANENTLY delete a message (bypasses Trash, irreversible). Gmail `DELETE messages/{id}`.
+    pub async fn delete_message_forever(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}", self.base_url, id);
+        self.delete_no_body(&url).await
     }
 
     /// Add and/or remove labels on a single message. Returns the message's label

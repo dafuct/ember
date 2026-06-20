@@ -11,11 +11,13 @@ export const MOCK_MESSAGES: MessagePreview[] = [
     id: "m1", thread_id: "t1", from: "Maya <maya@studio.co>", subject: "Q3 roadmap",
     date: "Wed, 18 Jun 2026 09:42:00 -0700", snippet: "Here's the draft for review…",
     internal_date: 1750000000000, category: "people", label_ids: ["INBOX", "UNREAD"],
+    to_addr: "you@example.com",
   },
   {
     id: "m2", thread_id: "t2", from: "GitHub <noreply@github.com>", subject: "[ember] CI passed",
     date: "Wed, 18 Jun 2026 08:10:00 -0700", snippet: "All checks have passed on m10-calendar.",
     internal_date: 1749990000000, category: "notifications", label_ids: ["INBOX"],
+    to_addr: "you@example.com",
   },
 ];
 
@@ -62,4 +64,29 @@ export function mockSearch(query: string): MessagePreview[] {
       m.subject.toLowerCase().includes(q) ||
       m.snippet.toLowerCase().includes(q),
   );
+}
+
+/** Browser-maket folder contents: a small per-folder set so the rail is demoable offline. */
+export function mockFolder(folder: string): MessagePreview[] {
+  const base = (id: string, from: string, to_addr: string, subject: string, snippet: string): MessagePreview => ({
+    id, thread_id: id, from, subject, snippet, to_addr,
+    date: "Wed, 18 Jun 2026 09:00:00 -0700", internal_date: 1750000000000, category: "", label_ids: [],
+  });
+  switch (folder) {
+    case "sent":
+      return [
+        base("s1", "you@example.com", "Maya <maya@studio.co>", "Re: Q3 roadmap", "Sounds good — shipping Friday."),
+        base("s2", "you@example.com", "Sam, Dana", "Lunch Thursday?", "Works for me."),
+      ];
+    case "starred":
+      return [base("st1", "Dana <dana@corp.io>", "you@example.com", "Offsite agenda", "Pinned for later.")];
+    case "archive":
+      return [base("a1", "Newsletter <news@weekly.dev>", "you@example.com", "Weekly digest", "Archived reading.")];
+    case "trash":
+      return [base("d1", "Spammer <promo@deals.biz>", "you@example.com", "50% OFF!!!", "Trashed.")];
+    case "spam":
+      return [base("sp1", "Prince <prince@scam.test>", "you@example.com", "Urgent transfer", "Definitely spam.")];
+    default:
+      return [];
+  }
 }

@@ -4,10 +4,13 @@ import "./styles/app.css";
 import {
   archiveMessage,
   connectGmail,
+  fetchFolder,
   fetchInboxPreview,
   getConnectedAccount,
   getReplyContext,
   getSettings,
+  restoreMessage,
+  deleteMessageForever,
   searchMessages,
   setMessageRead,
   setMessageStarred,
@@ -29,6 +32,8 @@ import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
+import { FolderRail } from "./components/FolderRail";
+import { FOLDERS, type Folder } from "./lib/folders";
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
@@ -53,6 +58,40 @@ export default function App() {
   const [searchSelectedId, setSearchSelectedId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // M12 folders. `folder === "inbox"` means the cached smart inbox; any other value is a live-
+  // fetched mailbox. `folderReloadKey` lets re-clicking a folder (or the same one) refetch.
+  const [folder, setFolder] = useState<Folder>("inbox");
+  const [folderResults, setFolderResults] = useState<MessagePreview[]>([]);
+  const [folderSelectedId, setFolderSelectedId] = useState<string | null>(null);
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [folderReloadKey, setFolderReloadKey] = useState(0);
+  const inFolder = folder !== "inbox";
+
+  // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
+  useEffect(() => {
+    if (folder === "inbox") return;
+    let cancelled = false;
+    setFolderLoading(true);
+    setError(null);
+    fetchFolder(folder, 50)
+      .then((r) => {
+        if (!cancelled) {
+          setFolderResults(r);
+          setFolderLoading(false);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setFolderResults([]);
+          setError(String(e));
+          setFolderLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, folderReloadKey]);
 
   useEffect(() => {
     getConnectedAccount()
@@ -112,12 +151,12 @@ export default function App() {
     }
   }
 
-  // The "active list" is the search results when searching, else the inbox. All selection +
-  // action handlers operate on it, so they work identically for inbox and search.
-  const activeList = inSearch ? searchResults : messages;
-  const setActiveList = inSearch ? setSearchResults : setMessages;
-  const activeSelectedId = inSearch ? searchSelectedId : selectedId;
-  const setActiveSelectedId = inSearch ? setSearchSelectedId : setSelectedId;
+  // Active list: search results > a live folder > the cached inbox. All selection + action
+  // handlers operate on it, so they work identically across inbox, search, and folders.
+  const activeList = inSearch ? searchResults : inFolder ? folderResults : messages;
+  const setActiveList = inSearch ? setSearchResults : inFolder ? setFolderResults : setMessages;
+  const activeSelectedId = inSearch ? searchSelectedId : inFolder ? folderSelectedId : selectedId;
+  const setActiveSelectedId = inSearch ? setSearchSelectedId : inFolder ? setFolderSelectedId : setSelectedId;
 
   const selected = useMemo(
     () => activeList.find((m) => m.id === activeSelectedId) ?? null,
@@ -127,7 +166,7 @@ export default function App() {
   // Pick the row to select after the current one is removed (archive/trash): next visible, else
   // previous, else nothing. Inbox uses the stream ordering; search results are already a flat list.
   function nextSelectedId(removedId: string): string | null {
-    const visible = inSearch ? activeList : orderedForStream(messages, stream);
+    const visible = inSearch || inFolder ? activeList : orderedForStream(messages, stream);
     const idx = visible.findIndex((m) => m.id === removedId);
     if (idx === -1) return activeSelectedId;
     const next = visible[idx + 1] ?? visible[idx - 1] ?? null;
@@ -249,6 +288,22 @@ export default function App() {
     setError(null);
   }
 
+  function handleSelectFolder(f: Folder) {
+    // Switching mailbox leaves any active search; bumping the key refetches even on re-click.
+    setInSearch(false);
+    setSearchResults([]);
+    setSearchSelectedId(null);
+    setSearchQuery("");
+    setFolderSelectedId(null);
+    setFolder(f);
+    setFolderReloadKey((k) => k + 1);
+  }
+
+  const handleRestore = (m: MessagePreview) =>
+    removeWithAction(m, () => restoreMessage(m.id));
+  const handleDeleteForever = (m: MessagePreview) =>
+    removeWithAction(m, () => deleteMessageForever(m.id));
+
   if (!account) {
     return (
       <div className="app">
@@ -298,44 +353,62 @@ export default function App() {
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
         inSearch={inSearch}
+        inFolder={inFolder}
         searching={searching}
       />
       {error && <div className="error-bar">{error}</div>}
       {view === "calendar" ? (
         <CalendarView weekStart={weekStart} />
       ) : (
-        <SplitView
-          left={
-            <MessageList
-              messages={activeList}
-              stream={stream}
-              selectedId={activeSelectedId}
-              onSelect={handleSelect}
-              onArchive={handleArchive}
-              onStar={toggleStar}
-              flat={inSearch}
-              title={inSearch ? "Results" : undefined}
-              emptyText={
-                inSearch
-                  ? searching
-                    ? "Searching…"
-                    : `No results for "${searchQuery}".`
-                  : undefined
-              }
-            />
-          }
-          right={
-            <ReadingPane
-              msg={selected}
-              loadImages={settings.remote_images}
-              onArchive={handleArchive}
-              onTrash={handleTrash}
-              onToggleStar={toggleStar}
-              onMarkUnread={(m) => toggleRead(m, false)}
-              onReply={handleReply}
-            />
-          }
-        />
+        <div className="mail-body">
+          <FolderRail folder={folder} onSelectFolder={handleSelectFolder} />
+          <SplitView
+            left={
+              <MessageList
+                messages={activeList}
+                stream={stream}
+                selectedId={activeSelectedId}
+                onSelect={handleSelect}
+                onArchive={handleArchive}
+                onStar={toggleStar}
+                flat={inSearch || inFolder}
+                title={
+                  inSearch
+                    ? "Results"
+                    : inFolder
+                      ? FOLDERS.find((f) => f.key === folder)?.label
+                      : undefined
+                }
+                emptyText={
+                  inSearch
+                    ? searching
+                      ? "Searching…"
+                      : `No results for "${searchQuery}".`
+                    : inFolder
+                      ? folderLoading
+                        ? "Loading…"
+                        : "Nothing here."
+                      : undefined
+                }
+                showRecipient={folder === "sent"}
+              />
+            }
+            right={
+              <ReadingPane
+                msg={selected}
+                loadImages={settings.remote_images}
+                onArchive={handleArchive}
+                onTrash={handleTrash}
+                onToggleStar={toggleStar}
+                onMarkUnread={(m) => toggleRead(m, false)}
+                onReply={handleReply}
+                folder={folder}
+                onRestore={handleRestore}
+                onDeleteForever={handleDeleteForever}
+              />
+            }
+          />
+        </div>
       )}
       {compose && (
         <ComposeModal

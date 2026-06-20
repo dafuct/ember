@@ -54,6 +54,7 @@ export function Header({
   onSearch,
   onClearSearch,
   inSearch = false,
+  inFolder = false,
   searching = false,
 }: {
   busy: boolean;
@@ -70,6 +71,7 @@ export function Header({
   onSearch?: (q: string) => void;
   onClearSearch?: () => void;
   inSearch?: boolean;
+  inFolder?: boolean;
   searching?: boolean;
 }) {
   const { theme, cycleTheme } = useTheme();
@@ -112,7 +114,7 @@ export function Header({
         </div>
       )}
 
-      {account && !isCal && !inSearch && (
+      {account && !isCal && !inSearch && !inFolder && (
         <nav className="header-nav">
           {STREAMS.map((s) => {
             const Icon = STREAM_ICON[s.key];
