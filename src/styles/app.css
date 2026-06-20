@@ -257,3 +257,7 @@
 /* ===== M12 — permanent-delete confirm button ===== */
 .btn-danger { background: var(--danger); color: #fff; border: 0; border-radius: 8px;
   padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+
+/* ===== M15 — batch selection ===== */
+.msg-check { margin: 0 2px 0 10px; flex: 0 0 auto; align-self: center; cursor: pointer; }
+.msg-item.checked { background: var(--accent-weak); }
