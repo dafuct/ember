@@ -66,6 +66,7 @@ export function ComposeModal({
       in_reply_to: initial.inReplyTo,
       references: initial.references,
       thread_id: initial.threadId,
+      attachment_paths: [], // attachment_paths wired to the file picker in the compose-attach task
     };
   }
 
