@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Flame } from "lucide-react";
 import "./styles/app.css";
 import {
@@ -21,6 +21,7 @@ import {
 } from "./lib/api";
 import { orderedForStream, type Stream } from "./lib/streams";
 import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
+import { pickNewMail, notifyNewMail, ensureNotificationPermission } from "./lib/notify";
 import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
 import { isTauri } from "@tauri-apps/api/core";
 import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
@@ -34,6 +35,10 @@ import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { FolderRail } from "./components/FolderRail";
 import { FOLDERS, type Folder } from "./lib/folders";
+
+// M13 new-mail notifications.
+const POLL_MS = 60_000; // background sync cadence while the app is open
+const MAX_NOTIFY_PER_SYNC = 5; // cap banners per cycle so a backlog can't flood
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
@@ -68,6 +73,15 @@ export default function App() {
   const [folderReloadKey, setFolderReloadKey] = useState(0);
   const inFolder = folder !== "inbox";
 
+  // M13: track inbox ids we've already seen so only genuinely-new mail notifies.
+  const syncingRef = useRef(false); // guards against overlapping syncs
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const notifyAllowedRef = useRef(false); // OS permission granted AND feature enabled
+  const lastNotifiedIdRef = useRef<string | null>(null); // newest notified id (opened on banner click, next task)
+  function seedKnown(list: MessagePreview[]) {
+    for (const m of list) knownIdsRef.current.add(m.id);
+  }
+
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
     if (folder === "inbox") return;
@@ -98,7 +112,10 @@ export default function App() {
       .then(setAccount)
       .catch(() => setAccount(null));
     fetchInboxPreview(50)
-      .then(setMessages)
+      .then((list) => {
+        setMessages(list);
+        seedKnown(list); // baseline: mail already present at launch never notifies
+      })
       .catch(() => {});
     getSettings()
       .then(setSettings)
@@ -116,13 +133,35 @@ export default function App() {
       setStatus("Syncing your inbox…");
       const s = await syncInbox();
       setStatus(`${s.added} new, ${s.removed} removed`);
-      setMessages(await fetchInboxPreview(50));
+      const list = await fetchInboxPreview(50);
+      setMessages(list);
+      seedKnown(list);
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
+
+  // Resolve OS notification permission once per session and whenever notifications are
+  // switched on. Stored in a ref so runSync can read it without re-rendering.
+  useEffect(() => {
+    if (!account || !settings.notifications) {
+      notifyAllowedRef.current = false;
+      return;
+    }
+    ensureNotificationPermission().then((ok) => {
+      notifyAllowedRef.current = ok;
+    });
+  }, [account, settings.notifications]);
+
+  // Background poll: sync every POLL_MS while connected with notifications on. Tearing
+  // down on dep change means disconnect / toggle-off / unmount all stop the timer.
+  useEffect(() => {
+    if (!account || !settings.notifications) return;
+    const id = setInterval(() => void runSyncRef.current(false), POLL_MS);
+    return () => clearInterval(id);
+  }, [account, settings.notifications]);
 
   function handleDisconnected() {
     // Called by SettingsModal after the disconnect command succeeds.
@@ -136,20 +175,48 @@ export default function App() {
     setError(null);
   }
 
-  async function handleSync() {
-    setBusy(true);
-    setError(null);
-    setStatus(null);
+  // Shared sync path. surfaceErrors=true (manual Sync button): drive busy/status and
+  // show failures in the error bar. surfaceErrors=false (background timer): stay silent
+  // — a transient failure must NOT flash the error bar every POLL_MS. Guarded so a slow
+  // sync is never overlapped by the next tick.
+  async function runSync(surfaceErrors: boolean) {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    if (surfaceErrors) {
+      setBusy(true);
+      setError(null);
+      setStatus(null);
+    }
     try {
       const s = await syncInbox();
-      setStatus(`${s.added} new, ${s.removed} removed`);
-      setMessages(await fetchInboxPreview(50));
+      const list = await fetchInboxPreview(50);
+      setMessages(list);
+      if (surfaceErrors) setStatus(`${s.added} new, ${s.removed} removed`);
+
+      // New-mail notifications: one banner per fresh id (newest-first, capped) when the
+      // window is unfocused. Always fold the current ids into `known` afterward so a
+      // message never notifies twice. Manual syncs are naturally silent (window focused).
+      const fresh = pickNewMail(knownIdsRef.current, list, MAX_NOTIFY_PER_SYNC);
+      for (const m of list) knownIdsRef.current.add(m.id);
+      if (fresh.length && notifyAllowedRef.current && !document.hasFocus()) {
+        lastNotifiedIdRef.current = fresh[0].id; // newest — opened on banner click (next task)
+        for (const m of fresh) void notifyNewMail(m);
+      }
     } catch (e) {
-      setError(String(e));
+      if (surfaceErrors) setError(String(e));
+      else console.warn("[ember] background sync failed:", e);
     } finally {
-      setBusy(false);
+      syncingRef.current = false;
+      if (surfaceErrors) setBusy(false);
     }
   }
+
+  const handleSync = () => runSync(true);
+
+  // Live ref to runSync so the interval always calls the latest closure without
+  // re-subscribing the timer on every render.
+  const runSyncRef = useRef(runSync);
+  runSyncRef.current = runSync;
 
   // Active list: search results > a live folder > the cached inbox. All selection + action
   // handlers operate on it, so they work identically across inbox, search, and folders.
