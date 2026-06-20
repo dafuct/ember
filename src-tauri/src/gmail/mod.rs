@@ -4,8 +4,8 @@ pub mod types;
 
 use std::collections::HashMap;
 use types::{
-    FullMessage, HistoryResponse, MessageList, MessagePart, MessagePreview, ModifiedMessage,
-    Profile, RawMessage, ReplyContext,
+    FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart, MessagePreview,
+    ModifiedMessage, Profile, RawMessage, ReplyContext,
 };
 use types::{DraftContent, DraftRef};
 
@@ -658,6 +658,43 @@ impl GmailClient {
         let body = BatchModifyRequest { ids, add_label_ids: add, remove_label_ids: remove };
         self.post_json_no_response(&url, &body).await
     }
+
+    /// List the user's *user-created* labels (system labels like INBOX/UNREAD are dropped —
+    /// they're handled by the rail's fixed folders + the scorer). Gmail `users.labels.list`.
+    pub async fn list_labels(&self) -> Result<Vec<Label>> {
+        let url = format!("{}/gmail/v1/users/me/labels", self.base_url);
+        let resp: LabelsListResponse = self.get_json(&url).await?;
+        // 🦀 `filter` keeps only user labels; `map` drops the wire-only `label_type` field.
+        Ok(resp
+            .labels
+            .into_iter()
+            .filter(|l| l.label_type == "user")
+            .map(|l| Label { id: l.id, name: l.name, color: l.color })
+            .collect())
+    }
+
+    /// Create a new user label. Gmail `users.labels.create`. Returns the created label.
+    pub async fn create_label(&self, name: &str) -> Result<Label> {
+        // 🦀 Short-lived request struct; the visibility fields make the label show in
+        //    both the label list and the message-list label menu (Gmail's defaults).
+        #[derive(serde::Serialize)]
+        struct CreateLabelRequest<'a> {
+            name: &'a str,
+            #[serde(rename = "labelListVisibility")]
+            label_list_visibility: &'a str,
+            #[serde(rename = "messageListVisibility")]
+            message_list_visibility: &'a str,
+        }
+        let url = format!("{}/gmail/v1/users/me/labels", self.base_url);
+        let body = CreateLabelRequest {
+            name,
+            label_list_visibility: "labelShow",
+            message_list_visibility: "show",
+        };
+        // 🦀 Reuse RawLabel for the response, then map to the public Label (drop label_type).
+        let raw: RawLabel = self.post_json(&url, &body).await?;
+        Ok(Label { id: raw.id, name: raw.name, color: raw.color })
+    }
 }
 
 // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
@@ -723,4 +760,21 @@ struct DraftGetMessage {
     #[serde(rename = "threadId", default)]
     thread_id: String,
     payload: MessagePart,
+}
+
+// 🦀 users.labels.list shape. `RawLabel` carries `type` (a Rust keyword → `serde(rename)`
+//    onto `label_type`) so we can filter to user labels.
+#[derive(serde::Deserialize)]
+struct LabelsListResponse {
+    #[serde(default)]
+    labels: Vec<RawLabel>,
+}
+#[derive(serde::Deserialize)]
+struct RawLabel {
+    id: String,
+    name: String,
+    #[serde(rename = "type", default)]
+    label_type: String,
+    #[serde(default)]
+    color: Option<LabelColor>,
 }

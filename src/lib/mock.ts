@@ -2,7 +2,7 @@
 // Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label } from "./api";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -10,7 +10,7 @@ export const MOCK_MESSAGES: MessagePreview[] = [
   {
     id: "m1", thread_id: "t1", from: "Maya <maya@studio.co>", subject: "Q3 roadmap",
     date: "Wed, 18 Jun 2026 09:42:00 -0700", snippet: "Here's the draft for review…",
-    internal_date: 1750000000000, category: "people", label_ids: ["INBOX", "UNREAD"],
+    internal_date: 1750000000000, category: "people", label_ids: ["INBOX", "UNREAD", "Label_1"],
     to_addr: "you@example.com",
   },
   {
@@ -107,4 +107,14 @@ export function mockGetDraft(draftId: string): DraftContent {
 /** Browser-maket: pretend a save succeeded, returning a stable fake draft id. */
 export function mockSaveDraft(): string {
   return "dr-mock";
+}
+
+export const MOCK_LABELS: Label[] = [
+  { id: "Label_1", name: "Work", color: { text: "#ffffff", background: "#16a34a" } },
+  { id: "Label_2", name: "Personal" },
+];
+
+/** Browser-maket: messages "in" a label = the mock messages carrying that label id. */
+export function mockFetchLabel(labelId: string): MessagePreview[] {
+  return MOCK_MESSAGES.filter((m) => m.label_ids.includes(labelId));
 }

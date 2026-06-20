@@ -1,4 +1,4 @@
-import type { MessagePreview } from "./api";
+import type { MessagePreview, Label } from "./api";
 
 // Gmail's system label ids that map to read/star state.
 export const UNREAD = "UNREAD";
@@ -18,7 +18,7 @@ export const isStarred = (m: MessagePreview): boolean =>
  */
 export function withLabel(
   m: MessagePreview,
-  label: LabelId,
+  label: string,
   present: boolean,
 ): MessagePreview {
   const has = m.label_ids.includes(label);
@@ -27,4 +27,11 @@ export function withLabel(
     ? [...m.label_ids, label]
     : m.label_ids.filter((l) => l !== label);
   return { ...m, label_ids };
+}
+
+/** A message's user labels (its label_ids that match the user-label map), for chips. */
+export function userLabelChips(m: MessagePreview, labelsById: Map<string, Label>): Label[] {
+  return m.label_ids
+    .map((id) => labelsById.get(id))
+    .filter((l): l is Label => l !== undefined);
 }

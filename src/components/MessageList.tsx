@@ -1,4 +1,4 @@
-import type { MessagePreview } from "../lib/api";
+import type { Label, MessagePreview } from "../lib/api";
 import { MessageItem } from "./MessageItem";
 import {
   STREAMS,
@@ -20,6 +20,8 @@ export function MessageList({
   onBatchTrash,
   onBatchMarkRead,
   onBatchStar,
+  labelsById,
+  onBatchLabel,
   onArchive,
   onStar,
   flat = false,
@@ -39,6 +41,8 @@ export function MessageList({
   onBatchTrash?: () => void;
   onBatchMarkRead?: () => void;
   onBatchStar?: () => void;
+  labelsById?: Map<string, Label>;
+  onBatchLabel?: () => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   /** When true, render `messages` as a flat list (no stream filter/grouping) — used for search. */
@@ -81,6 +85,7 @@ export function MessageList({
             <button className="batch-btn" onClick={() => onBatchTrash?.()}>Trash</button>
             <button className="batch-btn" onClick={() => onBatchMarkRead?.()}>Mark read</button>
             <button className="batch-btn" onClick={() => onBatchStar?.()}>Star</button>
+            <button className="batch-btn" onClick={() => onBatchLabel?.()}>Label</button>
           </div>
           <button className="batch-clear" aria-label="Clear selection" onClick={() => onClearSelection?.()}>
             ✕
@@ -112,6 +117,7 @@ export function MessageList({
                   onSelect={onSelect}
                   checked={selectedIds.has(m.id)}
                   onToggleSelect={onToggleSelect}
+                  labelsById={labelsById}
                   onArchive={onArchive}
                   onStar={onStar}
                   showRecipient={showRecipient}
@@ -128,6 +134,7 @@ export function MessageList({
               onSelect={onSelect}
               checked={selectedIds.has(m.id)}
               onToggleSelect={onToggleSelect}
+              labelsById={labelsById}
               onArchive={onArchive}
               onStar={onStar}
               showRecipient={showRecipient}

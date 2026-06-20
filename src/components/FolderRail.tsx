@@ -1,5 +1,6 @@
 import { Inbox, Send, FileEdit, Star, Archive, Trash2, ShieldAlert, type LucideIcon } from "lucide-react";
 import { FOLDERS, type Folder } from "../lib/folders";
+import type { Label } from "../lib/api";
 
 const ICON: Record<Folder, LucideIcon> = {
   inbox: Inbox,
@@ -13,10 +14,12 @@ const ICON: Record<Folder, LucideIcon> = {
 
 export function FolderRail({
   folder,
+  labels = [],
   onSelectFolder,
 }: {
-  folder: Folder;
-  onSelectFolder: (f: Folder) => void;
+  folder: string;
+  labels?: Label[];
+  onSelectFolder: (f: string) => void;
 }) {
   return (
     <nav className="folder-rail" aria-label="Mailboxes">
@@ -34,6 +37,22 @@ export function FolderRail({
           </button>
         );
       })}
+      {labels.length > 0 && (
+        <>
+          <div className="rail-section">Labels</div>
+          {labels.map((l) => (
+            <button
+              key={l.id}
+              className={l.id === folder ? "folder-item active" : "folder-item"}
+              aria-current={l.id === folder ? "page" : undefined}
+              onClick={() => onSelectFolder(l.id)}
+            >
+              <span className="rail-label-dot" style={l.color ? { background: l.color.background } : undefined} />
+              <span className="folder-label">{l.name}</span>
+            </button>
+          ))}
+        </>
+      )}
     </nav>
   );
 }

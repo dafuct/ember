@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel } from "./mock";
 
 export type { CalendarEvent };
 
@@ -148,6 +148,25 @@ export const sendDraft = (p: SendEmailPayload & { draft_id: string }): Promise<v
 
 export const deleteDraft = (id: string): Promise<void> =>
   isTauri() ? invoke<void>("delete_draft", { draftId: id }) : Promise.resolve();
+
+export interface LabelColor {
+  text: string;
+  background: string;
+}
+export interface Label {
+  id: string;
+  name: string;
+  color?: LabelColor;
+}
+
+export const listLabels = (): Promise<Label[]> =>
+  isTauri() ? invoke<Label[]>("list_labels") : Promise.resolve(MOCK_LABELS);
+export const createLabel = (name: string): Promise<Label> =>
+  isTauri()
+    ? invoke<Label>("create_label", { name })
+    : Promise.resolve({ id: "Label_mock", name });
+export const fetchLabel = (id: string, max = 50): Promise<MessagePreview[]> =>
+  isTauri() ? invoke<MessagePreview[]>("fetch_label", { labelId: id, max }) : Promise.resolve(mockFetchLabel(id));
 
 export interface Settings {
   signature: string;

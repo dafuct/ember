@@ -662,3 +662,51 @@ async fn batch_modify_posts_ids_and_labels() {
         .await
         .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_labels_returns_user_labels_only_with_color() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/labels"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "labels": [
+                { "id": "INBOX", "name": "INBOX", "type": "system" },
+                { "id": "Label_1", "name": "Work", "type": "user",
+                  "color": { "textColor": "#ffffff", "backgroundColor": "#16a34a" } },
+                { "id": "Label_2", "name": "Personal", "type": "user" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let labels = client.list_labels().await.unwrap();
+    assert_eq!(labels.len(), 2); // system INBOX excluded
+    assert_eq!(labels[0].id, "Label_1");
+    assert_eq!(labels[0].name, "Work");
+    assert_eq!(labels[0].color.as_ref().unwrap().background, "#16a34a");
+    assert_eq!(labels[0].color.as_ref().unwrap().text, "#ffffff");
+    assert_eq!(labels[1].id, "Label_2");
+    assert!(labels[1].color.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_label_posts_name_and_parses_result() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/labels"))
+        .and(body_json(json!({
+            "name": "Receipts",
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "Label_9", "name": "Receipts", "type": "user"
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let label = client.create_label("Receipts").await.unwrap();
+    assert_eq!(label.id, "Label_9");
+    assert_eq!(label.name, "Receipts");
+    assert!(label.color.is_none());
+}
