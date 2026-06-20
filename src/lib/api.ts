@@ -65,10 +65,13 @@ export const setMessageRead = (id: string, read: boolean): Promise<void> =>
   invoke<void>("set_message_read", { id, read });
 export const setMessageStarred = (id: string, starred: boolean): Promise<void> =>
   invoke<void>("set_message_starred", { id, starred });
-export const archiveMessage = (id: string): Promise<void> =>
-  invoke<void>("archive_message", { id });
-export const trashMessage = (id: string): Promise<void> =>
-  invoke<void>("trash_message", { id });
+
+export const batchModifyMessages = (
+  ids: string[],
+  add: string[],
+  remove: string[],
+): Promise<void> =>
+  isTauri() ? invoke<void>("batch_modify_messages", { ids, add, remove }) : Promise.resolve();
 
 export interface ReplyContext {
   message_id: string;

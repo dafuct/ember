@@ -163,6 +163,20 @@ impl GmailClient {
         Ok(resp.json::<T>().await?)
     }
 
+    // 🦀 POST a JSON body but expect NO response body (Gmail's batchModify returns 204).
+    //    Like post_no_body, but carries a JSON payload; we only check the status, never
+    //    parse — post_json would error trying to deserialize an empty body.
+    async fn post_json_no_response<B: serde::Serialize>(&self, url: &str, body: &B) -> Result<()> {
+        self.http
+            .post(url)
+            .bearer_auth(&self.access_token)
+            .json(body)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     // 🦀 PUT twin of post_json — Gmail's drafts.update replaces a draft via PUT.
     //    Same generics: `B` the request body, `T` the parsed response.
     async fn put_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
@@ -496,12 +510,6 @@ impl GmailClient {
         Ok(())
     }
 
-    /// Move a single message to Trash (recoverable in Gmail for ~30 days).
-    pub async fn trash_message(&self, id: &str) -> Result<()> {
-        let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
-        self.post_no_body(&url).await
-    }
-
     /// Restore a trashed message (removes the TRASH label). Gmail `messages/{id}/untrash`.
     pub async fn untrash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base_url, id);
@@ -631,6 +639,24 @@ impl GmailClient {
     pub async fn delete_draft(&self, draft_id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/drafts/{}", self.base_url, draft_id);
         self.delete_no_body(&url).await
+    }
+
+    /// Add and/or remove labels on MANY messages in one call (`messages.batchModify`,
+    /// up to 1000 ids; returns 204 with no body). Used by the M15 batch actions and undo.
+    pub async fn batch_modify(&self, ids: &[String], add: &[&str], remove: &[&str]) -> Result<()> {
+        // 🦀 A short-lived request struct; serde field names match Gmail's JSON. The `<'a>`
+        //    ties the borrowed slices to the struct so we serialize without cloning.
+        #[derive(serde::Serialize)]
+        struct BatchModifyRequest<'a> {
+            ids: &'a [String],
+            #[serde(rename = "addLabelIds")]
+            add_label_ids: &'a [&'a str],
+            #[serde(rename = "removeLabelIds")]
+            remove_label_ids: &'a [&'a str],
+        }
+        let url = format!("{}/gmail/v1/users/me/messages/batchModify", self.base_url);
+        let body = BatchModifyRequest { ids, add_label_ids: add, remove_label_ids: remove };
+        self.post_json_no_response(&url, &body).await
     }
 }
 

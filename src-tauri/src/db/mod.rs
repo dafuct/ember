@@ -3,7 +3,7 @@
 //    `Sync` (you can't share `&Connection` across threads at the same time).
 //    Wrapping it in a `Mutex` gives safe shared access — `Mutex<Connection>` is
 //    `Sync` — which is exactly what lets us hold it as shared Tauri state.
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 // 🦀 `crate::error::Result` is the project's own `Result<T>` alias — it expands
 //    to `std::result::Result<T, AppError>`.  Because `AppError` has a
@@ -240,6 +240,39 @@ pub fn update_message_labels(conn: &Connection, id: &str, label_ids_csv: &str) -
         "UPDATE messages SET label_ids = ?1 WHERE id = ?2",
         params![label_ids_csv, id],
     )?;
+    Ok(())
+}
+
+/// Apply a label add/remove delta to each cached row in `ids` (in place). Used by the
+/// batch mark-read/star path — Gmail's batchModify returns no labels, so we update the
+/// cache from the known delta. Idempotent; ids not in the cache (search/folder results)
+/// are silently skipped. One transaction.
+pub fn apply_label_delta(conn: &Connection, ids: &[String], add: &[String], remove: &[String]) -> Result<()> {
+    // 🦀 Nothing to change → skip the whole transaction (no wasted per-id writes).
+    if add.is_empty() && remove.is_empty() {
+        return Ok(());
+    }
+    // 🦀 `unchecked_transaction` borrows &Connection (no &mut) — safe here because we're
+    //    not already inside another transaction (same pattern as apply_delta).
+    let tx = conn.unchecked_transaction()?;
+    for id in ids {
+        // 🦀 `.optional()` (from OptionalExtension) turns "no rows" into `Ok(None)` instead
+        //    of an error, so an uncached id just falls through the `else { continue }`.
+        let current: Option<String> = tx
+            .query_row("SELECT label_ids FROM messages WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()?;
+        let Some(csv) = current else { continue };
+        // 🦀 Parse the comma-joined labels into an owned Vec, dropping empties.
+        let mut labels: Vec<String> = csv.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+        labels.retain(|l| !remove.contains(l));
+        for a in add {
+            if !labels.contains(a) {
+                labels.push(a.clone());
+            }
+        }
+        tx.execute("UPDATE messages SET label_ids = ?1 WHERE id = ?2", params![labels.join(","), id])?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -606,6 +639,37 @@ mod tests {
         let s = get_settings(&c).unwrap();
         assert!(s.remote_images);
         assert!(s.notifications);
+    }
+
+    #[test]
+    fn apply_label_delta_adds_and_removes_on_cached_rows() {
+        let c = conn();
+        let mut m = msg("x", 1);
+        m.label_ids = "INBOX,UNREAD".into();
+        upsert_messages(&c, &[m]).unwrap();
+
+        // remove UNREAD, add STARRED
+        apply_label_delta(&c, &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
+        let labels: Vec<String> = recent_previews(&c, 10).unwrap()[0]
+            .label_ids
+            .split(',')
+            .map(String::from)
+            .collect();
+        assert!(labels.contains(&"INBOX".to_string()));
+        assert!(labels.contains(&"STARRED".to_string()));
+        assert!(!labels.contains(&"UNREAD".to_string()));
+
+        // idempotent: applying the same delta again changes nothing (still INBOX+STARRED, no UNREAD, no dup)
+        apply_label_delta(&c, &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
+        let again: Vec<String> = recent_previews(&c, 10).unwrap()[0].label_ids.split(',').map(String::from).collect();
+        assert_eq!(again.iter().filter(|l| *l == "STARRED").count(), 1);
+        assert!(again.contains(&"INBOX".to_string()));
+        assert!(!again.contains(&"UNREAD".to_string()));
+
+        // an uncached id is skipped without error and doesn't touch the bystander row "x"
+        let before = recent_previews(&c, 10).unwrap()[0].label_ids.clone();
+        apply_label_delta(&c, &["nope".to_string()], &[], &["INBOX".to_string()]).unwrap();
+        assert_eq!(recent_previews(&c, 10).unwrap()[0].label_ids, before);
     }
 
     #[test]

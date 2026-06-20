@@ -6,26 +6,40 @@ import { Archive, Star } from "lucide-react";
 export function MessageItem({
   msg,
   selected,
+  checked = false,
   onSelect,
+  onToggleSelect,
   onArchive,
   onStar,
   showRecipient = false,
 }: {
   msg: MessagePreview;
   selected: boolean;
+  checked?: boolean;
   onSelect: (id: string) => void;
+  onToggleSelect?: (id: string) => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   showRecipient?: boolean;
 }) {
   const unread = isUnread(msg);
   const starred = isStarred(msg);
-  const cls = ["msg-item", selected && "selected", unread && "unread"]
+  const cls = ["msg-item", selected && "selected", checked && "checked", unread && "unread"]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={cls}>
+      <input
+        type="checkbox"
+        className="msg-check"
+        checked={checked}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggleSelect?.(msg.id);
+        }}
+        aria-label="Select message"
+      />
       <button className="msg-item-main" onClick={() => onSelect(msg.id)}>
         <div className="msg-top">
           <span className="msg-sender">

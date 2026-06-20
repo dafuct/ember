@@ -257,3 +257,25 @@
 /* ===== M12 — permanent-delete confirm button ===== */
 .btn-danger { background: var(--danger); color: #fff; border: 0; border-radius: 8px;
   padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+
+/* ===== M15 — batch selection ===== */
+.msg-check { margin: 0 2px 0 10px; flex: 0 0 auto; align-self: center; cursor: pointer; }
+.msg-item.checked { background: var(--accent-weak); }
+.batch-bar { display: flex; align-items: center; gap: 12px; }
+.batch-check { cursor: pointer; }
+.batch-count { font-weight: 600; font-size: 13px; }
+.batch-actions { display: flex; gap: 6px; margin-left: auto; }
+.batch-btn { font-size: 12px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+.batch-btn:hover { background: var(--accent-weak); }
+.batch-clear { background: transparent; border: none; cursor: pointer; font-size: 13px; padding: 2px 6px; }
+
+.undo-toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  background: var(--toast-bg, #2b2b2b); color: #fff;
+  padding: 10px 16px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  z-index: 1000; font-size: 13px;
+}
+.undo-text { white-space: nowrap; }
+.undo-btn { background: transparent; color: var(--accent, #4ade80); border: none; font-weight: 700; cursor: pointer; font-size: 13px; }
+.undo-close { background: transparent; color: #bbb; border: none; cursor: pointer; font-size: 12px; }
