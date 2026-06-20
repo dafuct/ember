@@ -95,7 +95,8 @@ export function EventModal({
     setBusy(true);
     setError(null);
     try {
-      if (editing) await updateCalendarEvent(calendarId, editing.id, w);
+      // Editing can't move an event between calendars (v1) — always use its own calendar id.
+      if (editing) await updateCalendarEvent(editing.calendar_id, editing.id, w);
       else await createCalendarEvent(calendarId, w, addMeet);
       onSaved();
       onClose();
@@ -144,7 +145,7 @@ export function EventModal({
         <input className="compose-field" placeholder="Guests (comma-separated emails)" value={guests} onChange={(e) => setGuests(e.target.value)} />
         <textarea className="compose-body" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
         <div className="event-row">
-          <select className="compose-field" value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
+          <select className="compose-field" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} disabled={!!editing}>
             {writableCals.map((c) => (
               <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
             ))}
