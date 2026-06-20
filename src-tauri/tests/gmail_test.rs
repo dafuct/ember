@@ -688,3 +688,25 @@ async fn list_labels_returns_user_labels_only_with_color() {
     assert_eq!(labels[1].id, "Label_2");
     assert!(labels[1].color.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_label_posts_name_and_parses_result() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/labels"))
+        .and(body_json(json!({
+            "name": "Receipts",
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "Label_9", "name": "Receipts", "type": "user"
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let label = client.create_label("Receipts").await.unwrap();
+    assert_eq!(label.id, "Label_9");
+    assert_eq!(label.name, "Receipts");
+    assert!(label.color.is_none());
+}

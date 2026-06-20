@@ -672,6 +672,29 @@ impl GmailClient {
             .map(|l| Label { id: l.id, name: l.name, color: l.color })
             .collect())
     }
+
+    /// Create a new user label. Gmail `users.labels.create`. Returns the created label.
+    pub async fn create_label(&self, name: &str) -> Result<Label> {
+        // 🦀 Short-lived request struct; the visibility fields make the label show in
+        //    both the label list and the message-list label menu (Gmail's defaults).
+        #[derive(serde::Serialize)]
+        struct CreateLabelRequest<'a> {
+            name: &'a str,
+            #[serde(rename = "labelListVisibility")]
+            label_list_visibility: &'a str,
+            #[serde(rename = "messageListVisibility")]
+            message_list_visibility: &'a str,
+        }
+        let url = format!("{}/gmail/v1/users/me/labels", self.base_url);
+        let body = CreateLabelRequest {
+            name,
+            label_list_visibility: "labelShow",
+            message_list_visibility: "show",
+        };
+        // 🦀 Reuse RawLabel for the response, then map to the public Label (drop label_type).
+        let raw: RawLabel = self.post_json(&url, &body).await?;
+        Ok(Label { id: raw.id, name: raw.name, color: raw.color })
+    }
 }
 
 // 🦀 Gmail wants the whole RFC822 message base64url-encoded (web-safe, no padding) in
