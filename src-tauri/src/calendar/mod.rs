@@ -136,6 +136,15 @@ pub fn map_event(ev: GEvent, calendar_id: &str, color: Option<&str>) -> Option<C
         all_day,
         location: ev.location,
         color: color.map(|c| c.to_string()),
+        description: ev.description,
+        meet_link: ev.hangout_link,
+        html_link: ev.html_link,
+        // 🦀 `map(...).unwrap_or_default()` turns Option<Vec<GAttendee>> into a Vec<String> of
+        //    emails (empty when no attendees). `into_iter()` consumes the Vec so we can move emails.
+        attendees: ev
+            .attendees
+            .map(|a| a.into_iter().map(|g| g.email).collect())
+            .unwrap_or_default(),
     })
 }
 

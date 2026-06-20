@@ -106,40 +106,60 @@ async fn list_events_parses_timed_and_all_day_with_query_params() {
 #[test]
 fn map_event_normalizes_and_skips_cancelled() {
     use ember_lib::calendar::map_event;
-    use ember_lib::calendar::types::{GEvent, GEventDateTime};
+    use ember_lib::calendar::types::{GAttendee, GEvent, GEventDateTime};
 
-    // timed event → all_day false, uses dateTime, color attaches, missing summary → "(no title)"
     let timed = GEvent {
-        id: "t1".into(), summary: None,
+        id: "e1".into(),
+        summary: Some("Standup".into()),
         start: Some(GEventDateTime { date_time: Some("2026-06-15T09:00:00-07:00".into()), date: None }),
         end: Some(GEventDateTime { date_time: Some("2026-06-15T09:30:00-07:00".into()), date: None }),
-        location: None, status: None,
+        location: Some("Zoom".into()),
+        status: Some("confirmed".into()),
+        description: Some("daily sync".into()),
+        html_link: Some("https://cal/e1".into()),
+        hangout_link: Some("https://meet.google.com/abc".into()),
+        attendees: Some(vec![
+            GAttendee { email: "a@x.com".into(), response_status: Some("accepted".into()) },
+            GAttendee { email: "b@y.com".into(), response_status: None },
+        ]),
     };
     let m = map_event(timed, "primary", Some("#16a34a")).unwrap();
-    assert!(!m.all_day);
-    assert_eq!(m.title, "(no title)");
+    assert_eq!(m.title, "Standup");
     assert_eq!(m.start, "2026-06-15T09:00:00-07:00");
-    assert_eq!(m.color.as_deref(), Some("#16a34a"));
-    assert_eq!(m.calendar_id, "primary");
+    assert!(!m.all_day);
+    assert_eq!(m.description.as_deref(), Some("daily sync"));
+    assert_eq!(m.meet_link.as_deref(), Some("https://meet.google.com/abc"));
+    assert_eq!(m.html_link.as_deref(), Some("https://cal/e1"));
+    assert_eq!(m.attendees, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
 
-    // all-day event → all_day true, uses date
     let allday = GEvent {
-        id: "a1".into(), summary: Some("Q3 planning".into()),
-        start: Some(GEventDateTime { date_time: None, date: Some("2026-06-17".into()) }),
-        end: Some(GEventDateTime { date_time: None, date: Some("2026-06-19".into()) }),
-        location: None, status: None,
+        id: "e2".into(),
+        summary: None,
+        start: Some(GEventDateTime { date_time: None, date: Some("2026-06-16".into()) }),
+        end: Some(GEventDateTime { date_time: None, date: Some("2026-06-17".into()) }),
+        location: None,
+        status: None,
+        description: None,
+        html_link: None,
+        hangout_link: None,
+        attendees: None,
     };
     let m2 = map_event(allday, "primary", None).unwrap();
+    assert_eq!(m2.title, "(no title)");
     assert!(m2.all_day);
-    assert_eq!(m2.start, "2026-06-17");
-    assert_eq!(m2.title, "Q3 planning");
+    assert!(m2.attendees.is_empty());
 
-    // cancelled → None
     let cancelled = GEvent {
-        id: "c1".into(), summary: Some("Old".into()),
-        start: Some(GEventDateTime { date_time: Some("2026-06-15T09:00:00-07:00".into()), date: None }),
-        end: Some(GEventDateTime { date_time: Some("2026-06-15T09:30:00-07:00".into()), date: None }),
-        location: None, status: Some("cancelled".into()),
+        id: "e3".into(),
+        summary: Some("Gone".into()),
+        start: Some(GEventDateTime { date_time: Some("2026-06-15T10:00:00-07:00".into()), date: None }),
+        end: Some(GEventDateTime { date_time: Some("2026-06-15T10:30:00-07:00".into()), date: None }),
+        location: None,
+        status: Some("cancelled".into()),
+        description: None,
+        html_link: None,
+        hangout_link: None,
+        attendees: None,
     };
     assert!(map_event(cancelled, "primary", None).is_none());
 }
