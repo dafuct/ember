@@ -4,6 +4,9 @@ import { fetchCalendarWeek, connectGmail, listCalendars, type CalendarSummary } 
 import { WeekGrid } from "./WeekGrid";
 import { EventModal, type EventInitial } from "./EventModal";
 
+// The backend maps a missing calendar scope to the specific message
+// "Calendar access not granted — reconnect Google to enable it." Match that phrasing
+// precisely so an unrelated error that merely mentions "permission" isn't misrouted here.
 function isScopeError(msg: string): boolean {
   return /reconnect google|calendar access not granted/i.test(msg);
 }
@@ -23,7 +26,8 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
     return () => clearInterval(id);
   }, []);
 
-  // Load writable calendars once (for the create form's picker). Silent on failure.
+  // Load the writable calendars for the create form's picker (on mount + after each
+  // save/reconnect via reloadKey). Silent on failure — the form falls back to "primary".
   useEffect(() => {
     listCalendars().then(setCalendars).catch(() => setCalendars([]));
   }, [reloadKey]);
