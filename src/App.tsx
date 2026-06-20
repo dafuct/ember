@@ -7,6 +7,7 @@ import {
   fetchFolder,
   fetchInboxPreview,
   getConnectedAccount,
+  getDraft,
   getReplyContext,
   getSettings,
   restoreMessage,
@@ -318,6 +319,7 @@ export default function App() {
       inReplyTo: null,
       references: null,
       threadId: null,
+      draftId: null,
     });
   }
 
@@ -336,6 +338,7 @@ export default function App() {
         inReplyTo: ctx.message_id || null,
         references: ctx.references || ctx.message_id || null,
         threadId: m.thread_id || null,
+        draftId: null,
       });
     } catch (e) {
       setError(String(e));
@@ -347,6 +350,38 @@ export default function App() {
     setActiveSelectedId(id);
     const m = activeList.find((x) => x.id === id);
     if (m && isUnread(m)) toggleRead(m, true);
+  }
+
+  // Drafts open the compose editor (not the reading pane). Fetch the draft's content and
+  // seed ComposeModal with its draftId so Save/Send target the existing draft.
+  async function handleOpenDraft(m: MessagePreview) {
+    if (!m.draft_id) return;
+    setError(null);
+    try {
+      const d = await getDraft(m.draft_id);
+      setCompose({
+        to: d.to,
+        cc: d.cc,
+        subject: d.subject,
+        body: d.body,
+        inReplyTo: d.in_reply_to,
+        references: d.references,
+        threadId: d.thread_id,
+        draftId: d.draft_id,
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // Row click: in the Drafts folder, open the editor; everywhere else, normal select.
+  function handleRowSelect(id: string) {
+    if (folder === "drafts") {
+      const m = activeList.find((x) => x.id === id);
+      if (m) void handleOpenDraft(m);
+    } else {
+      handleSelect(id);
+    }
   }
 
   // Open a specific inbox message (used when a notification banner is clicked): leave
@@ -481,7 +516,7 @@ export default function App() {
                 messages={activeList}
                 stream={stream}
                 selectedId={activeSelectedId}
-                onSelect={handleSelect}
+                onSelect={handleRowSelect}
                 onArchive={handleArchive}
                 onStar={toggleStar}
                 flat={inSearch || inFolder}
@@ -503,7 +538,7 @@ export default function App() {
                         : "Nothing here."
                       : undefined
                 }
-                showRecipient={folder === "sent"}
+                showRecipient={folder === "sent" || folder === "drafts"}
               />
             }
             right={
@@ -530,6 +565,11 @@ export default function App() {
           onSent={() => {
             setCompose(null);
             setStatus("Sent ✓");
+            // A sent draft disappears from Drafts — refresh if we're viewing them.
+            if (folder === "drafts") setFolderReloadKey((k) => k + 1);
+          }}
+          onDraftsChanged={() => {
+            if (folder === "drafts") setFolderReloadKey((k) => k + 1);
           }}
         />
       )}
