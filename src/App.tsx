@@ -24,6 +24,8 @@ import { isStarred, isUnread, UNREAD, STARRED, withLabel } from "./lib/labels";
 import { pickNewMail, notifyNewMail, ensureNotificationPermission } from "./lib/notify";
 import { appendSignature, parseAddress, replySubject, quoteBody } from "./lib/compose";
 import { isTauri } from "@tauri-apps/api/core";
+import { onAction } from "@tauri-apps/plugin-notification";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
 import { CalendarView } from "./components/CalendarView";
 import type { View } from "./components/Header";
@@ -162,6 +164,24 @@ export default function App() {
     const id = setInterval(() => void runSyncRef.current(false), POLL_MS);
     return () => clearInterval(id);
   }, [account, settings.notifications]);
+
+  // M13: when the user clicks a banner, foreground Ember and open the most-recently
+  // notified message. onAction fires for a notification tap/action on desktop.
+  useEffect(() => {
+    if (!isTauri()) return;
+    // onAction resolves to a PluginListener; clean up via its unregister() method.
+    let listener: Awaited<ReturnType<typeof onAction>> | undefined;
+    onAction(() => {
+      void getCurrentWindow().setFocus();
+      const id = lastNotifiedIdRef.current;
+      if (id) openMessageFromNotification(id);
+    })
+      .then((un) => {
+        listener = un;
+      })
+      .catch((e) => console.warn("[ember] onAction subscribe failed:", e));
+    return () => void listener?.unregister();
+  }, []);
 
   function handleDisconnected() {
     // Called by SettingsModal after the disconnect command succeeds.
@@ -327,6 +347,32 @@ export default function App() {
     setActiveSelectedId(id);
     const m = activeList.find((x) => x.id === id);
     if (m && isUnread(m)) toggleRead(m, true);
+  }
+
+  // Open a specific inbox message (used when a notification banner is clicked): leave
+  // search/folder, return to the smart inbox, select it, and mark it read — mirroring
+  // handleSelect. It's normally already in `messages` because the sync that notified just
+  // refreshed the list.
+  function openMessageFromNotification(id: string) {
+    setView("mail");
+    setInSearch(false);
+    setSearchResults([]);
+    setSearchQuery("");
+    setSearchSelectedId(null);
+    setFolder("inbox");
+    setFolderSelectedId(null);
+    setStream("all");
+    setSelectedId(id);
+    // Mark read optimistically against `messages` directly: the view resets above are
+    // batched and haven't flushed, so the derived activeList still points at the previous
+    // mode. Roll back on failure, like toggleRead/withActiveRollback.
+    const m = messages.find((x) => x.id === id);
+    if (m && isUnread(m)) {
+      setMessages((prev) => prev.map((x) => (x.id === id ? withLabel(x, UNREAD, false) : x)));
+      void setMessageRead(id, true).catch(() =>
+        setMessages((prev) => prev.map((x) => (x.id === id ? withLabel(x, UNREAD, true) : x))),
+      );
+    }
   }
 
   async function handleSearch(q: string) {
