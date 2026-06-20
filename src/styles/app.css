@@ -261,3 +261,10 @@
 /* ===== M15 — batch selection ===== */
 .msg-check { margin: 0 2px 0 10px; flex: 0 0 auto; align-self: center; cursor: pointer; }
 .msg-item.checked { background: var(--accent-weak); }
+.batch-bar { display: flex; align-items: center; gap: 12px; }
+.batch-check { cursor: pointer; }
+.batch-count { font-weight: 600; font-size: 13px; }
+.batch-actions { display: flex; gap: 6px; margin-left: auto; }
+.batch-btn { font-size: 12px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+.batch-btn:hover { background: var(--accent-weak); }
+.batch-clear { background: transparent; border: none; cursor: pointer; font-size: 13px; padding: 2px 6px; }
