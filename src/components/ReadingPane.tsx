@@ -4,8 +4,10 @@ import {
   type MessageBody,
   type MessagePreview,
 } from "../lib/api";
-import { Mail, Archive, Trash2, Star, CornerUpLeft, RotateCcw } from "lucide-react";
-import { isStarred } from "../lib/labels";
+import { Mail, Archive, Trash2, Star, CornerUpLeft, RotateCcw, Tag } from "lucide-react";
+import { isStarred, userLabelChips } from "../lib/labels";
+import { LabelChips } from "./LabelChips";
+import type { Label } from "../lib/api";
 
 export function ReadingPane({
   msg,
@@ -18,6 +20,8 @@ export function ReadingPane({
   folder = "inbox",
   onRestore,
   onDeleteForever,
+  labelsById,
+  onOpenLabels,
 }: {
   msg: MessagePreview | null;
   loadImages: boolean;
@@ -29,6 +33,8 @@ export function ReadingPane({
   folder?: string;
   onRestore?: (m: MessagePreview) => void;
   onDeleteForever?: (m: MessagePreview) => void;
+  labelsById?: Map<string, Label>;
+  onOpenLabels?: (m: MessagePreview) => void;
 }) {
   const [body, setBody] = useState<MessageBody | null>(null);
   const [loading, setLoading] = useState(false);
@@ -127,6 +133,11 @@ export function ReadingPane({
           </>
         ) : (
           <>
+            {onOpenLabels && (
+              <button className="icon-btn" aria-label="Labels" onClick={() => onOpenLabels(msg)}>
+                <Tag size={15} />
+              </button>
+            )}
             <button className="icon-btn" aria-label="Archive" onClick={() => onArchive(msg)}>
               <Archive size={15} />
             </button>
@@ -138,6 +149,7 @@ export function ReadingPane({
       </div>
       <div className="reading-head">
         <h2 className="reading-subject">{msg.subject || "(no subject)"}</h2>
+        {labelsById && <LabelChips labels={userLabelChips(msg, labelsById)} />}
         <div className="reading-from">
           <div className="avatar avatar-lg">
             {(msg.from || "?").charAt(0).toUpperCase()}
