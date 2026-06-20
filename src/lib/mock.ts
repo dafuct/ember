@@ -161,9 +161,6 @@ export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boo
 export function mockUpdateEvent(calendarId: string, eventId: string, ev: EventWrite): CalendarEvent {
   return { ...mockCreateEvent(calendarId, ev, false), id: eventId };
 }
-export function mockDeleteEvent(_calendarId: string, _eventId: string): void {
-  // no-op in maket
-}
 export function mockListCalendars(): CalendarSummary[] {
   return [
     { id: "primary", summary: "you@example.com", primary: true, writable: true },
