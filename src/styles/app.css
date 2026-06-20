@@ -349,3 +349,8 @@
   padding: 0 2px;
 }
 .attach-remove:hover { color: var(--danger, #c0392b); }
+
+.event-row { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+.event-row .compose-field { flex: 1; }
+.event-row input[type="checkbox"] { width: auto; }
+.event-meet { font-size: 12px; color: var(--accent); word-break: break-all; padding: 2px 0; }
