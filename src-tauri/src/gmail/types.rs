@@ -119,6 +119,11 @@ pub struct MessagePreview {
     pub has_list_id: bool,
     /// Filled by the scorer at sync time (empty on the raw Gmail-fetch path).
     pub category: String,
+    /// Set only on the drafts-fetch path (a draft id wraps a message id); `None` elsewhere.
+    // 🦀 `skip_serializing_if` omits the key from JSON when None, so the frontend sees
+    //    `undefined` (matching `draft_id?: string`) rather than an explicit `null`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<String>,
 }
 
 // 🦀 `format=full` response — wraps the top-level MIME part.

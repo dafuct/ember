@@ -265,6 +265,7 @@ impl GmailClient {
             has_list_unsubscribe,
             has_list_id,
             category: String::new(), // scored at sync time, not here
+            draft_id: None, // populated only by the drafts command (fetch_folder "drafts" arm)
         })
     }
 

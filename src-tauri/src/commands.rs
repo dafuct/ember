@@ -166,6 +166,7 @@ pub async fn fetch_inbox_preview(
             has_list_unsubscribe: m.has_list_unsubscribe,
             has_list_id: m.has_list_id,
             category: m.category,
+            draft_id: None,
         })
         .collect())
 }
@@ -547,6 +548,7 @@ mod tests {
             has_list_unsubscribe: lu,
             has_list_id: false,
             category: String::new(),
+            draft_id: None,
         }
     }
 
