@@ -772,3 +772,20 @@ async fn get_message_body_skips_filename_parts_without_attachment_id() {
     assert_eq!(body.attachments[0].filename, "real.pdf");
     assert_eq!(body.attachments[0].attachment_id, "att9");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_attachment_decodes_base64url_bytes() {
+    let server = MockServer::start().await;
+    let payload = "PDF-BYTES-HERE";
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages/m3/attachments/att1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "size": payload.len(),
+            "data": b64url(payload)
+        })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    let bytes = client.get_attachment("m3", "att1").await.unwrap();
+    assert_eq!(bytes, payload.as_bytes());
+}
