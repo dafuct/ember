@@ -108,7 +108,7 @@ export function ComposeModal({
         setDraftId(id);
         onDraftsChanged?.();
         setError(
-          attachPaths.length > 0
+          attachPaths.length > 0 || forwardedAtts.length > 0
             ? `Couldn't send (${String(e)}). Saved text to Drafts — attachments were NOT saved; re-attach and retry.`
             : `Couldn't send (${String(e)}). Saved to Drafts — retry from there.`,
         );
