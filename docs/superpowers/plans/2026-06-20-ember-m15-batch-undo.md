@@ -468,7 +468,7 @@ In `src/styles/app.css`, append:
 .batch-count { font-weight: 600; font-size: 13px; }
 .batch-actions { display: flex; gap: 6px; margin-left: auto; }
 .batch-btn { font-size: 12px; padding: 3px 8px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: transparent; cursor: pointer; }
-.batch-btn:hover { background: var(--accent-soft, rgba(22,163,74,0.10)); }
+.batch-btn:hover { background: var(--accent-weak); }
 .batch-clear { background: transparent; border: none; cursor: pointer; font-size: 13px; padding: 2px 6px; }
 ```
 
