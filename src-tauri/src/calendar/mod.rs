@@ -25,21 +25,14 @@ impl CalendarClient {
         Self { base_url, access_token, http: reqwest::Client::new() }
     }
 
-    // 🦀 GET + bearer auth + JSON parse. 401/403 need care: Google returns the SAME status for
-    //    two very different problems — (a) the token lacks the calendar scope → reconnecting fixes
-    //    it; (b) the Calendar API isn't enabled for the Cloud project (or another permission issue)
-    //    → reconnecting can NEVER fix it. We read the JSON error body and tell them apart, so we
-    //    don't trap the user in an endless "reconnect" loop and so the real cause is visible.
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
-        let resp = self.http.get(url).bearer_auth(&self.access_token).send().await?;
+    // 🦀 Shared 401/403 handling (extracted from get_json so writes reuse it): map a missing-scope
+    //    403 to AppError::Auth (reconnect helps) and any other 403 to the Google message.
+    async fn check_auth_status(&self, resp: reqwest::Response) -> Result<reqwest::Response> {
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            // 🦀 `resp.text()` consumes the response body; we only reach here on an error, so
-            //    there's no successful payload to preserve.
             let body = resp.text().await.unwrap_or_default();
             let msg = google_error_message(&body);
             let lower = msg.to_lowercase();
-            // A bare 401, or a 403 whose message is about scopes/credentials → reconnect helps.
             if status == reqwest::StatusCode::UNAUTHORIZED
                 || lower.contains("scope")
                 || lower.contains("insufficient")
@@ -49,11 +42,19 @@ impl CalendarClient {
                     "Calendar access not granted — reconnect Google to enable it.".into(),
                 ));
             }
-            // Any other 403 (e.g. "Google Calendar API has not been used in project … or it is
-            // disabled. Enable it by visiting … then retry.") → surface Google's own message.
             return Err(AppError::Other(format!("Google Calendar API error: {msg}")));
         }
-        let resp = resp.error_for_status()?;
+        Ok(resp.error_for_status()?)
+    }
+
+    // 🦀 GET + bearer auth + JSON parse. 401/403 need care: Google returns the SAME status for
+    //    two very different problems — (a) the token lacks the calendar scope → reconnecting fixes
+    //    it; (b) the Calendar API isn't enabled for the Cloud project (or another permission issue)
+    //    → reconnecting can NEVER fix it. We read the JSON error body and tell them apart, so we
+    //    don't trap the user in an endless "reconnect" loop and so the real cause is visible.
+    async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
+        let resp = self.http.get(url).bearer_auth(&self.access_token).send().await?;
+        let resp = self.check_auth_status(resp).await?;
         Ok(resp.json::<T>().await?)
     }
 
@@ -111,6 +112,108 @@ impl CalendarClient {
             }
         }
         Ok(out)
+    }
+
+    /// Create an event (optionally a meeting with a Google Meet link). `sendUpdates=all` emails
+    /// the guests. Returns the created event, normalized.
+    pub async fn create_event(
+        &self,
+        calendar_id: &str,
+        ev: &types::EventWrite,
+        add_meet: bool,
+    ) -> Result<CalendarEvent> {
+        let url = format!(
+            "{}/calendar/v3/calendars/{}/events?conferenceDataVersion=1&sendUpdates=all",
+            self.base_url, calendar_id
+        );
+        let mut body = event_body(ev);
+        if add_meet {
+            // 🦀 A unique requestId per create (mirrors M17's boundary) so retries don't collide.
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            body.conference_data = Some(ConferenceDataBody {
+                create_request: CreateConferenceRequest {
+                    request_id: format!("ember-meet-{nanos}"),
+                    conference_solution_key: ConferenceSolutionKey { type_: "hangoutsMeet" },
+                },
+            });
+        }
+        let resp = self.http.post(&url).bearer_auth(&self.access_token).json(&body).send().await?;
+        let resp = self.check_auth_status(resp).await?;
+        let g: GEvent = resp.json().await?;
+        // 🦀 Created events come back without the owning calendar's color; the next week refetch
+        //    re-colors them. `ok_or_else` turns the None (e.g. a cancelled echo) into an error.
+        map_event(g, calendar_id, None)
+            .ok_or_else(|| AppError::Other("calendar returned an unusable event".into()))
+    }
+}
+
+// 🦀 Serialize-only shapes for the Google event-write body. Lifetimes (`'a`) let the body
+//    borrow strings from the EventWrite instead of cloning. `skip_serializing_if` omits absent
+//    optional keys entirely (Google rejects some explicit nulls).
+#[derive(serde::Serialize)]
+struct EventDateTimeBody<'a> {
+    #[serde(rename = "dateTime", skip_serializing_if = "Option::is_none")]
+    date_time: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date: Option<&'a str>,
+}
+#[derive(serde::Serialize)]
+struct AttendeeBody<'a> {
+    email: &'a str,
+}
+#[derive(serde::Serialize)]
+struct ConferenceSolutionKey {
+    #[serde(rename = "type")]
+    type_: &'static str,
+}
+#[derive(serde::Serialize)]
+struct CreateConferenceRequest {
+    #[serde(rename = "requestId")]
+    request_id: String,
+    #[serde(rename = "conferenceSolutionKey")]
+    conference_solution_key: ConferenceSolutionKey,
+}
+#[derive(serde::Serialize)]
+struct ConferenceDataBody {
+    #[serde(rename = "createRequest")]
+    create_request: CreateConferenceRequest,
+}
+#[derive(serde::Serialize)]
+struct EventBody<'a> {
+    summary: &'a str,
+    start: EventDateTimeBody<'a>,
+    end: EventDateTimeBody<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<&'a str>,
+    attendees: Vec<AttendeeBody<'a>>,
+    #[serde(rename = "conferenceData", skip_serializing_if = "Option::is_none")]
+    conference_data: Option<ConferenceDataBody>,
+}
+
+// 🦀 Build the start/end blocks from the EventWrite: all-day → `{date}`, timed → `{dateTime}`.
+fn date_time_body(value: &str, all_day: bool) -> EventDateTimeBody<'_> {
+    if all_day {
+        EventDateTimeBody { date_time: None, date: Some(value) }
+    } else {
+        EventDateTimeBody { date_time: Some(value), date: None }
+    }
+}
+
+// 🦀 The shared event body (everything except conferenceData, which only `create` adds).
+fn event_body(ev: &types::EventWrite) -> EventBody<'_> {
+    EventBody {
+        summary: &ev.title,
+        start: date_time_body(&ev.start, ev.all_day),
+        end: date_time_body(&ev.end, ev.all_day),
+        description: ev.description.as_deref(),
+        location: ev.location.as_deref(),
+        attendees: ev.attendees.iter().map(|e| AttendeeBody { email: e }).collect(),
+        conference_data: None,
     }
 }
 

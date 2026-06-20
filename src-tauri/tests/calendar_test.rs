@@ -1,7 +1,7 @@
 // 🦀 Integration tests: a separate crate, so the client is reached as `ember_lib::calendar`.
 use ember_lib::calendar::CalendarClient;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_partial_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -162,4 +162,41 @@ fn map_event_normalizes_and_skips_cancelled() {
         attendees: None,
     };
     assert!(map_event(cancelled, "primary", None).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_event_with_meet_posts_conference_and_attendees() {
+    use ember_lib::calendar::types::EventWrite;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/calendar/v3/calendars/primary/events"))
+        .and(query_param("conferenceDataVersion", "1"))
+        .and(query_param("sendUpdates", "all"))
+        .and(body_partial_json(json!({
+            "summary": "Sync",
+            "attendees": [{ "email": "a@x.com" }],
+            "conferenceData": { "createRequest": { "conferenceSolutionKey": { "type": "hangoutsMeet" } } }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "new1",
+            "summary": "Sync",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end": { "dateTime": "2026-06-21T11:00:00-07:00" },
+            "hangoutLink": "https://meet.google.com/xyz"
+        })))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let ev = EventWrite {
+        title: "Sync".into(),
+        start: "2026-06-21T10:00:00-07:00".into(),
+        end: "2026-06-21T11:00:00-07:00".into(),
+        all_day: false,
+        description: None,
+        location: None,
+        attendees: vec!["a@x.com".into()],
+    };
+    let created = client.create_event("primary", &ev, true).await.unwrap();
+    assert_eq!(created.id, "new1");
+    assert_eq!(created.meet_link.as_deref(), Some("https://meet.google.com/xyz"));
 }

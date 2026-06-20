@@ -31,6 +31,7 @@ const SCOPE_GMAIL_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
 //    because connect() always sends `prompt=consent`, Google re-prompts and grants the new
 //    scope — no migration needed for a user who reconnects.
 const SCOPE_CALENDAR_READONLY: &str = "https://www.googleapis.com/auth/calendar.readonly";
+const SCOPE_CALENDAR_EVENTS: &str = "https://www.googleapis.com/auth/calendar.events";
 pub const PRIMARY_ACCOUNT: &str = "primary";
 
 // 🦀 `SystemTime::now()` returns the current wall-clock time.
@@ -111,6 +112,7 @@ impl GoogleOAuth {
             .authorize_url(CsrfToken::new_random)
             .add_scope(Scope::new(SCOPE_GMAIL_MODIFY.into()))
             .add_scope(Scope::new(SCOPE_CALENDAR_READONLY.into()))
+            .add_scope(Scope::new(SCOPE_CALENDAR_EVENTS.into()))
             .add_extra_param("access_type", "offline")
             .add_extra_param("prompt", "consent")
             .set_pkce_challenge(pkce_challenge)

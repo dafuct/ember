@@ -67,6 +67,23 @@ pub struct EventsResponse {
     pub next_page_token: Option<String>,
 }
 
+// 🦀 The create/edit input from the frontend. `Deserialize` so a Tauri command can accept it;
+//    snake_case fields → JS passes snake_case object keys. `start`/`end` are RFC3339 dateTime
+//    (timed) or "YYYY-MM-DD" (all-day, end already exclusive — the frontend handles the +1).
+#[derive(Debug, Deserialize)]
+pub struct EventWrite {
+    pub title: String,
+    pub start: String,
+    pub end: String,
+    pub all_day: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub attendees: Vec<String>,
+}
+
 // 🦀 The normalized event we send to the frontend. `Serialize` lets Tauri turn it into JSON.
 //    `PartialEq` lets unit tests compare values with assert_eq!.
 #[derive(Debug, Serialize, PartialEq)]
