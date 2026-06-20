@@ -77,6 +77,7 @@ pub fn run() {
         //    `tauri_plugin_notification::init()` returns the plugin value; the JS side
         //    reaches it through `@tauri-apps/plugin-notification`.
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // 🦀 The setup hook runs once at startup with the App handle. `app.path()`
             //    (Manager trait) resolves OS-standard dirs; on macOS app_data_dir is
