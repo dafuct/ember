@@ -4,8 +4,8 @@ pub mod types;
 
 use std::collections::HashMap;
 use types::{
-    FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart, MessagePreview,
-    ModifiedMessage, Profile, RawMessage, ReplyContext,
+    AttachmentMeta, FullMessage, HistoryResponse, Label, LabelColor, MessageList, MessagePart,
+    MessagePreview, ModifiedMessage, Profile, RawMessage, ReplyContext,
 };
 use types::{DraftContent, DraftRef};
 
@@ -38,6 +38,8 @@ pub struct HistoryDelta {
 pub struct RawBody {
     pub html: Option<String>,
     pub text: Option<String>,
+    // 🦀 Attachments found on the message (metadata only — bytes fetched on demand).
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 // 🦀 base64url-decode a part's data into a String. `URL_SAFE_NO_PAD` is the web-safe
@@ -69,6 +71,25 @@ fn collect_body(part: &MessagePart, html: &mut Option<String>, text: &mut Option
     }
     for child in &part.parts {
         collect_body(child, html, text);
+    }
+}
+
+// 🦀 Sibling of `collect_body`: a recursive MIME walk gathering attachment parts.
+//    A part is an attachment when it has a non-empty `filename` AND an `attachmentId`
+//    (the handle for fetching its bytes separately). `out` is an out-param Vec to push into.
+fn collect_attachments(part: &MessagePart, out: &mut Vec<AttachmentMeta>) {
+    if !part.filename.is_empty() {
+        if let Some(id) = &part.body.attachment_id {
+            out.push(AttachmentMeta {
+                filename: part.filename.clone(),
+                mime_type: part.mime_type.clone(),
+                size: part.body.size,
+                attachment_id: id.clone(),
+            });
+        }
+    }
+    for child in &part.parts {
+        collect_attachments(child, out);
     }
 }
 
@@ -459,7 +480,10 @@ impl GmailClient {
         let mut html = None;
         let mut text = None;
         collect_body(&full.payload, &mut html, &mut text);
-        Ok(RawBody { html, text })
+        // 🦀 The same payload also yields the attachment list — no extra round-trip.
+        let mut attachments = Vec::new();
+        collect_attachments(&full.payload, &mut attachments);
+        Ok(RawBody { html, text, attachments })
     }
 
     /// Fetch what a reply needs: the original's `Message-ID` + `References` headers (for
