@@ -6,6 +6,7 @@ import {
   layoutDay,
   allDayOnDay,
 } from "../lib/calendar";
+import { noteKey } from "../lib/notes";
 
 const PX_PER_MIN = 0.8;                       // 48px / hour
 const GRID_HEIGHT = 24 * 60 * PX_PER_MIN;     // 1152px
@@ -34,18 +35,21 @@ export function WeekGrid({
   weekStart,
   events,
   now,
+  notesByKey,
   onSlotClick,
   onEventClick,
 }: {
   weekStart: Date;
   events: CalendarEvent[];
   now: Date;
+  notesByKey?: Set<string>;
   onSlotClick?: (at: Date) => void;
   onEventClick?: (ev: CalendarEvent) => void;
 }) {
   const days = weekDays(weekStart);
   const { allDay, timed } = splitAllDay(events);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasNote = (e: CalendarEvent) => !!notesByKey?.has(noteKey(e.calendar_id, e.id));
 
   // Scroll so ~7 AM is at the top on mount / week change.
   useEffect(() => {
@@ -75,6 +79,7 @@ export function WeekGrid({
             <div key={d.toISOString()} className="cal-allday-cell">
               {allDay.filter((e) => allDayOnDay(e, d)).map((e) => (
                 <div key={e.id} className="cal-allday-ev" style={tint(e)} title={e.title} onClick={() => onEventClick?.(e)}>
+                  {hasNote(e) && <span className="cal-ev-note-dot" aria-label="Has notes" />}
                   {e.title}
                 </div>
               ))}
@@ -121,6 +126,7 @@ export function WeekGrid({
                       ...tint(p.ev),
                     }}
                   >
+                    {hasNote(p.ev) && <span className="cal-ev-note-dot" aria-label="Has notes" />}
                     <span className="cal-ev-title">{p.ev.title}</span>
                     <span className="cal-ev-time">{fmtTime(p.ev.start)}</span>
                   </div>

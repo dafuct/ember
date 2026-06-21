@@ -362,3 +362,84 @@
 .event-detail-when { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
 .event-detail-desc { white-space: pre-wrap; }
 .event-detail-guests { font-size: 13px; color: var(--text-muted); margin: 6px 0; }
+
+/* M20 meeting notes */
+.cal-stage {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.cal-stage .cal-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cal-ev-note-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--accent, #16a34a);
+  vertical-align: middle;
+}
+.btn-toggle.active {
+  background: var(--accent, #16a34a);
+  color: #fff;
+}
+.notes-drawer {
+  flex: 0 0 280px;
+  border-left: 1px solid var(--border, #e8e4dc);
+  padding: 8px 10px;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+.notes-drawer-head {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.notes-empty {
+  color: var(--text-muted, #6b6660);
+  font-size: 13px;
+  padding: 8px 2px;
+}
+.notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.notes-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  color: inherit;
+}
+.notes-row:hover {
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.notes-row-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.notes-row-date {
+  font-size: 11px;
+  color: var(--text-muted, #6b6660);
+}
+.notes-row-snippet {
+  font-size: 12px;
+  color: var(--text-muted, #6b6660);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-when {
+  font-size: 12px;
+  color: var(--text-muted, #6b6660);
+  margin-bottom: 6px;
+}
