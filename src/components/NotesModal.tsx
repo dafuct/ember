@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -65,6 +65,16 @@ export function NotesModal({
         setSelectedDevice((prev) => prev || ds[0]?.name || "");
       })
       .catch(() => {});
+  }, []);
+
+  // Track `recording` in a ref so the unmount cleanup sees the latest value without re-subscribing.
+  const recordingRef = useRef(false);
+  recordingRef.current = recording;
+  // Stop any in-flight capture if the modal unmounts mid-recording (avoids a leaked worker/timer).
+  useEffect(() => {
+    return () => {
+      if (recordingRef.current) void stopCapture();
+    };
   }, []);
 
   // Load any existing note for this event on open.
@@ -284,6 +294,7 @@ export function NotesModal({
             <div className="note-capture-row">
               <select
                 className="note-device-select"
+                aria-label="Audio input device"
                 value={selectedDevice}
                 onChange={(e) => setSelectedDevice(e.target.value)}
                 disabled={blocked}
