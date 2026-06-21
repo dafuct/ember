@@ -481,3 +481,13 @@
   color: var(--danger, #c0392b);
   margin-bottom: 6px;
 }
+
+/* M22 transcript section */
+.note-transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+  margin: 10px 0 6px;
+}

@@ -206,6 +206,7 @@ const MOCK_NOTES = new Map<string, MeetingNote>([
       created_at: 1_750_000_000_000, updated_at: 1_750_000_200_000,
       summary: "## Summary\n- Career growth + Q3 priorities discussed\n\n## Action items\n- [ ] Share the roadmap doc",
       summary_updated_at: 1_750_000_100_000,
+      transcript: "Dana: How's the quarter going?\nYou: On track — shipping the roadmap doc Friday.",
     },
   ],
   [
@@ -216,6 +217,7 @@ const MOCK_NOTES = new Map<string, MeetingNote>([
       body: "Draft milestones for H2. Decide M21 scope next.",
       created_at: 1_750_000_000_000, updated_at: 1_750_000_100_000,
       summary: "", summary_updated_at: 0,
+      transcript: "",
     },
   ],
 ]);
@@ -241,6 +243,7 @@ export function mockSaveMeetingNote(w: MeetingNoteWrite): MeetingNote {
     updated_at: now,
     summary: existing?.summary ?? "",
     summary_updated_at: existing?.summary_updated_at ?? 0,
+    transcript: w.transcript,
   };
   MOCK_NOTES.set(key, note);
   return note;
@@ -264,6 +267,7 @@ export function mockSummarizeMeetingNote(calendarId: string, eventId: string): M
     event_title: "", event_start: "", body: "",
     created_at: 1_750_000_500_000, updated_at: 1_750_000_500_000,
     summary: "", summary_updated_at: 0,
+    transcript: "",
   };
   const note: MeetingNote = {
     ...base,
@@ -272,4 +276,9 @@ export function mockSummarizeMeetingNote(calendarId: string, eventId: string): M
   };
   MOCK_NOTES.set(key, note);
   return note;
+}
+
+// Browser-maket: pretend a .vtt was picked + parsed to plain text.
+export function mockReadTranscriptFile(_path: string): string {
+  return "Dana: Welcome everyone.\nYou: Let's review the Q3 priorities.\nDana: Action — share the roadmap doc by Friday.";
 }

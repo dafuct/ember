@@ -70,6 +70,8 @@ pub struct MeetingNote {
     //    Empty string / 0 mean "never summarized". Staleness = updated_at > summary_updated_at.
     pub summary: String,
     pub summary_updated_at: i64,
+    // 🦀 M22: the meeting transcript (plain text; pasted or imported). Empty = none.
+    pub transcript: String,
 }
 
 // 🦀 The save input from the frontend (Deserialize). snake_case field names → the JS side
@@ -82,6 +84,10 @@ pub struct MeetingNoteWrite {
     pub event_title: String,
     pub event_start: String,
     pub body: String,
+    // 🦀 M22: the transcript sent from the frontend. #[serde(default)] → an absent key
+    //    deserializes to "" (defensive; the frontend always sends the current transcript).
+    #[serde(default)]
+    pub transcript: String,
 }
 
 /// Create tables and indexes if they don't exist. Safe to call on every startup.
@@ -134,6 +140,7 @@ pub fn init(conn: &Connection) -> Result<()> {
             updated_at  INTEGER NOT NULL,
             summary     TEXT NOT NULL DEFAULT '',
             summary_updated_at INTEGER NOT NULL DEFAULT 0,
+            transcript  TEXT NOT NULL DEFAULT '',
             UNIQUE(calendar_id, event_id)
         );",
     )?;
@@ -155,6 +162,8 @@ pub fn init(conn: &Connection) -> Result<()> {
     //    backfills existing rows. Independent of the messages `needs_migration` wipe above.
     add_column_if_missing(conn, "meeting_notes", "summary", "TEXT NOT NULL DEFAULT ''")?;
     add_column_if_missing(conn, "meeting_notes", "summary_updated_at", "INTEGER NOT NULL DEFAULT 0")?;
+    // 🦀 M22 additive migration: existing M20/M21 DBs get the transcript column here.
+    add_column_if_missing(conn, "meeting_notes", "transcript", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)",
         [],
@@ -477,7 +486,7 @@ pub fn clear_account_data(conn: &Connection) -> Result<()> {
 }
 
 // 🦀 The column list, in one `const` so get + list read the same shape (DRY).
-const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at, summary, summary_updated_at";
+const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at, summary, summary_updated_at, transcript";
 
 // 🦀 Map one meeting_notes row into a MeetingNote. `&rusqlite::Row` borrows the row for the
 //    closure; column indices match NOTE_COLS order. Returns rusqlite::Result so it can be
@@ -494,6 +503,7 @@ fn row_to_note(row: &rusqlite::Row) -> rusqlite::Result<MeetingNote> {
         updated_at: row.get(7)?,
         summary: row.get(8)?,
         summary_updated_at: row.get(9)?,
+        transcript: row.get(10)?,
     })
 }
 
@@ -527,20 +537,21 @@ pub fn list_meeting_notes(conn: &Connection) -> Result<Vec<MeetingNote>> {
 /// is the caller's clock (Unix ms): it sets `updated_at` always and `created_at` only on the
 /// initial insert (preserved on update). The snapshot (title/start) is refreshed each save.
 pub fn upsert_meeting_note(conn: &Connection, w: &MeetingNoteWrite, now_ms: i64) -> Result<MeetingNote> {
-    // 🦀 `?6` is reused for BOTH created_at and updated_at on insert. ON CONFLICT updates
-    //    updated_at (= excluded.updated_at = ?6) but NOT created_at — so created_at keeps
-    //    its first-insert value while updated_at moves forward. `excluded` is the row that
-    //    WOULD have been inserted; it's how SQLite exposes the new values inside DO UPDATE.
+    // 🦀 `?7` is reused for BOTH created_at and updated_at on insert. ON CONFLICT updates
+    //    updated_at (= excluded.updated_at = ?7) but NOT created_at — so created_at keeps
+    //    its first-insert value while updated_at moves forward. `summary`/`summary_updated_at`
+    //    stay OUT of this statement, so a body/transcript save never clobbers the summary.
     conn.execute(
         "INSERT INTO meeting_notes
-            (calendar_id, event_id, event_title, event_start, body, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+            (calendar_id, event_id, event_title, event_start, body, transcript, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
          ON CONFLICT(calendar_id, event_id) DO UPDATE SET
             event_title = excluded.event_title,
             event_start = excluded.event_start,
             body = excluded.body,
+            transcript = excluded.transcript,
             updated_at = excluded.updated_at",
-        params![w.calendar_id, w.event_id, w.event_title, w.event_start, w.body, now_ms],
+        params![w.calendar_id, w.event_id, w.event_title, w.event_start, w.body, w.transcript, now_ms],
     )?;
     // 🦀 Re-read the stored row so the caller gets the real id + preserved created_at. The row
     //    must exist now, so `None` here is a genuine bug — surface it loudly rather than panic.
@@ -848,6 +859,7 @@ mod tests {
             event_title: "Standup".into(),
             event_start: "2026-06-22T09:00:00-07:00".into(),
             body: body.into(),
+            transcript: "".into(),
         }
     }
 
@@ -967,6 +979,59 @@ mod tests {
 
         // Idempotent: a second init must not error and the row survives.
         init(&c).unwrap();
+        assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
+    }
+
+    #[test]
+    fn upsert_meeting_note_round_trips_transcript() {
+        let c = conn();
+        let mut w = note_write("primary", "e1", "body");
+        w.transcript = "line one\nline two".into();
+        let n = upsert_meeting_note(&c, &w, 1000).unwrap();
+        assert_eq!(n.transcript, "line one\nline two");
+        let got = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        assert_eq!(got.transcript, "line one\nline two"); // persisted
+    }
+
+    #[test]
+    fn body_transcript_resave_preserves_summary() {
+        let c = conn();
+        let mut w = note_write("primary", "e1", "body1");
+        w.transcript = "t1".into();
+        upsert_meeting_note(&c, &w, 1000).unwrap();
+        set_meeting_note_summary(&c, "primary", "e1", "sum", 1200).unwrap();
+        // edit body + transcript, re-save later
+        let mut w2 = note_write("primary", "e1", "body2");
+        w2.transcript = "t2".into();
+        let after = upsert_meeting_note(&c, &w2, 3000).unwrap();
+        assert_eq!(after.body, "body2");
+        assert_eq!(after.transcript, "t2");
+        assert_eq!(after.updated_at, 3000); // bumped by the body/transcript save
+        assert_eq!(after.summary, "sum"); // summary preserved (stays out of the upsert)
+        assert_eq!(after.summary_updated_at, 1200);
+    }
+
+    #[test]
+    fn init_adds_transcript_column_to_a_pre_m22_table() {
+        // 🦀 An M21-shaped table (has the summary columns, but NO transcript) + a row.
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE meeting_notes (
+                id INTEGER PRIMARY KEY, calendar_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                event_title TEXT NOT NULL DEFAULT '', event_start TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                summary TEXT NOT NULL DEFAULT '', summary_updated_at INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(calendar_id, event_id));
+             INSERT INTO meeting_notes
+                (calendar_id, event_id, event_title, event_start, body, created_at, updated_at)
+                VALUES ('primary','e1','T','2026-01-01','b',1,1);",
+        )
+        .unwrap();
+        init(&c).unwrap();
+        let n = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        assert_eq!(n.transcript, ""); // backfilled default
+        assert_eq!(n.body, "b");
+        init(&c).unwrap(); // idempotent
         assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
     }
 }

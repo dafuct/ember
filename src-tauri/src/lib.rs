@@ -44,6 +44,9 @@ pub mod mime;
 //    integration test in tests/ollama_test.rs (a separate crate) can reach it.
 pub mod ollama;
 
+// 🦀 Pure transcript helpers (WebVTT→text, summary-input builder) — no I/O, unit-tested (M22).
+pub mod transcript;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -128,6 +131,7 @@ pub fn run() {
             commands::delete_meeting_note,
             commands::list_meeting_notes,
             commands::summarize_meeting_note,
+            commands::read_transcript_file,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
