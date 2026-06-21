@@ -107,6 +107,8 @@ pub fn run() {
             // 🦀 `app.manage(...)` stores a value in Tauri's typed state registry;
             //    commands receive it later via `tauri::State<'_, Db>`.
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(conn)));
+            // 🦀 Live-capture session state (M24): starts empty; start/stop_capture fill/clear it.
+            app.manage(crate::capture::CaptureState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -145,6 +147,8 @@ pub fn run() {
             commands::read_transcript_file,
             commands::transcribe_recording,
             capture::list_input_devices,
+            capture::start_capture,
+            capture::stop_capture,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
