@@ -167,18 +167,27 @@ pub async fn stop_capture(state: tauri::State<'_, CaptureState>) -> Result<()> {
     Ok(())
 }
 
-// 🦀 Phase A worker: accumulate the WHOLE capture, transcribe once when the stream closes.
-//    Phase B (Task 6) upgrades this to incremental ~10s windows.
+// 🦀 Phase B worker: emit a transcript chunk for every full ~10s window as it accumulates,
+//    then flush the remainder when the stream closes. `transcribe_and_emit` is unchanged.
 async fn worker_loop(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<Vec<f32>>,
     on_event: tauri::ipc::Channel<CaptureEvent>,
     in_rate: u32,
     channels: u16,
 ) {
+    const WINDOW_SECS: usize = 10;
     let whisper = crate::whisper::WhisperClient::new();
+    let stride = channels.max(1) as usize;
+    // 🦀 interleaved samples per window = frames-per-window * channels
+    let window_samples = in_rate as usize * WINDOW_SECS * stride;
     let mut buf: Vec<f32> = Vec::new();
     while let Some(chunk) = rx.recv().await {
         buf.extend_from_slice(&chunk);
+        // 🦀 Emit each full window as it accumulates; `drain(..n)` removes the first n samples.
+        while buf.len() >= window_samples {
+            let window: Vec<f32> = buf.drain(..window_samples).collect();
+            transcribe_and_emit(&whisper, &window, channels, in_rate, &on_event).await;
+        }
     }
     if !buf.is_empty() {
         transcribe_and_emit(&whisper, &buf, channels, in_rate, &on_event).await;
