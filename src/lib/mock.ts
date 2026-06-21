@@ -3,6 +3,7 @@
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
+import type { MeetingNote, MeetingNoteWrite } from "./notes";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -185,4 +186,65 @@ export function mockReplyContext(id: string): ReplyContext {
     cc: id === "m1" ? "Sam <sam@team.io>" : "",
     attachments,
   };
+}
+
+// --- Meeting notes (M20) -----------------------------------------------------
+// In-memory note store for the browser maket. Keyed by `${calendar_id}|${event_id}`
+// inline (NOT importing notes.ts's noteKey, to keep this module's import of notes.ts
+// type-only — mirrors how mock.ts imports api.ts). Seeded with two notes on events that
+// mockCalendarWeek always produces (e2 "1:1 with Dana", e6 "Roadmap"), so the panel + dots
+// are demoable on any visible week.
+const mockNoteKey = (calendarId: string, eventId: string) => `${calendarId}|${eventId}`;
+
+const MOCK_NOTES = new Map<string, MeetingNote>([
+  [
+    mockNoteKey("primary", "e2"),
+    {
+      id: 1, calendar_id: "primary", event_id: "e2",
+      event_title: "1:1 with Dana", event_start: "2026-06-22T14:00:00-07:00",
+      body: "- Career growth check-in\n- Reviewed Q3 priorities\n- Action: share the roadmap doc",
+      created_at: 1_750_000_000_000, updated_at: 1_750_000_200_000,
+    },
+  ],
+  [
+    mockNoteKey("primary", "e6"),
+    {
+      id: 2, calendar_id: "primary", event_id: "e6",
+      event_title: "Roadmap", event_start: "2026-06-25T10:00:00-07:00",
+      body: "Draft milestones for H2. Decide M21 scope next.",
+      created_at: 1_750_000_000_000, updated_at: 1_750_000_100_000,
+    },
+  ],
+]);
+
+let mockNoteId = 100; // fresh ids for newly-created mock notes
+
+export function mockGetMeetingNote(calendarId: string, eventId: string): MeetingNote | null {
+  return MOCK_NOTES.get(mockNoteKey(calendarId, eventId)) ?? null;
+}
+
+export function mockSaveMeetingNote(w: MeetingNoteWrite): MeetingNote {
+  const key = mockNoteKey(w.calendar_id, w.event_id);
+  const now = 1_750_000_500_000; // fixed clock (no Date.now in maket data, keeps it deterministic)
+  const existing = MOCK_NOTES.get(key);
+  const note: MeetingNote = {
+    id: existing?.id ?? mockNoteId++,
+    calendar_id: w.calendar_id,
+    event_id: w.event_id,
+    event_title: w.event_title,
+    event_start: w.event_start,
+    body: w.body,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+  MOCK_NOTES.set(key, note);
+  return note;
+}
+
+export function mockDeleteMeetingNote(calendarId: string, eventId: string): void {
+  MOCK_NOTES.delete(mockNoteKey(calendarId, eventId));
+}
+
+export function mockListMeetingNotes(): MeetingNote[] {
+  return [...MOCK_NOTES.values()].sort((a, b) => b.updated_at - a.updated_at);
 }
