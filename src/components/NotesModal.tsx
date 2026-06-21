@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { getMeetingNote, saveMeetingNote, deleteMeetingNote } from "../lib/notes";
+import {
+  getMeetingNote,
+  saveMeetingNote,
+  deleteMeetingNote,
+  summarizeMeetingNote,
+} from "../lib/notes";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
@@ -20,9 +25,14 @@ export function NotesModal({
   onSaved: () => void; // reload the panel + dots
 }) {
   const [body, setBody] = useState("");
+  const [savedBody, setSavedBody] = useState(""); // the body currently persisted
   const [exists, setExists] = useState(false); // a note already stored → show Delete
+  const [summary, setSummary] = useState("");
+  const [summaryUpdatedAt, setSummaryUpdatedAt] = useState(0);
+  const [noteUpdatedAt, setNoteUpdatedAt] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false); // save/delete in flight
+  const [summarizing, setSummarizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
@@ -39,7 +49,11 @@ export function NotesModal({
       .then((n) => {
         if (cancelled) return;
         setBody(n?.body ?? "");
+        setSavedBody(n?.body ?? "");
         setExists(!!n);
+        setSummary(n?.summary ?? "");
+        setSummaryUpdatedAt(n?.summary_updated_at ?? 0);
+        setNoteUpdatedAt(n?.updated_at ?? 0);
         setLoading(false);
       })
       .catch((e) => {
@@ -52,6 +66,9 @@ export function NotesModal({
       cancelled = true;
     };
   }, [target.calendarId, target.eventId]);
+
+  // A stored summary is stale if the body has been edited since it was generated.
+  const stale = summary !== "" && noteUpdatedAt > summaryUpdatedAt;
 
   async function handleSave() {
     if (body.trim() === "") return; // Save is disabled when empty; guard regardless
@@ -89,6 +106,35 @@ export function NotesModal({
     }
   }
 
+  async function handleSummarize() {
+    if (body.trim() === "") return;
+    setSummarizing(true);
+    setError(null);
+    try {
+      // Persist the current body first so the summary reflects the latest text.
+      if (body !== savedBody) {
+        await saveMeetingNote({
+          calendar_id: target.calendarId,
+          event_id: target.eventId,
+          event_title: target.eventTitle,
+          event_start: target.eventStart,
+          body,
+        });
+        setSavedBody(body);
+      }
+      const n = await summarizeMeetingNote(target.calendarId, target.eventId);
+      setSummary(n.summary);
+      setSummaryUpdatedAt(n.summary_updated_at);
+      setNoteUpdatedAt(n.updated_at);
+      setExists(true);
+      onSaved(); // a note now exists / changed → refresh the calendar dots + drawer
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
   return (
     <div className="compose-overlay">
       <div className="compose-card" role="dialog" aria-modal="true" aria-labelledby="note-title">
@@ -102,29 +148,57 @@ export function NotesModal({
         {loading ? (
           <div className="cal-loading">Loading…</div>
         ) : (
-          <textarea
-            className="compose-body"
-            placeholder="Write meeting notes…"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={12}
-            autoFocus
-          />
+          <>
+            <textarea
+              className="compose-body"
+              placeholder="Write meeting notes…"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={10}
+              autoFocus
+            />
+            <div className="note-summary-section">
+              <div className="note-summary-head">
+                <span>Summary</span>
+                <button
+                  className="btn"
+                  onClick={handleSummarize}
+                  disabled={summarizing || busy || body.trim() === ""}
+                >
+                  {summarizing ? "Summarizing…" : summary ? "Regenerate" : "Summarize"}
+                </button>
+              </div>
+              {stale && (
+                <div className="note-summary-stale">Notes changed since this summary — Regenerate.</div>
+              )}
+              {summary ? (
+                <pre className="note-summary">{summary}</pre>
+              ) : (
+                <div className="note-summary-empty">
+                  No summary yet. Click Summarize to generate one with local Ollama.
+                </div>
+              )}
+            </div>
+          </>
         )}
         {error && <div className="compose-error">{error}</div>}
         <div className="compose-actions">
           {exists && (
-            <button className="btn btn-danger-outline" onClick={handleDelete} disabled={busy}>
+            <button
+              className="btn btn-danger-outline"
+              onClick={handleDelete}
+              disabled={busy || summarizing}
+            >
               Delete
             </button>
           )}
-          <button className="btn" onClick={onClose} disabled={busy}>
+          <button className="btn" onClick={onClose} disabled={busy || summarizing}>
             Cancel
           </button>
           <button
             className="btn btn-accent"
             onClick={handleSave}
-            disabled={busy || body.trim() === ""}
+            disabled={busy || summarizing || body.trim() === ""}
           >
             {busy ? "Saving…" : "Save"}
           </button>

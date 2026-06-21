@@ -66,6 +66,10 @@ pub struct MeetingNote {
     pub body: String,
     pub created_at: i64,
     pub updated_at: i64,
+    // 🦀 M21: the local-Ollama summary (markdown text) + when it was generated (Unix ms).
+    //    Empty string / 0 mean "never summarized". Staleness = updated_at > summary_updated_at.
+    pub summary: String,
+    pub summary_updated_at: i64,
 }
 
 // 🦀 The save input from the frontend (Deserialize). snake_case field names → the JS side
@@ -128,6 +132,8 @@ pub fn init(conn: &Connection) -> Result<()> {
             body        TEXT NOT NULL,
             created_at  INTEGER NOT NULL,
             updated_at  INTEGER NOT NULL,
+            summary     TEXT NOT NULL DEFAULT '',
+            summary_updated_at INTEGER NOT NULL DEFAULT 0,
             UNIQUE(calendar_id, event_id)
         );",
     )?;
@@ -144,6 +150,11 @@ pub fn init(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "messages", "has_list_unsubscribe", "INTEGER NOT NULL DEFAULT 0")?;
     add_column_if_missing(conn, "messages", "has_list_id", "INTEGER NOT NULL DEFAULT 0")?;
     add_column_if_missing(conn, "messages", "category", "TEXT NOT NULL DEFAULT ''")?;
+    // 🦀 M21 additive migration: existing M20 DBs already have the meeting_notes table (so the
+    //    CREATE above is a no-op for them) — add the new summary columns here. NOT NULL + DEFAULT
+    //    backfills existing rows. Independent of the messages `needs_migration` wipe above.
+    add_column_if_missing(conn, "meeting_notes", "summary", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "meeting_notes", "summary_updated_at", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)",
         [],
@@ -466,7 +477,7 @@ pub fn clear_account_data(conn: &Connection) -> Result<()> {
 }
 
 // 🦀 The column list, in one `const` so get + list read the same shape (DRY).
-const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at";
+const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at, summary, summary_updated_at";
 
 // 🦀 Map one meeting_notes row into a MeetingNote. `&rusqlite::Row` borrows the row for the
 //    closure; column indices match NOTE_COLS order. Returns rusqlite::Result so it can be
@@ -481,6 +492,8 @@ fn row_to_note(row: &rusqlite::Row) -> rusqlite::Result<MeetingNote> {
         body: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+        summary: row.get(8)?,
+        summary_updated_at: row.get(9)?,
     })
 }
 
@@ -542,6 +555,25 @@ pub fn delete_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str)
         params![calendar_id, event_id],
     )?;
     Ok(())
+}
+
+/// Set the AI summary (M21), stamping `summary_updated_at` but NOT touching the body's
+/// `updated_at` — so staleness (`updated_at > summary_updated_at`) tracks body edits only.
+/// Returns the updated row; errors if the note doesn't exist (it must be saved first).
+pub fn set_meeting_note_summary(
+    conn: &Connection,
+    calendar_id: &str,
+    event_id: &str,
+    summary: &str,
+    now_ms: i64,
+) -> Result<MeetingNote> {
+    conn.execute(
+        "UPDATE meeting_notes SET summary = ?1, summary_updated_at = ?2
+         WHERE calendar_id = ?3 AND event_id = ?4",
+        params![summary, now_ms, calendar_id, event_id],
+    )?;
+    get_meeting_note(conn, calendar_id, event_id)?
+        .ok_or_else(|| crate::error::AppError::Other("note not found".into()))
 }
 
 #[cfg(test)]
@@ -877,5 +909,64 @@ mod tests {
         init(&c).unwrap(); // second init must not error on the existing table
         upsert_meeting_note(&c, &note_write("primary", "e1", "ok"), 1).unwrap();
         assert_eq!(list_meeting_notes(&c).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn set_meeting_note_summary_sets_summary_without_bumping_updated_at() {
+        let c = conn();
+        let n = upsert_meeting_note(&c, &note_write("primary", "e1", "body"), 1000).unwrap();
+        assert_eq!(n.summary, ""); // default after insert
+        assert_eq!(n.summary_updated_at, 0);
+        assert_eq!(n.updated_at, 1000);
+
+        let updated = set_meeting_note_summary(&c, "primary", "e1", "## Summary\n- ok", 2000).unwrap();
+        assert_eq!(updated.summary, "## Summary\n- ok");
+        assert_eq!(updated.summary_updated_at, 2000);
+        assert_eq!(updated.updated_at, 1000); // body's updated_at must NOT move
+        assert_eq!(updated.created_at, 1000);
+    }
+
+    #[test]
+    fn body_resave_preserves_existing_summary() {
+        let c = conn();
+        upsert_meeting_note(&c, &note_write("primary", "e1", "body1"), 1000).unwrap();
+        set_meeting_note_summary(&c, "primary", "e1", "the summary", 1500).unwrap();
+        // Edit the body later (a fresh save with a newer clock).
+        let mut w = note_write("primary", "e1", "body2");
+        w.event_title = "1:1".into();
+        let after = upsert_meeting_note(&c, &w, 3000).unwrap();
+        assert_eq!(after.body, "body2");
+        assert_eq!(after.updated_at, 3000); // body edit advanced updated_at
+        assert_eq!(after.summary, "the summary"); // summary PRESERVED
+        assert_eq!(after.summary_updated_at, 1500); // and its timestamp
+        // → stale (updated_at 3000 > summary_updated_at 1500), which the UI will flag.
+    }
+
+    #[test]
+    fn init_adds_summary_columns_to_an_m20_shaped_table() {
+        // 🦀 Simulate a pre-M21 (M20) meeting_notes table WITHOUT the summary columns + a row.
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE meeting_notes (
+                id INTEGER PRIMARY KEY, calendar_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                event_title TEXT NOT NULL DEFAULT '', event_start TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                UNIQUE(calendar_id, event_id));
+             INSERT INTO meeting_notes
+                (calendar_id, event_id, event_title, event_start, body, created_at, updated_at)
+                VALUES ('primary','e1','T','2026-01-01','b',1,1);",
+        )
+        .unwrap();
+
+        init(&c).unwrap();
+
+        let n = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        assert_eq!(n.summary, ""); // backfilled default
+        assert_eq!(n.summary_updated_at, 0);
+        assert_eq!(n.body, "b");
+
+        // Idempotent: a second init must not error and the row survives.
+        init(&c).unwrap();
+        assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
     }
 }

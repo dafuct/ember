@@ -6,6 +6,7 @@ import {
   mockSaveMeetingNote,
   mockDeleteMeetingNote,
   mockListMeetingNotes,
+  mockSummarizeMeetingNote,
 } from "./mock";
 
 export interface MeetingNote {
@@ -19,6 +20,10 @@ export interface MeetingNote {
   created_at: number;
   /** Unix milliseconds. */
   updated_at: number;
+  /** M21: local-Ollama summary (markdown). Empty = never summarized. */
+  summary: string;
+  /** Unix milliseconds the summary was generated (0 = never). */
+  summary_updated_at: number;
 }
 
 // The save payload — snake_case keys to match the Rust MeetingNoteWrite (serde default).
@@ -52,3 +57,8 @@ export const deleteMeetingNote = (calendarId: string, eventId: string): Promise<
 
 export const listMeetingNotes = (): Promise<MeetingNote[]> =>
   isTauri() ? invoke<MeetingNote[]>("list_meeting_notes") : Promise.resolve(mockListMeetingNotes());
+
+export const summarizeMeetingNote = (calendarId: string, eventId: string): Promise<MeetingNote> =>
+  isTauri()
+    ? invoke<MeetingNote>("summarize_meeting_note", { calendarId, eventId })
+    : Promise.resolve(mockSummarizeMeetingNote(calendarId, eventId));

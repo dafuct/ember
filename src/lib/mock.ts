@@ -204,6 +204,8 @@ const MOCK_NOTES = new Map<string, MeetingNote>([
       event_title: "1:1 with Dana", event_start: "2026-06-22T14:00:00-07:00",
       body: "- Career growth check-in\n- Reviewed Q3 priorities\n- Action: share the roadmap doc",
       created_at: 1_750_000_000_000, updated_at: 1_750_000_200_000,
+      summary: "## Summary\n- Career growth + Q3 priorities discussed\n\n## Action items\n- [ ] Share the roadmap doc",
+      summary_updated_at: 1_750_000_100_000,
     },
   ],
   [
@@ -213,6 +215,7 @@ const MOCK_NOTES = new Map<string, MeetingNote>([
       event_title: "Roadmap", event_start: "2026-06-25T10:00:00-07:00",
       body: "Draft milestones for H2. Decide M21 scope next.",
       created_at: 1_750_000_000_000, updated_at: 1_750_000_100_000,
+      summary: "", summary_updated_at: 0,
     },
   ],
 ]);
@@ -236,6 +239,8 @@ export function mockSaveMeetingNote(w: MeetingNoteWrite): MeetingNote {
     body: w.body,
     created_at: existing?.created_at ?? now,
     updated_at: now,
+    summary: existing?.summary ?? "",
+    summary_updated_at: existing?.summary_updated_at ?? 0,
   };
   MOCK_NOTES.set(key, note);
   return note;
@@ -247,4 +252,24 @@ export function mockDeleteMeetingNote(calendarId: string, eventId: string): void
 
 export function mockListMeetingNotes(): MeetingNote[] {
   return [...MOCK_NOTES.values()].sort((a, b) => b.updated_at - a.updated_at);
+}
+
+// Browser-maket: set a canned structured summary on the stored note. summary_updated_at is
+// >= the note's updated_at, so the result reads as FRESH (no staleness hint right after).
+export function mockSummarizeMeetingNote(calendarId: string, eventId: string): MeetingNote {
+  const key = mockNoteKey(calendarId, eventId);
+  const existing = MOCK_NOTES.get(key);
+  const base: MeetingNote = existing ?? {
+    id: mockNoteId++, calendar_id: calendarId, event_id: eventId,
+    event_title: "", event_start: "", body: "",
+    created_at: 1_750_000_500_000, updated_at: 1_750_000_500_000,
+    summary: "", summary_updated_at: 0,
+  };
+  const note: MeetingNote = {
+    ...base,
+    summary: "## Summary\n- (demo) Key points captured from the notes\n\n## Action items\n- [ ] (demo) Follow up with the team",
+    summary_updated_at: Math.max(base.updated_at, 1_750_000_600_000),
+  };
+  MOCK_NOTES.set(key, note);
+  return note;
 }

@@ -40,6 +40,10 @@ pub mod scorer;
 // 🦀 Pure RFC822 message builder for outgoing mail (no I/O, fully unit-testable).
 pub mod mime;
 
+// 🦀 Local Ollama client for meeting-note summarization (M21). `pub` so the wiremock
+//    integration test in tests/ollama_test.rs (a separate crate) can reach it.
+pub mod ollama;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -123,6 +127,7 @@ pub fn run() {
             commands::save_meeting_note,
             commands::delete_meeting_note,
             commands::list_meeting_notes,
+            commands::summarize_meeting_note,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
