@@ -453,7 +453,8 @@ pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
 }
 
 /// Clear the local mail cache on disconnect: all `messages` and `sync_state` rows.
-/// `settings` (user prefs) are intentionally kept.
+/// `settings` (user prefs) and `meeting_notes` (local-only notes, M20) are intentionally
+/// kept — neither is mail-cache data, and notes are never re-fetchable from Google.
 pub fn clear_account_data(conn: &Connection) -> Result<()> {
     // 🦀 `unchecked_transaction` borrows &Connection (no &mut needed) and is safe here
     //    because we're not already inside another transaction — same pattern as apply_delta.
