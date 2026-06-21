@@ -879,6 +879,18 @@ pub async fn summarize_meeting_note(
 /// needed — the frontend supplies the path from the native open dialog.
 #[tauri::command]
 pub async fn read_transcript_file(path: String) -> Result<String> {
+    // 🦀 Guard against an accidental huge pick before slurping the whole file into memory.
+    //    25 MB is far beyond any real meeting transcript (plain text).
+    const MAX_TRANSCRIPT_BYTES: u64 = 25 * 1024 * 1024;
+    let len = std::fs::metadata(&path)
+        .map_err(|e| AppError::Other(format!("could not read transcript file: {e}")))?
+        .len();
+    if len > MAX_TRANSCRIPT_BYTES {
+        return Err(AppError::Other(format!(
+            "transcript file is too large ({} MB max).",
+            MAX_TRANSCRIPT_BYTES / (1024 * 1024)
+        )));
+    }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| AppError::Other(format!("could not read transcript file: {e}")))?;
     // 🦀 `.ends_with` on the lowercased path picks the parser; .txt (and anything else) passes through.
