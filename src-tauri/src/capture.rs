@@ -147,6 +147,14 @@ pub async fn start_capture(
             return Err(AppError::Other("capture lock poisoned".into()));
         }
     };
+    // 🦀 Close the check-then-store race: if another start_capture won the slot while we were
+    //    building the stream, abort OUR session (signal stop + abort the worker) rather than
+    //    overwriting and orphaning theirs.
+    if guard.is_some() {
+        stop.store(true, Ordering::Relaxed);
+        worker.abort();
+        return Err(AppError::Other("already capturing".into()));
+    }
     *guard = Some(CaptureSession { stop, audio_thread, worker });
     Ok(())
 }
