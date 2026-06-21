@@ -368,10 +368,13 @@
   position: relative;
   display: flex;
   align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .cal-stage .cal-grid {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 .cal-ev-note-dot {
   display: inline-block;
