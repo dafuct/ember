@@ -27,6 +27,7 @@ export function NotesModal({
   const [body, setBody] = useState("");
   const [savedBody, setSavedBody] = useState(""); // the body currently persisted
   const [exists, setExists] = useState(false); // a note already stored → show Delete
+  const [transcript, setTranscript] = useState(""); // M22: persisted transcript (round-tripped through save)
   const [summary, setSummary] = useState("");
   const [summaryUpdatedAt, setSummaryUpdatedAt] = useState(0);
   const [noteUpdatedAt, setNoteUpdatedAt] = useState(0);
@@ -51,6 +52,7 @@ export function NotesModal({
         setBody(n?.body ?? "");
         setSavedBody(n?.body ?? "");
         setExists(!!n);
+        setTranscript(n?.transcript ?? "");
         setSummary(n?.summary ?? "");
         setSummaryUpdatedAt(n?.summary_updated_at ?? 0);
         setNoteUpdatedAt(n?.updated_at ?? 0);
@@ -81,6 +83,7 @@ export function NotesModal({
         event_title: target.eventTitle,
         event_start: target.eventStart,
         body,
+        transcript,
       });
       onSaved();
       onClose();
@@ -119,6 +122,7 @@ export function NotesModal({
           event_title: target.eventTitle,
           event_start: target.eventStart,
           body,
+          transcript,
         });
         setSavedBody(body);
       }

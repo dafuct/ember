@@ -7,6 +7,7 @@ import {
   mockDeleteMeetingNote,
   mockListMeetingNotes,
   mockSummarizeMeetingNote,
+  mockReadTranscriptFile,
 } from "./mock";
 
 export interface MeetingNote {
@@ -24,6 +25,8 @@ export interface MeetingNote {
   summary: string;
   /** Unix milliseconds the summary was generated (0 = never). */
   summary_updated_at: number;
+  /** M22: the meeting transcript (plain text). Empty = none. */
+  transcript: string;
 }
 
 // The save payload — snake_case keys to match the Rust MeetingNoteWrite (serde default).
@@ -33,6 +36,7 @@ export interface MeetingNoteWrite {
   event_title: string;
   event_start: string;
   body: string;
+  transcript: string;
 }
 
 /** Stable composite key for the "has-notes" Set + lookups (a pipe never appears in calendar/event ids). */
@@ -62,3 +66,8 @@ export const summarizeMeetingNote = (calendarId: string, eventId: string): Promi
   isTauri()
     ? invoke<MeetingNote>("summarize_meeting_note", { calendarId, eventId })
     : Promise.resolve(mockSummarizeMeetingNote(calendarId, eventId));
+
+export const readTranscriptFile = (path: string): Promise<string> =>
+  isTauri()
+    ? invoke<string>("read_transcript_file", { path })
+    : Promise.resolve(mockReadTranscriptFile(path));
