@@ -446,3 +446,38 @@
   color: var(--text-muted, #6b6660);
   margin-bottom: 6px;
 }
+
+/* M21 meeting-note summary */
+.note-summary-section {
+  margin-top: 10px;
+  border-top: 1px solid var(--border, #e8e4dc);
+  padding-top: 8px;
+}
+.note-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.note-summary {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  max-height: 220px;
+  overflow-y: auto;
+}
+.note-summary-empty {
+  font-size: 12px;
+  color: var(--text-muted, #6b6660);
+}
+.note-summary-stale {
+  font-size: 12px;
+  color: var(--danger, #c0392b);
+  margin-bottom: 6px;
+}
