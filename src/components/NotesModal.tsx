@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   getMeetingNote,
   saveMeetingNote,
   deleteMeetingNote,
   summarizeMeetingNote,
+  readTranscriptFile,
 } from "../lib/notes";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
@@ -26,14 +29,16 @@ export function NotesModal({
 }) {
   const [body, setBody] = useState("");
   const [savedBody, setSavedBody] = useState(""); // the body currently persisted
+  const [transcript, setTranscript] = useState("");
+  const [savedTranscript, setSavedTranscript] = useState(""); // the transcript currently persisted
   const [exists, setExists] = useState(false); // a note already stored → show Delete
-  const [transcript, setTranscript] = useState(""); // M22: persisted transcript (round-tripped through save)
   const [summary, setSummary] = useState("");
   const [summaryUpdatedAt, setSummaryUpdatedAt] = useState(0);
   const [noteUpdatedAt, setNoteUpdatedAt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false); // save/delete in flight
   const [summarizing, setSummarizing] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
@@ -51,8 +56,9 @@ export function NotesModal({
         if (cancelled) return;
         setBody(n?.body ?? "");
         setSavedBody(n?.body ?? "");
-        setExists(!!n);
         setTranscript(n?.transcript ?? "");
+        setSavedTranscript(n?.transcript ?? "");
+        setExists(!!n);
         setSummary(n?.summary ?? "");
         setSummaryUpdatedAt(n?.summary_updated_at ?? 0);
         setNoteUpdatedAt(n?.updated_at ?? 0);
@@ -69,22 +75,28 @@ export function NotesModal({
     };
   }, [target.calendarId, target.eventId]);
 
-  // A stored summary is stale if the body has been edited since it was generated.
+  // Enough to save/summarize: any notes OR any transcript.
+  const hasContent = body.trim() !== "" || transcript.trim() !== "";
+  // A stored summary is stale if the note has been edited since it was generated.
   const stale = summary !== "" && noteUpdatedAt > summaryUpdatedAt;
 
+  function writePayload() {
+    return {
+      calendar_id: target.calendarId,
+      event_id: target.eventId,
+      event_title: target.eventTitle,
+      event_start: target.eventStart,
+      body,
+      transcript,
+    };
+  }
+
   async function handleSave() {
-    if (body.trim() === "") return; // Save is disabled when empty; guard regardless
+    if (!hasContent) return; // Save is disabled when empty; guard regardless
     setBusy(true);
     setError(null);
     try {
-      await saveMeetingNote({
-        calendar_id: target.calendarId,
-        event_id: target.eventId,
-        event_title: target.eventTitle,
-        event_start: target.eventStart,
-        body,
-        transcript,
-      });
+      await saveMeetingNote(writePayload());
       onSaved();
       onClose();
     } catch (e) {
@@ -109,35 +121,52 @@ export function NotesModal({
     }
   }
 
+  async function handleImport() {
+    setImporting(true);
+    setError(null);
+    try {
+      let path: string | null;
+      if (isTauri()) {
+        const sel = await open({ filters: [{ name: "Transcript", extensions: ["txt", "vtt"] }] });
+        path = typeof sel === "string" ? sel : null; // null if cancelled (or a multi-array)
+      } else {
+        path = "/mock/transcript.vtt"; // maket: skip the native dialog
+      }
+      if (!path) return; // cancelled
+      const text = await readTranscriptFile(path);
+      setTranscript(text);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleSummarize() {
-    if (body.trim() === "") return;
+    if (!hasContent) return;
     setSummarizing(true);
     setError(null);
     try {
-      // Persist the current body first so the summary reflects the latest text.
-      if (body !== savedBody) {
-        await saveMeetingNote({
-          calendar_id: target.calendarId,
-          event_id: target.eventId,
-          event_title: target.eventTitle,
-          event_start: target.eventStart,
-          body,
-          transcript,
-        });
+      // Persist the current notes/transcript first so the summary reflects the latest text.
+      if (body !== savedBody || transcript !== savedTranscript) {
+        await saveMeetingNote(writePayload());
         setSavedBody(body);
+        setSavedTranscript(transcript);
       }
       const n = await summarizeMeetingNote(target.calendarId, target.eventId);
       setSummary(n.summary);
       setSummaryUpdatedAt(n.summary_updated_at);
       setNoteUpdatedAt(n.updated_at);
       setExists(true);
-      onSaved(); // a note now exists / changed → refresh the calendar dots + drawer
+      onSaved();
     } catch (e) {
       setError(String(e));
     } finally {
       setSummarizing(false);
     }
   }
+
+  const blocked = busy || summarizing || importing;
 
   return (
     <div className="compose-overlay">
@@ -158,17 +187,26 @@ export function NotesModal({
               placeholder="Write meeting notes…"
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              rows={10}
+              rows={8}
               autoFocus
+            />
+            <div className="note-transcript-head">
+              <span>Transcript</span>
+              <button className="btn" onClick={handleImport} disabled={blocked}>
+                {importing ? "Importing…" : "Import…"}
+              </button>
+            </div>
+            <textarea
+              className="compose-body"
+              placeholder="Paste a transcript, or Import a .txt / .vtt…"
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              rows={6}
             />
             <div className="note-summary-section">
               <div className="note-summary-head">
                 <span>Summary</span>
-                <button
-                  className="btn"
-                  onClick={handleSummarize}
-                  disabled={summarizing || busy || body.trim() === ""}
-                >
+                <button className="btn" onClick={handleSummarize} disabled={blocked || !hasContent}>
                   {summarizing ? "Summarizing…" : summary ? "Regenerate" : "Summarize"}
                 </button>
               </div>
@@ -188,22 +226,14 @@ export function NotesModal({
         {error && <div className="compose-error">{error}</div>}
         <div className="compose-actions">
           {exists && (
-            <button
-              className="btn btn-danger-outline"
-              onClick={handleDelete}
-              disabled={busy || summarizing}
-            >
+            <button className="btn btn-danger-outline" onClick={handleDelete} disabled={blocked}>
               Delete
             </button>
           )}
-          <button className="btn" onClick={onClose} disabled={busy || summarizing}>
+          <button className="btn" onClick={onClose} disabled={blocked}>
             Cancel
           </button>
-          <button
-            className="btn btn-accent"
-            onClick={handleSave}
-            disabled={busy || summarizing || body.trim() === ""}
-          >
+          <button className="btn btn-accent" onClick={handleSave} disabled={blocked || !hasContent}>
             {busy ? "Saving…" : "Save"}
           </button>
         </div>
