@@ -136,6 +136,7 @@ pub fn run() {
             commands::list_meeting_notes,
             commands::summarize_meeting_note,
             commands::read_transcript_file,
+            commands::transcribe_recording,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
