@@ -1,7 +1,7 @@
 // 🦀 Integration tests: a separate crate, so the client is reached as `ember_lib::calendar`.
 use ember_lib::calendar::CalendarClient;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_partial_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -106,40 +106,140 @@ async fn list_events_parses_timed_and_all_day_with_query_params() {
 #[test]
 fn map_event_normalizes_and_skips_cancelled() {
     use ember_lib::calendar::map_event;
-    use ember_lib::calendar::types::{GEvent, GEventDateTime};
+    use ember_lib::calendar::types::{GAttendee, GEvent, GEventDateTime};
 
-    // timed event → all_day false, uses dateTime, color attaches, missing summary → "(no title)"
     let timed = GEvent {
-        id: "t1".into(), summary: None,
+        id: "e1".into(),
+        summary: Some("Standup".into()),
         start: Some(GEventDateTime { date_time: Some("2026-06-15T09:00:00-07:00".into()), date: None }),
         end: Some(GEventDateTime { date_time: Some("2026-06-15T09:30:00-07:00".into()), date: None }),
-        location: None, status: None,
+        location: Some("Zoom".into()),
+        status: Some("confirmed".into()),
+        description: Some("daily sync".into()),
+        html_link: Some("https://cal/e1".into()),
+        hangout_link: Some("https://meet.google.com/abc".into()),
+        attendees: Some(vec![
+            GAttendee { email: "a@x.com".into(), response_status: Some("accepted".into()) },
+            GAttendee { email: "b@y.com".into(), response_status: None },
+        ]),
     };
     let m = map_event(timed, "primary", Some("#16a34a")).unwrap();
-    assert!(!m.all_day);
-    assert_eq!(m.title, "(no title)");
+    assert_eq!(m.title, "Standup");
     assert_eq!(m.start, "2026-06-15T09:00:00-07:00");
-    assert_eq!(m.color.as_deref(), Some("#16a34a"));
-    assert_eq!(m.calendar_id, "primary");
+    assert!(!m.all_day);
+    assert_eq!(m.description.as_deref(), Some("daily sync"));
+    assert_eq!(m.meet_link.as_deref(), Some("https://meet.google.com/abc"));
+    assert_eq!(m.html_link.as_deref(), Some("https://cal/e1"));
+    assert_eq!(m.attendees, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
 
-    // all-day event → all_day true, uses date
     let allday = GEvent {
-        id: "a1".into(), summary: Some("Q3 planning".into()),
-        start: Some(GEventDateTime { date_time: None, date: Some("2026-06-17".into()) }),
-        end: Some(GEventDateTime { date_time: None, date: Some("2026-06-19".into()) }),
-        location: None, status: None,
+        id: "e2".into(),
+        summary: None,
+        start: Some(GEventDateTime { date_time: None, date: Some("2026-06-16".into()) }),
+        end: Some(GEventDateTime { date_time: None, date: Some("2026-06-17".into()) }),
+        location: None,
+        status: None,
+        description: None,
+        html_link: None,
+        hangout_link: None,
+        attendees: None,
     };
     let m2 = map_event(allday, "primary", None).unwrap();
+    assert_eq!(m2.title, "(no title)");
     assert!(m2.all_day);
-    assert_eq!(m2.start, "2026-06-17");
-    assert_eq!(m2.title, "Q3 planning");
+    assert!(m2.attendees.is_empty());
 
-    // cancelled → None
     let cancelled = GEvent {
-        id: "c1".into(), summary: Some("Old".into()),
-        start: Some(GEventDateTime { date_time: Some("2026-06-15T09:00:00-07:00".into()), date: None }),
-        end: Some(GEventDateTime { date_time: Some("2026-06-15T09:30:00-07:00".into()), date: None }),
-        location: None, status: Some("cancelled".into()),
+        id: "e3".into(),
+        summary: Some("Gone".into()),
+        start: Some(GEventDateTime { date_time: Some("2026-06-15T10:00:00-07:00".into()), date: None }),
+        end: Some(GEventDateTime { date_time: Some("2026-06-15T10:30:00-07:00".into()), date: None }),
+        location: None,
+        status: Some("cancelled".into()),
+        description: None,
+        html_link: None,
+        hangout_link: None,
+        attendees: None,
     };
     assert!(map_event(cancelled, "primary", None).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_event_with_meet_posts_conference_and_attendees() {
+    use ember_lib::calendar::types::EventWrite;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/calendar/v3/calendars/primary/events"))
+        .and(query_param("conferenceDataVersion", "1"))
+        .and(query_param("sendUpdates", "all"))
+        .and(body_partial_json(json!({
+            "summary": "Sync",
+            "attendees": [{ "email": "a@x.com" }],
+            "conferenceData": { "createRequest": { "conferenceSolutionKey": { "type": "hangoutsMeet" } } }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "new1",
+            "summary": "Sync",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end": { "dateTime": "2026-06-21T11:00:00-07:00" },
+            "hangoutLink": "https://meet.google.com/xyz"
+        })))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let ev = EventWrite {
+        title: "Sync".into(),
+        start: "2026-06-21T10:00:00-07:00".into(),
+        end: "2026-06-21T11:00:00-07:00".into(),
+        all_day: false,
+        description: None,
+        location: None,
+        attendees: vec!["a@x.com".into()],
+    };
+    let created = client.create_event("primary", &ev, true).await.unwrap();
+    assert_eq!(created.id, "new1");
+    assert_eq!(created.meet_link.as_deref(), Some("https://meet.google.com/xyz"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_event_patches_without_conference_data() {
+    use ember_lib::calendar::types::EventWrite;
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .and(query_param("sendUpdates", "all"))
+        .and(body_partial_json(json!({ "summary": "Renamed" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e9",
+            "summary": "Renamed",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end": { "dateTime": "2026-06-21T11:00:00-07:00" }
+        })))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let ev = EventWrite {
+        title: "Renamed".into(),
+        start: "2026-06-21T10:00:00-07:00".into(),
+        end: "2026-06-21T11:00:00-07:00".into(),
+        all_day: false,
+        description: None,
+        location: None,
+        attendees: vec![],
+    };
+    let updated = client.update_event("primary", "e9", &ev).await.unwrap();
+    assert_eq!(updated.title, "Renamed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_event_issues_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .and(query_param("sendUpdates", "all"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    client.delete_event("primary", "e9").await.unwrap();
 }

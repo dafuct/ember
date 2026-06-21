@@ -11,6 +11,8 @@ pub struct CalendarListEntry {
     pub background_color: Option<String>,
     pub selected: Option<bool>,
     pub primary: Option<bool>,
+    #[serde(rename = "accessRole", default)]
+    pub access_role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +39,24 @@ pub struct GEvent {
     pub end: Option<GEventDateTime>,
     pub location: Option<String>,
     pub status: Option<String>,
+    // 🦀 New read fields. `#[serde(default)]` → absent key becomes None/empty, never an error.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "htmlLink", default)]
+    pub html_link: Option<String>,
+    #[serde(rename = "hangoutLink", default)]
+    pub hangout_link: Option<String>,
+    #[serde(default)]
+    pub attendees: Option<Vec<GAttendee>>,
+}
+
+// 🦀 One guest on an event. We surface only the email to the frontend (responseStatus parsed
+//    for completeness / future RSVP UI).
+#[derive(Debug, Deserialize)]
+pub struct GAttendee {
+    pub email: String,
+    #[serde(rename = "responseStatus", default)]
+    pub response_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,6 +65,23 @@ pub struct EventsResponse {
     pub items: Vec<GEvent>,
     #[serde(rename = "nextPageToken")]
     pub next_page_token: Option<String>,
+}
+
+// 🦀 The create/edit input from the frontend. `Deserialize` so a Tauri command can accept it;
+//    snake_case fields → JS passes snake_case object keys. `start`/`end` are RFC3339 dateTime
+//    (timed) or "YYYY-MM-DD" (all-day, end already exclusive — the frontend handles the +1).
+#[derive(Debug, Deserialize)]
+pub struct EventWrite {
+    pub title: String,
+    pub start: String,
+    pub end: String,
+    pub all_day: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub attendees: Vec<String>,
 }
 
 // 🦀 The normalized event we send to the frontend. `Serialize` lets Tauri turn it into JSON.
@@ -59,4 +96,18 @@ pub struct CalendarEvent {
     pub all_day: bool,
     pub location: Option<String>,
     pub color: Option<String>,
+    // 🦀 New fields for the detail popover + meeting features.
+    pub description: Option<String>,
+    pub meet_link: Option<String>,
+    pub html_link: Option<String>,
+    pub attendees: Vec<String>,
+}
+
+/// A calendar the user can write to (for the create-event picker).
+#[derive(Debug, Serialize)]
+pub struct CalendarSummary {
+    pub id: String,
+    pub summary: String,
+    pub primary: bool,
+    pub writable: bool,
 }

@@ -34,10 +34,14 @@ export function WeekGrid({
   weekStart,
   events,
   now,
+  onSlotClick,
+  onEventClick,
 }: {
   weekStart: Date;
   events: CalendarEvent[];
   now: Date;
+  onSlotClick?: (at: Date) => void;
+  onEventClick?: (ev: CalendarEvent) => void;
 }) {
   const days = weekDays(weekStart);
   const { allDay, timed } = splitAllDay(events);
@@ -70,7 +74,7 @@ export function WeekGrid({
           {days.map((d) => (
             <div key={d.toISOString()} className="cal-allday-cell">
               {allDay.filter((e) => allDayOnDay(e, d)).map((e) => (
-                <div key={e.id} className="cal-allday-ev" style={tint(e)} title={e.title}>
+                <div key={e.id} className="cal-allday-ev" style={tint(e)} title={e.title} onClick={() => onEventClick?.(e)}>
                   {e.title}
                 </div>
               ))}
@@ -91,7 +95,15 @@ export function WeekGrid({
           {days.map((d) => {
             const positioned = layoutDay(timed, d);
             return (
-              <div key={d.toISOString()} className="cal-col">
+              <div key={d.toISOString()} className="cal-col"
+                onClick={(e) => {
+                  if (!onSlotClick) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const min = Math.max(0, Math.round((e.clientY - rect.top) / PX_PER_MIN));
+                  const at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(min / 60), 0, 0);
+                  onSlotClick(at);
+                }}
+              >
                 {HOURS.map((h) => (
                   <div key={h} className="cal-hourline" style={{ top: h * 60 * PX_PER_MIN }} />
                 ))}
@@ -99,6 +111,7 @@ export function WeekGrid({
                   <div
                     key={p.ev.id}
                     className="cal-ev"
+                    onClick={(e) => { e.stopPropagation(); onEventClick?.(p.ev); }}
                     title={`${p.ev.title} · ${fmtTime(p.ev.start)}`}
                     style={{
                       top: p.topMin * PX_PER_MIN,

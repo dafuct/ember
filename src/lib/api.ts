@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext } from "./mock";
+import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars } from "./mock";
 
 export type { CalendarEvent };
 
@@ -217,3 +217,44 @@ export const fetchCalendarWeek = (timeMin: string, timeMax: string): Promise<Cal
   isTauri()
     ? invoke<CalendarEvent[]>("fetch_calendar_week", { timeMin, timeMax })
     : Promise.resolve(mockCalendarWeek(timeMin, timeMax));
+
+export interface EventWrite {
+  title: string;
+  start: string;
+  end: string;
+  all_day: boolean;
+  description: string | null;
+  location: string | null;
+  attendees: string[];
+}
+
+export interface CalendarSummary {
+  id: string;
+  summary: string;
+  primary: boolean;
+  writable: boolean;
+}
+
+export const listCalendars = (): Promise<CalendarSummary[]> =>
+  isTauri() ? invoke<CalendarSummary[]>("list_calendars") : Promise.resolve(mockListCalendars());
+
+export const createCalendarEvent = (
+  calendarId: string,
+  event: EventWrite,
+  addMeet: boolean,
+): Promise<CalendarEvent> =>
+  isTauri()
+    ? invoke<CalendarEvent>("create_calendar_event", { calendarId, event, addMeet })
+    : Promise.resolve(mockCreateEvent(calendarId, event, addMeet));
+
+export const updateCalendarEvent = (
+  calendarId: string,
+  eventId: string,
+  event: EventWrite,
+): Promise<CalendarEvent> =>
+  isTauri()
+    ? invoke<CalendarEvent>("update_calendar_event", { calendarId, eventId, event })
+    : Promise.resolve(mockUpdateEvent(calendarId, eventId, event));
+
+export const deleteCalendarEvent = (calendarId: string, eventId: string): Promise<void> =>
+  isTauri() ? invoke<void>("delete_calendar_event", { calendarId, eventId }) : Promise.resolve();
