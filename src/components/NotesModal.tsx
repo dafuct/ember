@@ -9,7 +9,11 @@ import {
   summarizeMeetingNote,
   readTranscriptFile,
   transcribeRecording,
+  listInputDevices,
+  startCapture,
+  stopCapture,
 } from "../lib/notes";
+import type { DeviceInfo } from "../lib/notes";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
@@ -41,6 +45,9 @@ export function NotesModal({
   const [summarizing, setSummarizing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState("");
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
@@ -49,6 +56,16 @@ export function NotesModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Load audio input devices for the capture picker (best-effort; empty list if none).
+  useEffect(() => {
+    listInputDevices()
+      .then((ds) => {
+        setDevices(ds);
+        setSelectedDevice((prev) => prev || ds[0]?.name || "");
+      })
+      .catch(() => {});
+  }, []);
 
   // Load any existing note for this event on open.
   useEffect(() => {
@@ -169,6 +186,35 @@ export function NotesModal({
     }
   }
 
+  async function handleRecord() {
+    setError(null);
+    setRecording(true);
+    try {
+      await startCapture(selectedDevice, (e) => {
+        if (e.type === "Chunk") {
+          // Append each transcribed chunk to the transcript, newline-separated.
+          setTranscript((t) => (t ? t + "\n" : "") + e.text);
+        } else if (e.type === "Error") {
+          setError(e.message);
+        } else if (e.type === "Stopped") {
+          setRecording(false);
+        }
+      });
+    } catch (err) {
+      setError(String(err));
+      setRecording(false);
+    }
+  }
+
+  async function handleStop() {
+    try {
+      await stopCapture();
+    } catch (err) {
+      setError(String(err));
+    }
+    setRecording(false);
+  }
+
   async function handleSummarize() {
     if (!hasContent) return;
     setSummarizing(true);
@@ -193,7 +239,7 @@ export function NotesModal({
     }
   }
 
-  const blocked = busy || summarizing || importing || transcribing;
+  const blocked = busy || summarizing || importing || transcribing || recording;
 
   return (
     <div className="compose-overlay">
@@ -235,6 +281,31 @@ export function NotesModal({
               onChange={(e) => setTranscript(e.target.value)}
               rows={6}
             />
+            <div className="note-capture-row">
+              <select
+                className="note-device-select"
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                disabled={blocked}
+              >
+                {devices.length === 0 && <option value="">No input devices</option>}
+                {devices.map((d) => (
+                  <option key={d.name} value={d.name}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              {recording ? (
+                <button className="btn btn-danger-outline" onClick={handleStop}>
+                  Stop
+                </button>
+              ) : (
+                <button className="btn" onClick={handleRecord} disabled={blocked || !selectedDevice}>
+                  Record
+                </button>
+              )}
+              {recording && <span className="note-capture-pulse">● listening…</span>}
+            </div>
             <div className="note-summary-section">
               <div className="note-summary-head">
                 <span>Summary</span>

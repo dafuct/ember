@@ -495,3 +495,17 @@
   display: flex;
   gap: 6px;
 }
+.note-capture-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.note-device-select {
+  flex: 1;
+  min-width: 0;
+}
+.note-capture-pulse {
+  font-size: 12px;
+  color: var(--danger, #c0392b);
+}
