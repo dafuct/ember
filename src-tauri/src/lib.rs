@@ -54,6 +54,10 @@ pub mod whisper;
 // 🦀 Pure audio helpers (downmix/resample/WAV) for live capture — no I/O, unit-tested (M24).
 pub mod audio;
 
+// 🦀 Live audio capture session + commands (M24). `pub` is not required (only the IPC bridge
+//    calls these), but mirrors the sibling modules.
+pub mod capture;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -140,6 +144,7 @@ pub fn run() {
             commands::summarize_meeting_note,
             commands::read_transcript_file,
             commands::transcribe_recording,
+            capture::list_input_devices,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
