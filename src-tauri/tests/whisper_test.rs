@@ -2,7 +2,7 @@
 //    crate path `ember_lib::whisper` (just like tests/ollama_test.rs reaches `ember_lib::ollama`).
 use ember_lib::whisper::WhisperClient;
 use serde_json::json;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -11,6 +11,8 @@ async fn transcribe_posts_inference_and_returns_trimmed_text() {
     // `.expect(1)` makes wiremock verify (on drop) that POST /inference was hit exactly once.
     Mock::given(method("POST"))
         .and(path("/inference"))
+        .and(body_string_contains("response_format"))
+        .and(body_string_contains("json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "text": "  hello from whisper  " })))
         .expect(1)
         .mount(&server)

@@ -8,6 +8,8 @@ use serde::Deserialize;
 
 use crate::error::{AppError, Result};
 
+// 🦀 whisper-server's default port. If something else already owns 8080, start it with
+//    `--port <other>` (the URL is only overridable in tests via `with_base_url`).
 const DEFAULT_BASE: &str = "http://localhost:8080";
 
 pub struct WhisperClient {
