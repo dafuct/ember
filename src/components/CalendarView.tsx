@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type CalendarEvent, toTimeMinMax } from "../lib/calendar";
 import { fetchCalendarWeek, connectGmail, listCalendars, type CalendarSummary } from "../lib/api";
+import { listMeetingNotes, noteKey, type MeetingNote } from "../lib/notes";
 import { WeekGrid } from "./WeekGrid";
 import { EventModal, type EventInitial } from "./EventModal";
+import { NotesModal, type NoteTarget } from "./NotesModal";
+import { NotebookPen } from "lucide-react";
 
 // The backend maps a missing calendar scope to the specific message
 // "Calendar access not granted — reconnect Google to enable it." Match that phrasing
@@ -20,6 +23,12 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
   const [calendars, setCalendars] = useState<CalendarSummary[]>([]);
   const [modal, setModal] = useState<EventInitial | null>(null);
   const [detail, setDetail] = useState<CalendarEvent | null>(null);
+
+  // Meeting notes (M20): local-only, separate from the live calendar fetch.
+  const [notes, setNotes] = useState<MeetingNote[]>([]);
+  const [notesReloadKey, setNotesReloadKey] = useState(0);
+  const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -43,6 +52,17 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
     return () => { cancelled = true; };
   }, [weekStart, reloadKey]);
 
+  // Load all notes (on mount + after any save/delete). Silent on failure.
+  useEffect(() => {
+    listMeetingNotes().then(setNotes).catch(() => setNotes([]));
+  }, [notesReloadKey]);
+
+  // Set of `${calendar_id}|${event_id}` keys for the week grid's has-notes dot.
+  const notesByKey = useMemo(
+    () => new Set(notes.map((n) => noteKey(n.calendar_id, n.event_id))),
+    [notes],
+  );
+
   async function handleReconnect() {
     setError(null);
     setLoading(true);
@@ -56,8 +76,15 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
   }
 
   const refetch = () => setReloadKey((k) => k + 1);
+  const reloadNotes = () => setNotesReloadKey((k) => k + 1);
   const openNew = (startAt?: Date) => setModal({ calendars, startAt });
   const openEdit = (ev: CalendarEvent) => { setDetail(null); setModal({ calendars, event: ev }); };
+  const openNotesForEvent = (ev: CalendarEvent) => {
+    setDetail(null);
+    setNoteTarget({ calendarId: ev.calendar_id, eventId: ev.id, eventTitle: ev.title, eventStart: ev.start });
+  };
+  const openNotesForNote = (n: MeetingNote) =>
+    setNoteTarget({ calendarId: n.calendar_id, eventId: n.event_id, eventTitle: n.event_title, eventStart: n.event_start });
 
   if (error && isScopeError(error)) {
     return (
@@ -84,12 +111,49 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
     <div className="cal-view">
       <div className="cal-toolbar">
         <button className="btn btn-accent" onClick={() => openNew()}>New event</button>
+        <button
+          className={notesPanelOpen ? "btn btn-toggle active" : "btn btn-toggle"}
+          aria-pressed={notesPanelOpen}
+          onClick={() => setNotesPanelOpen((o) => !o)}
+        >
+          <NotebookPen size={15} /> Notes
+        </button>
       </div>
-      {loading ? (
-        <div className="cal-loading">Loading your week…</div>
-      ) : (
-        <WeekGrid weekStart={weekStart} events={events} now={now} onSlotClick={openNew} onEventClick={setDetail} />
-      )}
+      <div className="cal-stage">
+        {loading ? (
+          <div className="cal-loading">Loading your week…</div>
+        ) : (
+          <WeekGrid
+            weekStart={weekStart}
+            events={events}
+            now={now}
+            notesByKey={notesByKey}
+            onSlotClick={openNew}
+            onEventClick={setDetail}
+          />
+        )}
+
+        {notesPanelOpen && (
+          <aside className="notes-drawer" aria-label="Meeting notes">
+            <div className="notes-drawer-head">Meeting notes</div>
+            {notes.length === 0 ? (
+              <div className="notes-empty">No meeting notes yet.</div>
+            ) : (
+              <ul className="notes-list">
+                {notes.map((n) => (
+                  <li key={n.id}>
+                    <button className="notes-row" onClick={() => openNotesForNote(n)}>
+                      <span className="notes-row-title">{n.event_title || "(untitled event)"}</span>
+                      <span className="notes-row-date">{new Date(n.event_start).toLocaleDateString()}</span>
+                      <span className="notes-row-snippet">{n.body.split("\n")[0]}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        )}
+      </div>
 
       {detail && (
         <div className="event-detail-overlay" onClick={() => setDetail(null)}>
@@ -108,6 +172,9 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
             )}
             <div className="compose-actions">
               <button className="btn" onClick={() => setDetail(null)}>Close</button>
+              <button className="btn" onClick={() => openNotesForEvent(detail)}>
+                <NotebookPen size={15} /> Notes
+              </button>
               <button className="btn btn-accent" onClick={() => openEdit(detail)}>Edit</button>
             </div>
           </div>
@@ -116,6 +183,10 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
 
       {modal && (
         <EventModal initial={modal} onClose={() => setModal(null)} onSaved={refetch} />
+      )}
+
+      {noteTarget && (
+        <NotesModal target={noteTarget} onClose={() => setNoteTarget(null)} onSaved={reloadNotes} />
       )}
     </div>
   );

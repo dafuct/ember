@@ -52,6 +52,34 @@ pub struct Settings {
     pub notifications: bool,
 }
 
+// 🦀 A stored meeting note (Serialize → frontend). One row per (calendar_id, event_id).
+//    `event_title`/`event_start` are a SNAPSHOT of the event at save time, so the note
+//    stays meaningful even if the event is later deleted on Google or falls outside the
+//    fetched week. `created_at`/`updated_at` are Unix MILLISECONDS (matches JS Date.now()).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct MeetingNote {
+    pub id: i64,
+    pub calendar_id: String,
+    pub event_id: String,
+    pub event_title: String,
+    pub event_start: String,
+    pub body: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+// 🦀 The save input from the frontend (Deserialize). snake_case field names → the JS side
+//    passes `{ calendar_id, event_id, event_title, event_start, body }`. Timestamps are NOT
+//    sent from JS — the backend stamps them (see upsert_meeting_note's `now_ms`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MeetingNoteWrite {
+    pub calendar_id: String,
+    pub event_id: String,
+    pub event_title: String,
+    pub event_start: String,
+    pub body: String,
+}
+
 /// Create tables and indexes if they don't exist. Safe to call on every startup.
 pub fn init(conn: &Connection) -> Result<()> {
     // 🦀 WAL (write-ahead logging) lets reads proceed while a write is in progress —
@@ -90,6 +118,17 @@ pub fn init(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS meeting_notes (
+            id          INTEGER PRIMARY KEY,
+            calendar_id TEXT NOT NULL,
+            event_id    TEXT NOT NULL,
+            event_title TEXT NOT NULL DEFAULT '',
+            event_start TEXT NOT NULL DEFAULT '',
+            body        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL,
+            UNIQUE(calendar_id, event_id)
         );",
     )?;
 
@@ -414,7 +453,8 @@ pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
 }
 
 /// Clear the local mail cache on disconnect: all `messages` and `sync_state` rows.
-/// `settings` (user prefs) are intentionally kept.
+/// `settings` (user prefs) and `meeting_notes` (local-only notes, M20) are intentionally
+/// kept — neither is mail-cache data, and notes are never re-fetchable from Google.
 pub fn clear_account_data(conn: &Connection) -> Result<()> {
     // 🦀 `unchecked_transaction` borrows &Connection (no &mut needed) and is safe here
     //    because we're not already inside another transaction — same pattern as apply_delta.
@@ -422,6 +462,85 @@ pub fn clear_account_data(conn: &Connection) -> Result<()> {
     tx.execute("DELETE FROM messages", [])?;
     tx.execute("DELETE FROM sync_state", [])?;
     tx.commit()?;
+    Ok(())
+}
+
+// 🦀 The column list, in one `const` so get + list read the same shape (DRY).
+const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at";
+
+// 🦀 Map one meeting_notes row into a MeetingNote. `&rusqlite::Row` borrows the row for the
+//    closure; column indices match NOTE_COLS order. Returns rusqlite::Result so it can be
+//    handed straight to `query_row`/`query_map` as the row-mapping closure.
+fn row_to_note(row: &rusqlite::Row) -> rusqlite::Result<MeetingNote> {
+    Ok(MeetingNote {
+        id: row.get(0)?,
+        calendar_id: row.get(1)?,
+        event_id: row.get(2)?,
+        event_title: row.get(3)?,
+        event_start: row.get(4)?,
+        body: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+/// Read one note by (calendar_id, event_id), or `None` if there isn't one.
+pub fn get_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str) -> Result<Option<MeetingNote>> {
+    // 🦀 NOTE_COLS is a compile-time constant (never user input), so formatting it into the
+    //    SQL is injection-safe; the actual values are still passed as bound `?` params.
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {NOTE_COLS} FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2"
+    ))?;
+    // 🦀 `.optional()` (OptionalExtension) turns "no rows" into Ok(None) instead of an error.
+    let note = stmt.query_row(params![calendar_id, event_id], row_to_note).optional()?;
+    Ok(note)
+}
+
+/// All notes, most-recently-edited first (drives the Notes panel).
+pub fn list_meeting_notes(conn: &Connection) -> Result<Vec<MeetingNote>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {NOTE_COLS} FROM meeting_notes ORDER BY updated_at DESC"
+    ))?;
+    let rows = stmt.query_map([], row_to_note)?;
+    // 🦀 Each item is a rusqlite::Result; `r?` propagates a row error into our Result<Vec<…>>.
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Insert a new note, or update the existing one for this (calendar_id, event_id). `now_ms`
+/// is the caller's clock (Unix ms): it sets `updated_at` always and `created_at` only on the
+/// initial insert (preserved on update). The snapshot (title/start) is refreshed each save.
+pub fn upsert_meeting_note(conn: &Connection, w: &MeetingNoteWrite, now_ms: i64) -> Result<MeetingNote> {
+    // 🦀 `?6` is reused for BOTH created_at and updated_at on insert. ON CONFLICT updates
+    //    updated_at (= excluded.updated_at = ?6) but NOT created_at — so created_at keeps
+    //    its first-insert value while updated_at moves forward. `excluded` is the row that
+    //    WOULD have been inserted; it's how SQLite exposes the new values inside DO UPDATE.
+    conn.execute(
+        "INSERT INTO meeting_notes
+            (calendar_id, event_id, event_title, event_start, body, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+         ON CONFLICT(calendar_id, event_id) DO UPDATE SET
+            event_title = excluded.event_title,
+            event_start = excluded.event_start,
+            body = excluded.body,
+            updated_at = excluded.updated_at",
+        params![w.calendar_id, w.event_id, w.event_title, w.event_start, w.body, now_ms],
+    )?;
+    // 🦀 Re-read the stored row so the caller gets the real id + preserved created_at. The row
+    //    must exist now, so `None` here is a genuine bug — surface it loudly rather than panic.
+    get_meeting_note(conn, &w.calendar_id, &w.event_id)?
+        .ok_or_else(|| crate::error::AppError::Other("meeting note vanished after upsert".into()))
+}
+
+/// Delete the note for (calendar_id, event_id). A missing note is a silent no-op (0 rows).
+pub fn delete_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2",
+        params![calendar_id, event_id],
+    )?;
     Ok(())
 }
 
@@ -687,5 +806,76 @@ mod tests {
         assert_eq!(s.signature, "sig");
         assert!(!s.remote_images);
         assert!(!s.notifications);
+    }
+
+    // 🦀 Build a MeetingNoteWrite with given key + body; snapshot fields are filler.
+    fn note_write(cal: &str, ev: &str, body: &str) -> MeetingNoteWrite {
+        MeetingNoteWrite {
+            calendar_id: cal.into(),
+            event_id: ev.into(),
+            event_title: "Standup".into(),
+            event_start: "2026-06-22T09:00:00-07:00".into(),
+            body: body.into(),
+        }
+    }
+
+    #[test]
+    fn meeting_note_upsert_inserts_then_updates_same_row() {
+        let c = conn();
+        let inserted = upsert_meeting_note(&c, &note_write("primary", "e1", "first"), 1000).unwrap();
+        assert_eq!(inserted.created_at, 1000);
+        assert_eq!(inserted.updated_at, 1000);
+        assert_eq!(inserted.body, "first");
+
+        let mut w = note_write("primary", "e1", "second");
+        w.event_title = "Standup (edited)".into();
+        let updated = upsert_meeting_note(&c, &w, 2000).unwrap();
+        assert_eq!(updated.id, inserted.id); // same row, not a second insert
+        assert_eq!(updated.created_at, 1000); // preserved on update
+        assert_eq!(updated.updated_at, 2000); // refreshed
+        assert_eq!(updated.body, "second");
+        assert_eq!(updated.event_title, "Standup (edited)"); // snapshot refreshed
+        assert_eq!(list_meeting_notes(&c).unwrap().len(), 1); // still exactly one row
+    }
+
+    #[test]
+    fn meeting_note_get_returns_some_and_none() {
+        let c = conn();
+        assert!(get_meeting_note(&c, "primary", "missing").unwrap().is_none());
+        upsert_meeting_note(&c, &note_write("primary", "e1", "hi"), 1).unwrap();
+        let got = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        assert_eq!(got.body, "hi");
+        // a different calendar with the same event id is a distinct note
+        assert!(get_meeting_note(&c, "other", "e1").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_meeting_notes_orders_by_updated_at_desc() {
+        let c = conn();
+        upsert_meeting_note(&c, &note_write("primary", "old", "o"), 100).unwrap();
+        upsert_meeting_note(&c, &note_write("primary", "new", "n"), 300).unwrap();
+        upsert_meeting_note(&c, &note_write("primary", "mid", "m"), 200).unwrap();
+        let ids: Vec<String> = list_meeting_notes(&c).unwrap().into_iter().map(|n| n.event_id).collect();
+        assert_eq!(ids, vec!["new".to_string(), "mid".to_string(), "old".to_string()]);
+    }
+
+    #[test]
+    fn delete_meeting_note_removes_only_that_note() {
+        let c = conn();
+        upsert_meeting_note(&c, &note_write("primary", "a", "a"), 1).unwrap();
+        upsert_meeting_note(&c, &note_write("primary", "b", "b"), 2).unwrap();
+        delete_meeting_note(&c, "primary", "a").unwrap();
+        let ids: Vec<String> = list_meeting_notes(&c).unwrap().into_iter().map(|n| n.event_id).collect();
+        assert_eq!(ids, vec!["b".to_string()]);
+        assert!(get_meeting_note(&c, "primary", "a").unwrap().is_none());
+    }
+
+    #[test]
+    fn init_creates_meeting_notes_table_idempotently() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        init(&c).unwrap(); // second init must not error on the existing table
+        upsert_meeting_note(&c, &note_write("primary", "e1", "ok"), 1).unwrap();
+        assert_eq!(list_meeting_notes(&c).unwrap().len(), 1);
     }
 }

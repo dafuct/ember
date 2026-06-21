@@ -215,6 +215,15 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+// 🦀 Current Unix time in MILLISECONDS — meeting-note timestamps use the same unit as the
+//    JS `Date.now()` the frontend formats with. `as i64` is safe for any real wall-clock time.
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 // 🦀 The body payload sent to the frontend. `is_html` tells the UI whether to render
 //    `html` as sanitized HTML (sandboxed iframe) or as plain text.
 #[derive(serde::Serialize)]
@@ -781,6 +790,55 @@ pub async fn delete_calendar_event(calendar_id: String, event_id: String) -> Res
     let stored = ensure_access_token().await?;
     let client = CalendarClient::new(stored.access_token);
     client.delete_event(&calendar_id, &event_id).await
+}
+
+/// Read the meeting note for one event, if any (DB-only; no Google call).
+#[tauri::command]
+pub async fn get_meeting_note(
+    calendar_id: String,
+    event_id: String,
+    state: tauri::State<'_, Db>,
+) -> Result<Option<db::MeetingNote>> {
+    // 🦀 Pure local read — no `.await` here, so we lock the Mutex directly (same as get_settings).
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::get_meeting_note(&conn, &calendar_id, &event_id)
+}
+
+/// Create or update the meeting note for one event (upsert). Returns the stored note.
+#[tauri::command]
+pub async fn save_meeting_note(
+    note: db::MeetingNoteWrite,
+    state: tauri::State<'_, Db>,
+) -> Result<db::MeetingNote> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    // 🦀 The backend stamps the timestamp; the frontend never sends one.
+    db::upsert_meeting_note(&conn, &note, now_millis())
+}
+
+/// Delete the meeting note for one event (silent no-op if there isn't one).
+#[tauri::command]
+pub async fn delete_meeting_note(
+    calendar_id: String,
+    event_id: String,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_meeting_note(&conn, &calendar_id, &event_id)
+}
+
+/// List all meeting notes, most-recently-edited first (drives the Notes panel).
+#[tauri::command]
+pub async fn list_meeting_notes(state: tauri::State<'_, Db>) -> Result<Vec<db::MeetingNote>> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::list_meeting_notes(&conn)
 }
 
 #[cfg(test)]
