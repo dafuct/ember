@@ -51,6 +51,9 @@ pub mod transcript;
 //    integration test in tests/whisper_test.rs (a separate crate) can reach it.
 pub mod whisper;
 
+// 🦀 Pure audio helpers (downmix/resample/WAV) for live capture — no I/O, unit-tested (M24).
+pub mod audio;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
