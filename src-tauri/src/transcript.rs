@@ -3,6 +3,12 @@
 /// Convert a WebVTT caption file to plain spoken text: drop the WEBVTT header, NOTE/STYLE/REGION
 /// blocks, metadata lines, "-->" timestamp lines, and numeric cue ids; strip inline `<…>` tags;
 /// collapse consecutive duplicate lines (rolling captions repeat). Plain `.txt` passes through.
+// 🦀 Best-effort, line-based heuristics (not a full WebVTT parser): a spoken line that is all
+//    digits or that contains "-->" is treated as a cue id/timestamp and dropped, only the FIRST
+//    line of a multi-line NOTE/STYLE block is skipped, and a stray "<" swallows the rest of its
+//    line. These are rare in real caption exports and the output is editable in the UI before
+//    summarizing, so imperfect stripping just yields slightly noisier summarizer input — never an
+//    error. Tighten here if/when richer transcript sources land (M23+).
 pub fn vtt_to_text(raw: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     for line in raw.lines() {
