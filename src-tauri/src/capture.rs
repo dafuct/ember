@@ -137,7 +137,16 @@ pub async fn start_capture(
 
     let worker = tokio::spawn(worker_loop(rx, on_event, in_rate, channels));
 
-    let mut guard = state.lock().map_err(|_| AppError::Other("capture lock poisoned".into()))?;
+    // 🦀 If storing the session fails (poisoned lock), don't leak the thread/worker we just
+    //    spawned: signal stop (so the audio thread exits) and abort the worker before returning.
+    let mut guard = match state.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            stop.store(true, Ordering::Relaxed);
+            worker.abort();
+            return Err(AppError::Other("capture lock poisoned".into()));
+        }
+    };
     *guard = Some(CaptureSession { stop, audio_thread, worker });
     Ok(())
 }
