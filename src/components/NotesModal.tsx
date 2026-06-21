@@ -211,7 +211,7 @@ export function NotesModal({
                 </button>
               </div>
               {stale && (
-                <div className="note-summary-stale">Notes changed since this summary — Regenerate.</div>
+                <div className="note-summary-stale">Notes or transcript changed since this summary — Regenerate.</div>
               )}
               {summary ? (
                 <pre className="note-summary">{summary}</pre>
