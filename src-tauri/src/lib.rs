@@ -131,6 +131,7 @@ pub fn run() {
             commands::delete_meeting_note,
             commands::list_meeting_notes,
             commands::summarize_meeting_note,
+            commands::read_transcript_file,
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,

@@ -841,34 +841,53 @@ pub async fn list_meeting_notes(state: tauri::State<'_, Db>) -> Result<Vec<db::M
     db::list_meeting_notes(&conn)
 }
 
-/// Summarize a meeting note's body with local Ollama (M21). Reads the SAVED body, calls Ollama
-/// OUTSIDE the DB lock, then persists the summary. Requires the note to be saved first.
+/// Summarize a meeting note with local Ollama (M21/M22). Reads the SAVED note, combines the
+/// freeform body + transcript, calls Ollama OUTSIDE the DB lock, then persists the summary.
+/// Requires the note to be saved first.
 #[tauri::command]
 pub async fn summarize_meeting_note(
     calendar_id: String,
     event_id: String,
     state: tauri::State<'_, Db>,
 ) -> Result<db::MeetingNote> {
-    // 🦀 Read the body in a short locked block, then DROP the guard before the network await
-    //    (a std MutexGuard must never be held across `.await`).
-    let body = {
+    // 🦀 Build the summary input from the SAVED note (notes + transcript combined) in a short
+    //    locked block, then DROP the guard before the network await.
+    let input = {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        db::get_meeting_note(&conn, &calendar_id, &event_id)?
-            .map(|n| n.body)
-            .ok_or_else(|| AppError::Other("Save the note before summarizing.".into()))?
+        let note = db::get_meeting_note(&conn, &calendar_id, &event_id)?
+            .ok_or_else(|| AppError::Other("Save the note before summarizing.".into()))?;
+        crate::transcript::build_summary_input(&note.body, &note.transcript)
     };
-    if body.trim().is_empty() {
-        return Err(AppError::Other("Nothing to summarize — the note is empty.".into()));
+    if input.trim().is_empty() {
+        return Err(AppError::Other(
+            "Nothing to summarize — add notes or a transcript first.".into(),
+        ));
     }
     // 🦀 The slow part: a local HTTP call to Ollama. No DB lock is held across this await.
-    let summary = crate::ollama::OllamaClient::new().summarize(&body).await?;
+    let summary = crate::ollama::OllamaClient::new().summarize(&input).await?;
     // 🦀 Re-lock to persist. This UPDATE does NOT bump the body's updated_at (staleness logic).
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     db::set_meeting_note_summary(&conn, &calendar_id, &event_id, &summary, now_millis())
+}
+
+/// Read a user-picked transcript file (.txt or .vtt) into plain text (M22). DB-free; `.vtt` is
+/// stripped to spoken text. The byte read happens here in Rust (std::fs) so no fs capability is
+/// needed — the frontend supplies the path from the native open dialog.
+#[tauri::command]
+pub async fn read_transcript_file(path: String) -> Result<String> {
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::Other(format!("could not read transcript file: {e}")))?;
+    // 🦀 `.ends_with` on the lowercased path picks the parser; .txt (and anything else) passes through.
+    let text = if path.to_lowercase().ends_with(".vtt") {
+        crate::transcript::vtt_to_text(&raw)
+    } else {
+        raw
+    };
+    Ok(text.trim().to_string())
 }
 
 #[cfg(test)]
