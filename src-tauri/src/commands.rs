@@ -841,6 +841,36 @@ pub async fn list_meeting_notes(state: tauri::State<'_, Db>) -> Result<Vec<db::M
     db::list_meeting_notes(&conn)
 }
 
+/// Summarize a meeting note's body with local Ollama (M21). Reads the SAVED body, calls Ollama
+/// OUTSIDE the DB lock, then persists the summary. Requires the note to be saved first.
+#[tauri::command]
+pub async fn summarize_meeting_note(
+    calendar_id: String,
+    event_id: String,
+    state: tauri::State<'_, Db>,
+) -> Result<db::MeetingNote> {
+    // 🦀 Read the body in a short locked block, then DROP the guard before the network await
+    //    (a std MutexGuard must never be held across `.await`).
+    let body = {
+        let conn = state
+            .lock()
+            .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::get_meeting_note(&conn, &calendar_id, &event_id)?
+            .map(|n| n.body)
+            .ok_or_else(|| AppError::Other("Save the note before summarizing.".into()))?
+    };
+    if body.trim().is_empty() {
+        return Err(AppError::Other("Nothing to summarize — the note is empty.".into()));
+    }
+    // 🦀 The slow part: a local HTTP call to Ollama. No DB lock is held across this await.
+    let summary = crate::ollama::OllamaClient::new().summarize(&body).await?;
+    // 🦀 Re-lock to persist. This UPDATE does NOT bump the body's updated_at (staleness logic).
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::set_meeting_note_summary(&conn, &calendar_id, &event_id, &summary, now_millis())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
