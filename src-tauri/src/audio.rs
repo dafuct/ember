@@ -23,6 +23,11 @@ pub fn resample_to_16k(mono: &[f32], in_rate: u32) -> Vec<f32> {
     }
     let ratio = OUT_RATE as f64 / in_rate as f64;
     let out_len = ((mono.len() as f64) * ratio).round() as usize;
+    // 🦀 A very short input at a high in_rate can round to zero output samples; return empty
+    //    explicitly rather than relying on the loop never running.
+    if out_len == 0 {
+        return Vec::new();
+    }
     let mut out = Vec::with_capacity(out_len);
     for i in 0..out_len {
         // 🦀 `src` is the fractional sample position in the input; lerp between its neighbours.
@@ -36,6 +41,7 @@ pub fn resample_to_16k(mono: &[f32], in_rate: u32) -> Vec<f32> {
 }
 
 /// Convert f32 samples in [-1.0, 1.0] to 16-bit PCM (clamp then scale).
+/// NaN inputs are saturated to 0 via Rust's `as i16` cast semantics.
 pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
     samples
         .iter()
@@ -101,6 +107,17 @@ mod tests {
         assert_eq!(resample_to_16k(&vec![0.0f32; 100], 16_000).len(), 100);
         let out = resample_to_16k(&vec![0.0f32; 4800], 48_000); // 0.1s @48k → ~0.1s @16k
         assert!((out.len() as i64 - 1600).abs() <= 2, "got {}", out.len());
+    }
+
+    #[test]
+    fn window_to_wav_chains_to_a_valid_wav() {
+        // 2ch @ 48k, 4 frames (8 interleaved samples) → mono → 16k → PCM16 → WAV.
+        let wav = window_to_wav(&[0.0, 0.0, 0.5, 0.5, -0.5, -0.5, 1.0, 1.0], 2, 48_000);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        // header is always 44 bytes; body length must be even (2 bytes/sample)
+        assert!(wav.len() >= 44);
+        assert_eq!((wav.len() - 44) % 2, 0);
     }
 
     #[test]
