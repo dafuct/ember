@@ -6,11 +6,11 @@
 
 **Why this shape (the two approved decisions):** (1) **Capture mechanism = `cpal` + a user-selected input device (BlackHole for system audio)**, chosen over ScreenCaptureKit and Core Audio process taps. `cpal` is mature pure-Rust CoreAudio capture; the code is **device-agnostic** (we capture whatever device the user selects), so "system audio" is just *"select BlackHole"*. This needs only the **microphone** TCC permission (far more stable for an **unsigned dev build** than ScreenCaptureKit's "Screen & System Audio Recording" permission, which breaks on every ad-hoc rebuild), **no Swift helper**, **no entitlements**, **no codesigning**, **no `tauri-plugin-shell`**. It mirrors the project's "user runs/install local infra" ethos (they already install + run Ollama and whisper-server). (2) **Scope = live streaming transcript** (not record-then-transcribe-once): windowed chunks transcribed and appended as the meeting runs.
 
-**Architecture in one paragraph:** A `cpal` input stream runs on a **dedicated thread** (CoreAudio `Stream` is `!Send`); its realtime callback does only a cheap non-blocking `send` of f32 frames into a `tokio::sync::mpsc::unbounded_channel`. An **async worker** accumulates **non-overlapping ~10 s windows**, then for each window: **downmix to mono → `rubato` resample to 16 kHz → hand-rolled PCM16 WAV → REUSE the M23 `WhisperClient.transcribe(bytes, "chunk.wav", "audio/wav")`** → emit the resulting text over a **Tauri `Channel<CaptureEvent>`**. The frontend appends each chunk to the note's existing **transcript** textarea live. **Stop** signals the audio thread to drop the stream, the worker flushes the final partial window, transcribes it, emits a final `Stopped` event. New pure helpers live in `src-tauri/src/audio.rs` (downmix/resample/WAV — unit-tested); the capture session + three commands (`list_input_devices`, `start_capture`, `stop_capture`) live in `src-tauri/src/capture.rs`. The captured transcript then flows through the **unchanged** M21/M22 Save → Summarize spine.
+**Architecture in one paragraph:** A `cpal` input stream runs on a **dedicated thread** (CoreAudio `Stream` is `!Send`); its realtime callback does only a cheap non-blocking `send` of f32 frames into a `tokio::sync::mpsc::unbounded_channel`. An **async worker** accumulates **non-overlapping ~10 s windows**, then for each window: **downmix to mono → hand-rolled linear-interpolation resample to 16 kHz → hand-rolled PCM16 WAV → REUSE the M23 `WhisperClient.transcribe(bytes, "chunk.wav", "audio/wav")`** → emit the resulting text over a **Tauri `Channel<CaptureEvent>`**. The frontend appends each chunk to the note's existing **transcript** textarea live. **Stop** signals the audio thread to drop the stream, the worker flushes the final partial window, transcribes it, emits a final `Stopped` event. New pure helpers live in `src-tauri/src/audio.rs` (downmix/resample/WAV — unit-tested); the capture session + three commands (`list_input_devices`, `start_capture`, `stop_capture`) live in `src-tauri/src/capture.rs`. The captured transcript then flows through the **unchanged** M21/M22 Save → Summarize spine.
 
-**Tech Stack:** Rust (NEW deps **`cpal`** + **`rubato`**; WAV encoded by hand — no `hound`; reuses `reqwest`/`serde`/Tauri 2 + the M23 `WhisperClient`), React 19 + TypeScript + Vite, the Tauri 2 **`Channel`** IPC-streaming primitive. macOS: a new **`Info.plist`** entry `NSMicrophoneUsageDescription`. **No new OAuth scope, no new Tauri capability, no migration, no Settings, no `tauri-plugin-shell`.**
+**Tech Stack:** Rust (NEW dep **`cpal`**; the resampler and WAV encoder are **hand-rolled** — no `hound`, no `rubato`; reuses `reqwest`/`serde`/Tauri 2 + the M23 `WhisperClient`), React 19 + TypeScript + Vite, the Tauri 2 **`Channel`** IPC-streaming primitive. macOS: a new **`Info.plist`** entry `NSMicrophoneUsageDescription`. **No new OAuth scope, no new Tauri capability, no migration, no Settings, no `tauri-plugin-shell`.**
 
-**Learning mode (IMPORTANT — every implementer):** the repo owner is learning Rust. All Rust code MUST carry concise `// 🦀` teaching comments on the *language/runtime* concept (here: a `!Send` value pinned to its own thread, the realtime-audio callback constraint, `tokio::sync::mpsc::unbounded_channel` send-from-sync-thread, `AtomicBool` stop-signaling, the in-memory WAV/RIFF byte layout, `rubato` resampling, the Tauri `Channel`). After each Rust task, give a short plain-English recap. TypeScript/React gets normal comments. **Do NOT run `cargo fmt`** (this repo hand-formats).
+**Learning mode (IMPORTANT — every implementer):** the repo owner is learning Rust. All Rust code MUST carry concise `// 🦀` teaching comments on the *language/runtime* concept (here: a `!Send` value pinned to its own thread, the realtime-audio callback constraint, `tokio::sync::mpsc::unbounded_channel` send-from-sync-thread, `AtomicBool` stop-signaling, the in-memory WAV/RIFF byte layout, linear-interpolation resampling, the Tauri `Channel`). After each Rust task, give a short plain-English recap. TypeScript/React gets normal comments. **Do NOT run `cargo fmt`** (this repo hand-formats).
 
 **Process note (reviewers):** reviewers are READ-ONLY — their prompts MUST forbid Edit/Write and any git state change ("REPORT ONLY"); the controller runs `git status -s` after each review (M23 saw a reviewer leave a rogue `.gitignore` edit — caught and reverted; do not let it recur).
 
@@ -31,10 +31,10 @@ M1–M23 are merged to `main`. The meeting-notes feature area is built out: loca
 ## Scope
 
 **In scope (lean v1):**
-- New pure `src-tauri/src/audio.rs`: `downmix_to_mono`, `resample_to_16k` (rubato), `encode_wav_pcm16_16k_mono` (hand-rolled), `f32_to_i16` — all unit-tested.
+- New pure `src-tauri/src/audio.rs`: `downmix_to_mono`, `resample_to_16k` (hand-rolled linear interpolation), `encode_wav_pcm16_16k_mono` (hand-rolled), `f32_to_i16` — all unit-tested.
 - New `src-tauri/src/capture.rs`: the `cpal` capture session (dedicated thread + async worker + windowing) and three commands — `list_input_devices()`, `start_capture(deviceName, onEvent: Channel<CaptureEvent>)`, `stop_capture()`.
 - Managed capture state in `lib.rs` (`Arc<Mutex<Option<CaptureSession>>>`); the three commands registered.
-- New deps `cpal` + `rubato` in `Cargo.toml`; `NSMicrophoneUsageDescription` in `src-tauri/Info.plist` (+ `Info.dev.plist` if the dev-bundle needs it).
+- New dep `cpal` in `Cargo.toml` (resampler + WAV hand-rolled — no `rubato`, no `hound`); `NSMicrophoneUsageDescription` in `src-tauri/Info.plist` (+ `Info.dev.plist` if the dev-bundle needs it).
 - Frontend: `lib/notes.ts` wrappers (`listInputDevices`, `startCapture(deviceName, onEvent)`, `stopCapture`) + mock equivalents; `NotesModal` gains a capture row (device `<select>` + Record/Stop + "listening…" indicator) that appends chunks to the transcript textarea live.
 
 **Explicitly deferred (not M24):**
@@ -52,7 +52,7 @@ M1–M23 are merged to `main`. The meeting-notes feature area is built out: loca
 ### Backend — new pure module `src-tauri/src/audio.rs` (`pub mod audio;` in `lib.rs`)
 All functions are pure (no I/O), fully unit-testable:
 - `pub fn downmix_to_mono(interleaved: &[f32], channels: u16) -> Vec<f32>` — average the channels per frame (1 channel → passthrough).
-- `pub fn resample_to_16k(mono: &[f32], in_rate: u32) -> Vec<f32>` — `rubato` resample from `in_rate` to 16000 (passthrough if already 16k). Handles non-integer ratios (44.1 kHz).
+- `pub fn resample_to_16k(mono: &[f32], in_rate: u32) -> Vec<f32>` — hand-rolled **linear-interpolation** resample from `in_rate` to 16000 (passthrough if already 16k). Handles arbitrary ratios incl. 44.1 kHz; a slight quality trade-off vs an FFT resampler that is fine for speech STT.
 - `pub fn f32_to_i16(samples: &[f32]) -> Vec<i16>` — clamp to [-1.0, 1.0], scale by 32767.
 - `pub fn encode_wav_pcm16_16k_mono(samples: &[i16]) -> Vec<u8>` — hand-rolled 44-byte RIFF/WAVE header (PCM, 1 channel, 16000 Hz, 16-bit) + little-endian sample bytes. `// 🦀` documents each header field.
 - A convenience `pub fn window_to_wav(interleaved: &[f32], channels: u16, in_rate: u32) -> Vec<u8>` chaining the four (the worker calls this).
@@ -75,7 +75,7 @@ All functions are pure (no I/O), fully unit-testable:
 - Register `capture::list_input_devices`, `capture::start_capture`, `capture::stop_capture` in `generate_handler!`.
 
 ### Backend — `src-tauri/Cargo.toml` + macOS plist
-- Add `cpal = "0.16"` (or current) and `rubato = "0.16"` (or current) to `[dependencies]`.
+- Add `cpal = "0.16"` (or current) to `[dependencies]`. The resampler and WAV encoder are hand-rolled — **no `rubato`, no `hound`**.
 - New `src-tauri/Info.plist` with `NSMicrophoneUsageDescription = "Ember records meeting audio to transcribe it locally."` (and `Info.dev.plist` if `cargo tauri dev` needs the prompt). Tauri merges it at bundle time.
 
 ### Frontend — `src/lib/notes.ts`
@@ -138,7 +138,7 @@ All functions are pure (no I/O), fully unit-testable:
 - **Non-overlapping ~10 s windows, appended in order** — the simplest streaming model; a word may split at a boundary (tolerable for editable text → summarizer). Overlap/dedup and VAD deferred.
 - **Backpressure is unbounded in v1** — if whisper is slower than realtime, lag and memory grow; the meeting ends and Stop flushes the rest. Documented; a cap is a future refinement.
 - **Reuses the M23 `WhisperClient` and the M22 transcript spine unchanged** — M24 is purely the capture front-end; the transcription/summary halves are already proven.
-- **New native deps `cpal` + `rubato` are unavoidable** — this is the native-audio milestone. WAV is hand-rolled (no `hound`) to keep the dep surface minimal and teach the format. No `tauri-plugin-shell`, no new OAuth scope, no new Tauri capability, no migration, no Settings.
+- **One new native dep `cpal` is unavoidable** — this is the native-audio milestone. The resampler (linear interpolation) and the WAV encoder are **hand-rolled** (no `rubato`, no `hound`) to keep the dep surface minimal and teach the format — a slight STT-quality trade-off vs an FFT resampler that is fine for speech. No `tauri-plugin-shell`, no new OAuth scope, no new Tauri capability, no migration, no Settings.
 - **Build in two verified phases (one spec):** Phase A — capture → a single window → transcribe → fill the field (prove cpal + mic permission + WAV + the M23 reuse + device picker + Record/Stop). Phase B — the streaming loop (windowing + `Channel` + live incremental append + Stop-flush). De-risks the capstone without a separate milestone.
 
 ---
@@ -147,6 +147,6 @@ All functions are pure (no I/O), fully unit-testable:
 
 - **No ScreenCaptureKit / Core Audio process-tap capture, no Swift helper, no codesigning/notarization work** in M24.
 - **No overlap/dedup, no VAD, no diarization, no interim partial-word results.**
-- **No BlackHole bundling/auto-install; no Settings; no new OAuth scope, capability, migration, or `tauri-plugin-shell`.** Only new deps are `cpal` + `rubato`, plus an `Info.plist` mic-usage string.
+- **No BlackHole bundling/auto-install; no Settings; no new OAuth scope, capability, migration, or `tauri-plugin-shell`.** Only new dep is `cpal`, plus an `Info.plist` mic-usage string.
 - **Tauri build unchanged for the maket** — capture wrappers are `isTauri()`-gated; the maket drives the live-append UI with mock chunks on a timer.
 - **Plain-text transcript** — no speaker/timestamp UI; the captured text is ordinary transcript text feeding the existing summarizer.
