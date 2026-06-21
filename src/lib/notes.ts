@@ -8,6 +8,7 @@ import {
   mockListMeetingNotes,
   mockSummarizeMeetingNote,
   mockReadTranscriptFile,
+  mockTranscribeRecording,
 } from "./mock";
 
 export interface MeetingNote {
@@ -71,3 +72,8 @@ export const readTranscriptFile = (path: string): Promise<string> =>
   isTauri()
     ? invoke<string>("read_transcript_file", { path })
     : Promise.resolve(mockReadTranscriptFile(path));
+
+export const transcribeRecording = (path: string): Promise<string> =>
+  isTauri()
+    ? invoke<string>("transcribe_recording", { path })
+    : Promise.resolve(mockTranscribeRecording(path));

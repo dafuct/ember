@@ -8,6 +8,7 @@ import {
   deleteMeetingNote,
   summarizeMeetingNote,
   readTranscriptFile,
+  transcribeRecording,
 } from "../lib/notes";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
@@ -39,6 +40,7 @@ export function NotesModal({
   const [busy, setBusy] = useState(false); // save/delete in flight
   const [summarizing, setSummarizing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
@@ -142,6 +144,31 @@ export function NotesModal({
     }
   }
 
+  async function handleTranscribe() {
+    setTranscribing(true);
+    setError(null);
+    try {
+      let path: string | null;
+      if (isTauri()) {
+        const sel = await open({
+          filters: [
+            { name: "Recording", extensions: ["wav", "mp3", "m4a", "mp4", "mov", "webm", "ogg", "flac", "aac"] },
+          ],
+        });
+        path = typeof sel === "string" ? sel : null; // null if cancelled (or a multi-array)
+      } else {
+        path = "/mock/recording.m4a"; // maket: skip the native dialog
+      }
+      if (!path) return; // cancelled
+      const text = await transcribeRecording(path);
+      setTranscript(text);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
   async function handleSummarize() {
     if (!hasContent) return;
     setSummarizing(true);
@@ -166,7 +193,7 @@ export function NotesModal({
     }
   }
 
-  const blocked = busy || summarizing || importing;
+  const blocked = busy || summarizing || importing || transcribing;
 
   return (
     <div className="compose-overlay">
@@ -192,9 +219,14 @@ export function NotesModal({
             />
             <div className="note-transcript-head">
               <span>Transcript</span>
-              <button className="btn" onClick={handleImport} disabled={blocked}>
-                {importing ? "Importing…" : "Import…"}
-              </button>
+              <div className="note-transcript-actions">
+                <button className="btn" onClick={handleImport} disabled={blocked}>
+                  {importing ? "Importing…" : "Import…"}
+                </button>
+                <button className="btn" onClick={handleTranscribe} disabled={blocked}>
+                  {transcribing ? "Transcribing…" : "Transcribe…"}
+                </button>
+              </div>
             </div>
             <textarea
               className="compose-body"

@@ -902,6 +902,51 @@ pub async fn read_transcript_file(path: String) -> Result<String> {
     Ok(text.trim().to_string())
 }
 
+/// Transcribe a user-picked audio/video recording via a local Whisper HTTP server (M23).
+/// DB-free; mirrors `read_transcript_file`: a size guard, a Rust `std::fs::read`, then the
+/// WhisperClient POSTs the bytes. The path comes from the frontend dialog → no `fs` capability.
+#[tauri::command]
+pub async fn transcribe_recording(path: String) -> Result<String> {
+    // 🦀 Cap the pick before slurping the whole file into memory. Recordings dwarf a text
+    //    transcript (audio = tens of MB, video more), so 500 MB rather than the 25 MB text cap.
+    const MAX_RECORDING_BYTES: u64 = 500 * 1024 * 1024;
+    let len = std::fs::metadata(&path)
+        .map_err(|e| AppError::Other(format!("could not read recording file: {e}")))?
+        .len();
+    if len > MAX_RECORDING_BYTES {
+        return Err(AppError::Other(format!(
+            "recording file is too large ({} MB max).",
+            MAX_RECORDING_BYTES / (1024 * 1024)
+        )));
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|e| AppError::Other(format!("could not read recording file: {e}")))?;
+    // 🦀 `Path::file_name`/`extension` return `Option<&OsStr>`; `.and_then(|s| s.to_str())` turns
+    //    that into an `Option<&str>` we can fall back from with `unwrap_or`.
+    let p = std::path::Path::new(&path);
+    let filename = p.file_name().and_then(|s| s.to_str()).unwrap_or("recording");
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    let mime = mime_for_recording(&ext);
+    crate::whisper::WhisperClient::new().transcribe(bytes, filename, mime).await
+}
+
+// 🦀 Best-effort content type from the file extension. The whisper server decodes by content
+//    regardless, so this is just polite metadata on the multipart part. `&'static str` because
+//    every arm returns a string literal baked into the binary.
+fn mime_for_recording(ext: &str) -> &'static str {
+    match ext {
+        "wav" => "audio/wav",
+        "mp3" => "audio/mpeg",
+        "m4a" | "mp4" => "audio/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "audio/webm",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        _ => "application/octet-stream",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
