@@ -42,7 +42,8 @@ impl OllamaClient {
         let resp = self.http.post(&url).json(&req).send().await.map_err(|e| {
             if e.is_connect() {
                 AppError::Other(format!(
-                    "Ollama isn't running at {DEFAULT_BASE} — install it from https://ollama.com and run `ollama serve`."
+                    "Ollama isn't running at {} — install it from https://ollama.com and run `ollama serve`.",
+                    self.base_url
                 ))
             } else {
                 AppError::Http(e)
