@@ -1,34 +1,51 @@
+/* Dark is the default. Light is opt-in via [data-theme="light"]. */
 :root,
+:root[data-theme="dark"] {
+  --bg: #16161b;
+  --surface: #1d1d24;
+  --surface-2: #26262f;
+  --surface-3: #30303b;
+  --text: #f1ede6;
+  --text-muted: #a7a39c;
+  --text-faint: #6f6a63;
+  --border: #2a2a33;
+  --border-strong: #3a3a45;
+  --accent: #3fbf6f;
+  --accent-hover: #4fce7e;
+  --accent-weak: #16271c;
+  --accent-text: #7ee7a3;
+  --accent-contrast: #0e160f;
+  --danger: #e06c5b;
+  --star: #f5c451;
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+  --rail-w: 64px;
+  --sidebar-w: 280px;
+}
+
 :root[data-theme="light"] {
-  --bg: #faf9f7;
+  --bg: #f5f4f1;
   --surface: #ffffff;
-  --surface-2: #f3f1ec;
+  --surface-2: #f0eee9;
+  --surface-3: #e6e3dc;
   --text: #1c1a17;
   --text-muted: #6b6660;
   --text-faint: #9c958c;
-  --border: #e8e4dc;
-  --border-strong: #d9d3c9;
+  --border: #e6e2da;
+  --border-strong: #d6cfc4;
   --accent: #16a34a;
+  --accent-hover: #14903f;
   --accent-weak: #e7f5ec;
   --accent-text: #15803d;
   --accent-contrast: #ffffff;
   --danger: #c0392b;
-}
-
-:root[data-theme="dark"] {
-  --bg: #1a1714;
-  --surface: #221e19;
-  --surface-2: #2c2720;
-  --text: #f0ece4;
-  --text-muted: #a8a098;
-  --text-faint: #756e64;
-  --border: #322c25;
-  --border-strong: #443b31;
-  --accent: #3fbf6f;
-  --accent-weak: #15271b;
-  --accent-text: #6ee79f;
-  --accent-contrast: #0e160f;
-  --danger: #e06c5b;
+  --star: #e0a92e;
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+  --rail-w: 64px;
+  --sidebar-w: 280px;
 }
 
 * {
