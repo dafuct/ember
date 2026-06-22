@@ -58,7 +58,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stream, setStream] = useState<Stream>("all");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  // `status` (last-sync result string) is currently produced but not surfaced in the UI;
+  // keep the setter so runSync stays intact, drop the unused value binding for noUnusedLocals.
+  const [, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
@@ -658,15 +660,6 @@ export default function App() {
     setError(null);
   }
 
-  // Task 2 retired the Header, which was the on-screen home for Sync, search, and the
-  // last-sync status. Their state + handlers stay intact and get wired into the MessageList
-  // header in Task 3. Reference them here so `noUnusedLocals` passes in the interim; remove
-  // this block once Task 3 consumes them.
-  void status;
-  void handleSync;
-  void handleSearch;
-  void handleClearSearch;
-
   function handleSelectFolder(f: string) {
     clearSelection();
     clearUndo();
@@ -790,6 +783,12 @@ export default function App() {
                   onBatchRestore={batchRestore}
                   onBatchDeleteForever={batchDeleteForever}
                   labelsById={labelsById}
+                  onSearch={handleSearch}
+                  onClearSearch={handleClearSearch}
+                  searchQuery={searchQuery}
+                  searching={searching}
+                  onSync={handleSync}
+                  busy={busy}
                   flat={inSearch || inFolder}
                   title={
                     inSearch

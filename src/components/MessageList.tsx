@@ -6,6 +6,15 @@ import {
   groupByStream,
   type Stream,
 } from "../lib/streams";
+import { Bell, Newspaper, RefreshCw, Search, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+// Colored stream icon for the grouped "All" view section headers.
+const GROUP_ICON: Record<string, { Icon: LucideIcon; hue: number }> = {
+  people: { Icon: Users, hue: 200 },
+  notifications: { Icon: Bell, hue: 38 },
+  newsletters: { Icon: Newspaper, hue: 168 },
+};
 
 export function MessageList({
   messages,
@@ -31,6 +40,12 @@ export function MessageList({
   title,
   emptyText,
   showRecipient = false,
+  onSearch,
+  onClearSearch,
+  searchQuery,
+  searching,
+  onSync,
+  busy,
 }: {
   messages: MessagePreview[];
   stream: Stream;
@@ -59,14 +74,24 @@ export function MessageList({
   /** Empty-state text override (used in flat/search mode). */
   emptyText?: string;
   showRecipient?: boolean;
+  /** Search input change — empty value clears, anything else runs a search. */
+  onSearch: (q: string) => void;
+  onClearSearch: () => void;
+  searchQuery: string;
+  searching: boolean;
+  onSync: () => void;
+  busy: boolean;
 }) {
   // Flat mode (search): render the given messages as-is. Stream mode (inbox): filter, and
   // group by category only in the "All" view.
   const visible = flat ? messages : filterByStream(messages, stream);
   const groups = !flat && stream === "all" ? groupByStream(visible) : null;
+  // List-column title: the override (search/folder), else the stream label, else Smart Inbox.
   const headerTitle = flat
     ? title ?? "Results"
-    : STREAMS.find((s) => s.key === stream)?.label ?? "Inbox";
+    : stream === "all"
+      ? "Smart Inbox"
+      : STREAMS.find((s) => s.key === stream)?.label ?? "Inbox";
   const count = groups
     ? groups.reduce((n, g) => n + g.messages.length, 0)
     : visible.length;
@@ -75,9 +100,31 @@ export function MessageList({
   const visibleIds = (groups ? groups.flatMap((g) => g.messages) : visible).map((m) => m.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
+  // Typing drives search; emptying the box exits search mode (handleSearch ignores empties).
+  const onSearchChange = (value: string) => {
+    if (value.trim() === "") onClearSearch();
+    else onSearch(value);
+  };
+
   return (
     <section className="msglist">
-      {selectedIds.size > 0 ? (
+      <div className="list-head">
+        <div className="list-title">{headerTitle}</div>
+        <button className="list-tool" aria-label="Sync" disabled={busy} onClick={onSync}>
+          <RefreshCw size={16} className={busy ? "spin" : undefined} />
+        </button>
+      </div>
+      <div className="list-search">
+        <Search size={16} />
+        <input
+          value={searchQuery}
+          placeholder="Search mail"
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
+        {searching && <span className="list-search-hint">…</span>}
+      </div>
+
+      {selectedIds.size > 0 && (
         <div className="msglist-header batch-bar">
           <input
             type="checkbox"
@@ -111,40 +158,49 @@ export function MessageList({
             ✕
           </button>
         </div>
-      ) : (
-        <div className="msglist-header">
-          <span className="msglist-title">{headerTitle}</span>
-          <span className="msglist-count">{count} messages</span>
-        </div>
       )}
+
       <div className="msglist-scroll">
         {count === 0 ? (
           <div className="empty">{empty}</div>
         ) : groups ? (
-          groups.map((group) => (
-            <div key={group.category} className="msglist-group">
-              <div className="msglist-group-header">
-                <span>{group.label}</span>
-                <span className="msglist-group-count">
-                  {group.messages.length}
-                </span>
+          groups.map((group) => {
+            const meta = GROUP_ICON[group.category];
+            return (
+              <div key={group.category} className="msglist-group">
+                <div className="group-head">
+                  {meta && (
+                    <span
+                      className="group-ic"
+                      style={{
+                        background: `hsl(${meta.hue} 55% 20%)`,
+                        color: `hsl(${meta.hue} 70% 70%)`,
+                      }}
+                      aria-hidden
+                    >
+                      <meta.Icon size={13} />
+                    </span>
+                  )}
+                  <span>{group.label}</span>
+                  <span className="group-count">{group.messages.length}</span>
+                </div>
+                {group.messages.map((m) => (
+                  <MessageItem
+                    key={m.id}
+                    msg={m}
+                    selected={m.id === selectedId}
+                    onSelect={onSelect}
+                    checked={selectedIds.has(m.id)}
+                    onToggleSelect={onToggleSelect}
+                    labelsById={labelsById}
+                    onArchive={onArchive}
+                    onStar={onStar}
+                    showRecipient={showRecipient}
+                  />
+                ))}
               </div>
-              {group.messages.map((m) => (
-                <MessageItem
-                  key={m.id}
-                  msg={m}
-                  selected={m.id === selectedId}
-                  onSelect={onSelect}
-                  checked={selectedIds.has(m.id)}
-                  onToggleSelect={onToggleSelect}
-                  labelsById={labelsById}
-                  onArchive={onArchive}
-                  onStar={onStar}
-                  showRecipient={showRecipient}
-                />
-              ))}
-            </div>
-          ))
+            );
+          })
         ) : (
           visible.map((m) => (
             <MessageItem

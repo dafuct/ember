@@ -27,25 +27,52 @@
 .avatar { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-weak); color: var(--accent-text); font-size: 12px; font-weight: 500; flex-shrink: 0; }
 .avatar-lg { width: 38px; height: 38px; font-size: 15px; }
 
-.msglist { display: flex; flex-direction: column; height: 100%; background: var(--surface); min-height: 0; }
-.msglist-header { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.msglist-title { font-size: 14px; font-weight: 500; }
-.msglist-count { font-size: 12px; color: var(--text-faint); }
-.msglist-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.msglist { display: flex; flex-direction: column; height: 100%; background: var(--bg); min-height: 0; }
+.msglist-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
 .empty { padding: 32px 16px; text-align: center; color: var(--text-faint); font-size: 13px; }
 
-.msg-item { display: flex; align-items: stretch; width: 100%; border-bottom: 1px solid var(--border); border-left: 2px solid transparent; cursor: pointer; color: var(--text); }
-.msg-item:hover:not(.selected) { background: var(--surface-2); }
-.msg-item.selected { background: var(--accent-weak); border-left-color: var(--accent); }
-.msg-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; border: none; background: transparent; text-align: left; cursor: pointer; color: inherit; }
-/* Unread: bolder sender + subject */
-.msg-item.unread .msg-sender { font-weight: 700; }
-.msg-item.unread .msg-subject { font-weight: 600; }
-.msg-top { display: flex; align-items: center; gap: 8px; }
-.msg-sender { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-time { flex-shrink: 0; font-size: 11px; color: var(--text-faint); }
-.msg-subject { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-snippet { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* List-column header: title + Sync */
+.list-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 8px; flex-shrink: 0; }
+.list-title { font-size: 20px; font-weight: 700; flex: 1; color: var(--text); }
+.list-tool { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.list-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.list-tool:disabled { opacity: 0.6; cursor: default; }
+
+/* In-list search box */
+.list-search { display: flex; align-items: center; gap: 8px; margin: 0 16px 8px; padding: 0 12px; height: 40px; border-radius: var(--radius-control); background: var(--surface); border: 1px solid var(--border); color: var(--text-faint); flex-shrink: 0; }
+.list-search input { flex: 1; border: none; background: transparent; color: var(--text); font-size: 14px; outline: none; }
+.list-search input::placeholder { color: var(--text-faint); }
+.list-search-hint { color: var(--text-faint); font-size: 13px; }
+
+/* Spinner for an in-flight Sync */
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Grouped-view section header: colored icon + small-caps label */
+.group-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+.group-ic { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; flex: none; }
+.group-count { color: var(--text-faint); font-weight: 600; }
+
+/* Message card */
+.msg-card { display: flex; gap: 12px; margin: 4px 12px; padding: 12px 14px; border-radius: var(--radius-card); background: var(--surface); border: 1px solid transparent; border-left: 3px solid transparent; cursor: pointer; color: var(--text); }
+.msg-card:hover { background: var(--surface-2); }
+.msg-card.selected { background: var(--accent-weak); border-left-color: var(--accent); }
+.msg-lead { display: flex; align-items: center; gap: 8px; flex: none; }
+.msg-avatar { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; font-size: 14px; font-weight: 600; flex: none; }
+.msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.msg-card .msg-top { display: flex; align-items: center; gap: 8px; }
+.msg-card .name { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-card .when { flex: none; color: var(--text-faint); font-size: 12px; }
+.msg-card .subject { font-weight: 600; color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-card .snippet { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unread: brighter name + subject */
+.msg-card.unread .name { font-weight: 700; }
+.msg-card.unread .subject { color: var(--text); }
+
+/* Trailing star toggle */
+.msg-star { align-self: center; display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--text-faint); cursor: pointer; flex: none; padding: 4px; }
+.msg-star:hover { color: var(--star); }
+.msg-star.on { color: var(--star); }
 
 .reading { height: 100%; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
 .reading-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-faint); font-size: 13px; }
@@ -70,59 +97,11 @@
 
 .btn, .icon-btn { flex-shrink: 0; }
 
-/* Smart Inbox — grouped list sections */
-.msglist-group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-lo, #888);
-  background: var(--bg-1, rgba(127, 127, 127, 0.06));
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.msglist-group-count {
-  opacity: 0.7;
-}
-
-/* Per-row category dot */
-.cat-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-right: 7px;
-  vertical-align: middle;
-  flex: none;
-}
-.cat-people {
-  background: #ff7a9c;
-}
-.cat-notifications {
-  background: #ffc25c;
-}
-.cat-newsletters {
-  background: #74d0bd;
-}
-
-/* M7 actions — list-row hover actions */
-.msg-actions { display: flex; align-items: center; gap: 2px; padding: 0 8px; flex-shrink: 0; }
-.row-act { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; }
-.msg-item:hover .row-act, .msg-item:focus-within .row-act { opacity: 1; }
-.row-act:hover { background: var(--surface); color: var(--text); }
-/* A starred message keeps its star lit even when the row isn't hovered. */
-.row-act.starred { opacity: 1; color: var(--accent); }
-
 /* M7 actions — active (e.g. starred) reading-pane toolbar button */
 .icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
 /* M7 actions — keyboard focus ring for action buttons */
-.row-act:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon-btn:focus-visible, .msg-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* M7 — unread marker: a filled accent dot (right of the timestamp), distinct from
    the left category dot so unread mail can't be confused with its category. */
@@ -224,9 +203,12 @@
   padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 
 /* ===== M15 — batch selection ===== */
-.msg-check { margin: 0 2px 0 10px; flex: 0 0 auto; align-self: center; cursor: pointer; }
-.msg-item.checked { background: var(--accent-weak); }
-.batch-bar { display: flex; align-items: center; gap: 12px; }
+/* The select checkbox sits in the card lead; hidden until the row is hovered or
+   already part of a selection so the resting card stays clean. */
+.msg-check { flex: 0 0 auto; align-self: center; cursor: pointer; opacity: 0; width: 0; margin: 0; transition: opacity .12s; }
+.msg-card:hover .msg-check, .msg-card.checked .msg-check, .msg-card.selected .msg-check { opacity: 1; width: auto; margin-right: 2px; }
+.msg-card.checked { background: var(--accent-weak); }
+.batch-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; margin: 0 12px 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); flex-shrink: 0; }
 .batch-check { cursor: pointer; }
 .batch-count { font-weight: 600; font-size: 13px; }
 .batch-actions { display: flex; gap: 6px; margin-left: auto; }
