@@ -5,7 +5,7 @@ import { listMeetingNotes, noteKey, type MeetingNote } from "../lib/notes";
 import { WeekGrid } from "./WeekGrid";
 import { EventModal, type EventInitial } from "./EventModal";
 import { NotesModal, type NoteTarget } from "./NotesModal";
-import { NotebookPen } from "lucide-react";
+import { NotebookPen, ChevronLeft, ChevronRight } from "lucide-react";
 
 // The backend maps a missing calendar scope to the specific message
 // "Calendar access not granted — reconnect Google to enable it." Match that phrasing
@@ -14,7 +14,19 @@ function isScopeError(msg: string): boolean {
   return /reconnect google|calendar access not granted/i.test(msg);
 }
 
-export function CalendarView({ weekStart }: { weekStart: Date }) {
+export function CalendarView({
+  weekStart,
+  onPrevWeek,
+  onToday,
+  onNextWeek,
+  rangeLabel,
+}: {
+  weekStart: Date;
+  onPrevWeek?: () => void;
+  onToday?: () => void;
+  onNextWeek?: () => void;
+  rangeLabel?: string;
+}) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +122,19 @@ export function CalendarView({ weekStart }: { weekStart: Date }) {
   return (
     <div className="cal-view">
       <div className="cal-toolbar">
+        {rangeLabel && (
+          <nav className="week-nav" aria-label="Week navigation">
+            <button className="icon-btn" aria-label="Previous week" onClick={onPrevWeek}>
+              <ChevronLeft size={16} />
+            </button>
+            <button className="btn" onClick={onToday}>Today</button>
+            <button className="icon-btn" aria-label="Next week" onClick={onNextWeek}>
+              <ChevronRight size={16} />
+            </button>
+            <span className="week-range">{rangeLabel}</span>
+          </nav>
+        )}
+        <span className="cal-toolbar-spacer" />
         <button className="btn btn-accent" onClick={() => openNew()}>New event</button>
         <button
           className={notesPanelOpen ? "btn btn-toggle active" : "btn btn-toggle"}

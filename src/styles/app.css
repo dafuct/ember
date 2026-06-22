@@ -1,16 +1,6 @@
 .app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 
-.app-header { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
-.brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
 .brand-icon { color: var(--accent); }
-.spacer { flex: 1; }
-.status-text { font-size: 12px; color: var(--text-muted); }
-.header-nav { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
-.header-nav-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: none; border-radius: 7px; background: transparent; color: var(--text-muted); font-size: 13px; cursor: pointer; }
-.header-nav-item.active { background: var(--accent-weak); color: var(--accent-text); font-weight: 500; }
-.header-nav-item:disabled { color: var(--text-faint); cursor: default; }
-.header-account { display: flex; align-items: center; gap: 8px; }
-.header-account .account-email { max-width: 170px; }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
@@ -78,13 +68,7 @@
 .spin { animation: ember-spin 1s linear infinite; }
 @keyframes ember-spin { to { transform: rotate(360deg); } }
 
-/* Header stays intact when the window narrows: essentials never shrink, the
-   folder nav and account email give way (shrink, then hide) before anything clips. */
-.brand, .btn, .icon-btn { flex-shrink: 0; }
-.header-nav { min-width: 0; overflow: hidden; }
-.header-account, .header-account .account-email { min-width: 0; }
-@media (max-width: 900px) { .nav-label { display: none; } }
-@media (max-width: 580px) { .header-account .account-email { display: none; } }
+.btn, .icon-btn { flex-shrink: 0; }
 
 /* Smart Inbox — grouped list sections */
 .msglist-group-header {
@@ -220,13 +204,7 @@
   gap: 14px; color: var(--text-muted); padding: 40px;
 }
 
-/* ===== M10 Calendar — header toggle + week nav ===== */
-.view-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
-.view-tab {
-  display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border: 0;
-  background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13px;
-}
-.view-tab.active { background: var(--accent); color: var(--accent-contrast); }
+/* ===== M10 Calendar — week nav (now inside the CalendarView toolbar) ===== */
 .week-nav { display: inline-flex; align-items: center; gap: 8px; }
 .week-range { font-weight: 600; color: var(--text); margin-left: 4px; }
 
@@ -241,19 +219,6 @@
 .search-spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong);
   border-top-color: var(--accent); border-radius: 50%; animation: ember-spin 0.7s linear infinite; }
 
-/* ===== M12 Folder rail ===== */
-.mail-body { flex: 1; min-height: 0; display: flex; }
-/* SplitView is the second child — make it fill the width left of the rail. */
-.mail-body > :last-child { flex: 1; min-width: 0; }
-.folder-rail { width: 78px; flex: none; border-right: 1px solid var(--border); background: var(--surface-2);
-  padding: 8px 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-.folder-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0;
-  border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; }
-.folder-item:hover { color: var(--text); }
-.folder-item.active { color: var(--accent-text); }
-.folder-item.active svg { background: var(--accent-weak); border-radius: 9px; padding: 5px; box-sizing: content-box; }
-.folder-label { line-height: 1; }
-
 /* ===== M12 — permanent-delete confirm button ===== */
 .btn-danger { background: var(--danger); color: #fff; border: 0; border-radius: 8px;
   padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -267,6 +232,8 @@
 .batch-actions { display: flex; gap: 6px; margin-left: auto; }
 .batch-btn { font-size: 12px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
 .batch-btn:hover { background: var(--accent-weak); }
+.batch-btn-danger { color: var(--danger); border-color: var(--danger); }
+.batch-btn-danger:hover { background: var(--danger); color: #fff; }
 .batch-clear { background: transparent; border: none; cursor: pointer; font-size: 13px; padding: 2px 6px; }
 
 .undo-toast {
@@ -294,9 +261,6 @@
 .picker-name { font-size: 13px; }
 .picker-create { display: flex; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .picker-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; font-size: 13px; }
-
-.rail-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 12px 12px 4px; }
-.rail-label-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); display: inline-block; }
 
 .attachments-strip {
   display: flex;
@@ -355,7 +319,8 @@
 .event-row input[type="checkbox"] { width: auto; }
 .event-meet { font-size: 12px; color: var(--accent); word-break: break-all; padding: 2px 0; }
 
-.cal-toolbar { display: flex; justify-content: flex-end; padding: 6px 12px; }
+.cal-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+.cal-toolbar-spacer { flex: 1; }
 .event-detail-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .event-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 460px; }
 .event-detail h3 { margin: 0 0 6px; }
@@ -509,3 +474,26 @@
   font-size: 12px;
   color: var(--danger, #c0392b);
 }
+
+/* ===== Redesign shell — icon rail + merged sidebar ===== */
+.shell { flex: 1; min-height: 0; display: flex; background: var(--bg); }
+.icon-rail { width: var(--rail-w); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0; background: var(--bg); border-right: 1px solid var(--border); }
+.rail-brand { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-contrast); margin-bottom: 6px; }
+.rail-item { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: none; border-radius: 12px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.rail-item:hover { background: var(--surface-2); color: var(--text); }
+.rail-item.active { background: var(--accent-weak); color: var(--accent-text); }
+.rail-compose { color: var(--accent-text); }
+.rail-spacer { flex: 1; }
+.rail-avatar { width: 36px; height: 36px; border-radius: 50%; border: none; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-contrast); font-size: 12px; font-weight: 600; cursor: pointer; }
+.sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--bg); border-right: 1px solid var(--border); }
+.compose-btn { display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border: none; border-radius: var(--radius-control); background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-contrast); font-size: 14px; font-weight: 600; cursor: pointer; }
+.compose-btn:hover { filter: brightness(1.05); }
+.sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.sb-section { padding: 14px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+.sb-item { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: none; border-radius: var(--radius-control); background: transparent; color: var(--text-muted); font-size: 14px; cursor: pointer; text-align: left; }
+.sb-item:hover { background: var(--surface-2); color: var(--text); }
+.sb-item.active { background: var(--accent-weak); color: var(--accent-text); font-weight: 500; }
+.sb-ic { display: flex; width: 18px; color: inherit; }
+.sb-label { flex: 1; }
+.sb-count { font-size: 12px; font-weight: 600; color: var(--text-muted); background: var(--surface-2); border-radius: var(--radius-pill); padding: 1px 8px; }
+.sb-item.active .sb-count { background: var(--accent); color: var(--accent-contrast); }

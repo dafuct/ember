@@ -12,6 +12,8 @@ import {
   getSettings,
   restoreMessage,
   deleteMessageForever,
+  batchRestoreMessages,
+  batchDeleteMessages,
   searchMessages,
   setMessageRead,
   setMessageStarred,
@@ -32,17 +34,19 @@ import { onAction } from "@tauri-apps/plugin-notification";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
 import { CalendarView } from "./components/CalendarView";
-import type { View } from "./components/Header";
 import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { SettingsModal } from "./components/SettingsModal";
-import { Header } from "./components/Header";
+import { IconRail } from "./components/IconRail";
+import { Sidebar } from "./components/Sidebar";
 import { MessageList } from "./components/MessageList";
 import { UndoToast } from "./components/UndoToast";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
-import { FolderRail } from "./components/FolderRail";
 import { LabelPicker } from "./components/LabelPicker";
 import { FOLDERS } from "./lib/folders";
+
+// Top-level Mail/Calendar view (was imported from the now-retired Header).
+type View = "mail" | "calendar";
 
 // M13 new-mail notifications.
 const POLL_MS = 60_000; // background sync cadence while the app is open
@@ -654,6 +658,15 @@ export default function App() {
     setError(null);
   }
 
+  // Task 2 retired the Header, which was the on-screen home for Sync, search, and the
+  // last-sync status. Their state + handlers stay intact and get wired into the MessageList
+  // header in Task 3. Reference them here so `noUnusedLocals` passes in the interim; remove
+  // this block once Task 3 consumes them.
+  void status;
+  void handleSync;
+  void handleSearch;
+  void handleClearSearch;
+
   function handleSelectFolder(f: string) {
     clearSelection();
     clearUndo();
@@ -672,10 +685,43 @@ export default function App() {
   const handleDeleteForever = (m: MessagePreview) =>
     removeWithAction(m, () => deleteMessageForever(m.id));
 
+  // Trash-folder batch actions. Optimistically drop the rows from the active list, run the
+  // server call, and roll back on failure. No undo: restore is itself the inverse, and a
+  // permanent delete can't be undone. The Trash folder is live-fetched, so the next folder
+  // load reconciles against Gmail either way.
+  function removeBatch(msgs: MessagePreview[], call: (ids: string[]) => Promise<void>) {
+    if (msgs.length === 0) return;
+    const ids = msgs.map((m) => m.id);
+    const idSet = new Set(ids);
+    const listSnap = activeList;
+    const selSnap = activeSelectedId;
+    setActiveList(listSnap.filter((m) => !idSet.has(m.id)));
+    if (activeSelectedId && idSet.has(activeSelectedId)) {
+      setActiveSelectedId(ids.length === 1 ? nextSelectedId(activeSelectedId) : null);
+    }
+    clearSelection();
+    setError(null);
+    call(ids).catch((e) => {
+      setActiveList(listSnap);
+      setActiveSelectedId(selSnap);
+      setError(String(e));
+    });
+  }
+
+  const batchRestore = () => removeBatch(selectedMsgs, batchRestoreMessages);
+  const batchDeleteForever = () => {
+    const n = selectedMsgs.length;
+    if (n === 0) return;
+    // Permanent + irreversible → explicit confirm before the destructive call.
+    if (!window.confirm(`Permanently delete ${n} message${n === 1 ? "" : "s"}? This can't be undone.`)) {
+      return;
+    }
+    removeBatch(selectedMsgs, batchDeleteMessages);
+  };
+
   if (!account) {
     return (
       <div className="app">
-        <Header busy={busy} status={null} />
         <div className="connect-screen">
           <Flame size={40} className="brand-icon" />
           <h1 className="connect-title">Welcome to Ember</h1>
@@ -698,102 +744,105 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header
-        busy={busy}
-        onSync={handleSync}
-        status={status}
-        account={account}
-        stream={stream}
-        onSelectStream={(s) => {
-          setStream(s);
-          setSelectedId(null);
-          clearSelection();
-          clearUndo();
-        }}
-        onCompose={openNewCompose}
-        onSettings={() => setSettingsOpen(true)}
-        view={view}
-        onSelectView={setView}
-        calendar={{
-          rangeLabel: weekRangeLabel(weekStart),
-          onPrev: () => setWeekStart((w) => addWeeks(w, -1)),
-          onToday: () => setWeekStart(startOfWeek(new Date())),
-          onNext: () => setWeekStart((w) => addWeeks(w, 1)),
-        }}
-        onSearch={handleSearch}
-        onClearSearch={handleClearSearch}
-        inSearch={inSearch}
-        inFolder={inFolder}
-        searching={searching}
-      />
-      {error && <div className="error-bar">{error}</div>}
-      {view === "calendar" ? (
-        <CalendarView weekStart={weekStart} />
-      ) : (
-        <div className="mail-body">
-          <FolderRail folder={folder} onSelectFolder={handleSelectFolder} labels={labels} />
-          <SplitView
-            left={
-              <MessageList
-                messages={activeList}
-                stream={stream}
-                selectedId={activeSelectedId}
-                onSelect={handleRowSelect}
-                onArchive={handleArchive}
-                onStar={toggleStar}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onSelectAllVisible={selectAllVisible}
-                onClearSelection={clearSelection}
-                onBatchArchive={batchArchive}
-                onBatchTrash={batchTrash}
-                onBatchMarkRead={batchMarkRead}
-                onBatchStar={batchStar}
-                onBatchLabel={() => setLabelPicker(selectedMsgs)}
-                labelsById={labelsById}
-                flat={inSearch || inFolder}
-                title={
-                  inSearch
-                    ? "Results"
-                    : inFolder
-                      ? FOLDERS.find((f) => f.key === folder)?.label ?? labelsById.get(folder)?.name ?? "Label"
-                      : undefined
-                }
-                emptyText={
-                  inSearch
-                    ? searching
-                      ? "Searching…"
-                      : `No results for "${searchQuery}".`
-                    : inFolder
-                      ? folderLoading
-                        ? "Loading…"
-                        : "Nothing here."
-                      : undefined
-                }
-                showRecipient={folder === "sent" || folder === "drafts"}
-              />
-            }
-            right={
-              <ReadingPane
-                msg={selected}
-                loadImages={settings.remote_images}
-                onArchive={handleArchive}
-                onTrash={handleTrash}
-                onToggleStar={toggleStar}
-                onMarkUnread={(m) => toggleRead(m, false)}
-                onReply={handleReply}
-                onReplyAll={handleReplyAll}
-                onForward={handleForward}
-                folder={folder}
-                onRestore={handleRestore}
-                onDeleteForever={handleDeleteForever}
-                labelsById={labelsById}
-                onOpenLabels={(m) => setLabelPicker([m])}
-              />
-            }
+      <div className="shell">
+        <IconRail
+          view={view}
+          onSelectView={setView}
+          onCompose={openNewCompose}
+          onSettings={() => setSettingsOpen(true)}
+          account={account}
+        />
+        {view === "mail" ? (
+          <>
+            <Sidebar
+              messages={messages}
+              stream={stream}
+              onSelectStream={(s) => {
+                setStream(s);
+                setSelectedId(null);
+                clearSelection();
+                clearUndo();
+              }}
+              folder={folder}
+              onSelectFolder={handleSelectFolder}
+              labels={labels}
+              onCompose={openNewCompose}
+            />
+            <SplitView
+              left={
+                <MessageList
+                  messages={activeList}
+                  stream={stream}
+                  selectedId={activeSelectedId}
+                  onSelect={handleRowSelect}
+                  onArchive={handleArchive}
+                  onStar={toggleStar}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onSelectAllVisible={selectAllVisible}
+                  onClearSelection={clearSelection}
+                  onBatchArchive={batchArchive}
+                  onBatchTrash={batchTrash}
+                  onBatchMarkRead={batchMarkRead}
+                  onBatchStar={batchStar}
+                  onBatchLabel={() => setLabelPicker(selectedMsgs)}
+                  folder={folder}
+                  onBatchRestore={batchRestore}
+                  onBatchDeleteForever={batchDeleteForever}
+                  labelsById={labelsById}
+                  flat={inSearch || inFolder}
+                  title={
+                    inSearch
+                      ? "Results"
+                      : inFolder
+                        ? FOLDERS.find((f) => f.key === folder)?.label ?? labelsById.get(folder)?.name ?? "Label"
+                        : undefined
+                  }
+                  emptyText={
+                    inSearch
+                      ? searching
+                        ? "Searching…"
+                        : `No results for "${searchQuery}".`
+                      : inFolder
+                        ? folderLoading
+                          ? "Loading…"
+                          : "Nothing here."
+                        : undefined
+                  }
+                  showRecipient={folder === "sent" || folder === "drafts"}
+                />
+              }
+              right={
+                <ReadingPane
+                  msg={selected}
+                  loadImages={settings.remote_images}
+                  onArchive={handleArchive}
+                  onTrash={handleTrash}
+                  onToggleStar={toggleStar}
+                  onMarkUnread={(m) => toggleRead(m, false)}
+                  onReply={handleReply}
+                  onReplyAll={handleReplyAll}
+                  onForward={handleForward}
+                  folder={folder}
+                  onRestore={handleRestore}
+                  onDeleteForever={handleDeleteForever}
+                  labelsById={labelsById}
+                  onOpenLabels={(m) => setLabelPicker([m])}
+                />
+              }
+            />
+          </>
+        ) : (
+          <CalendarView
+            weekStart={weekStart}
+            onPrevWeek={() => setWeekStart((w) => addWeeks(w, -1))}
+            onToday={() => setWeekStart(startOfWeek(new Date()))}
+            onNextWeek={() => setWeekStart((w) => addWeeks(w, 1))}
+            rangeLabel={weekRangeLabel(weekStart)}
           />
-        </div>
-      )}
+        )}
+      </div>
+      {error && <div className="error-bar">{error}</div>}
       {compose && (
         <ComposeModal
           initial={compose}
