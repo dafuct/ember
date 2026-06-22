@@ -145,24 +145,28 @@ impl GmailClient {
         Ok(resp.json::<T>().await?)
     }
 
-    // 🦀 POST with no request body — Gmail's trash endpoint takes none. We only
-    //    need to know it succeeded, so the response body is discarded.
+    // 🦀 POST with no request body — Gmail's trash/untrash endpoints take none. But Gmail
+    //    still REQUIRES a `Content-Length: 0` header and answers 411 Length Required without
+    //    it. reqwest OMITS Content-Length for any empty body (it treats zero length as "no
+    //    body"), so an empty `.body("")` is NOT enough — we must set the header explicitly.
     async fn post_no_body(&self, url: &str) -> Result<()> {
         self.http
             .post(url)
             .bearer_auth(&self.access_token)
+            .header(reqwest::header::CONTENT_LENGTH, 0)
             .send()
             .await?
             .error_for_status()?;
         Ok(())
     }
 
-    // 🦀 DELETE with no body — Gmail's permanent-delete endpoint. Like post_no_body but the verb is
-    //    DELETE. We only need success; there's no response body to read.
+    // 🦀 DELETE with no body — Gmail's permanent-delete endpoint. Like post_no_body but the verb
+    //    is DELETE. Set Content-Length: 0 explicitly here too, for the same reason.
     async fn delete_no_body(&self, url: &str) -> Result<()> {
         self.http
             .delete(url)
             .bearer_auth(&self.access_token)
+            .header(reqwest::header::CONTENT_LENGTH, 0)
             .send()
             .await?
             .error_for_status()?;
@@ -561,6 +565,14 @@ impl GmailClient {
         Ok(())
     }
 
+    /// Move a message to Trash. Gmail `messages/{id}/trash` — the dedicated endpoint.
+    /// NOTE: adding the TRASH label via `batchModify` returns 204 but Gmail silently
+    /// ignores it (the message stays in INBOX), so trashing must go through here.
+    pub async fn trash_message(&self, id: &str) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base_url, id);
+        self.post_no_body(&url).await
+    }
+
     /// Restore a trashed message (removes the TRASH label). Gmail `messages/{id}/untrash`.
     pub async fn untrash_message(&self, id: &str) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base_url, id);
@@ -708,6 +720,18 @@ impl GmailClient {
         let url = format!("{}/gmail/v1/users/me/messages/batchModify", self.base_url);
         let body = BatchModifyRequest { ids, add_label_ids: add, remove_label_ids: remove };
         self.post_json_no_response(&url, &body).await
+    }
+
+    /// PERMANENTLY delete MANY messages in one call (`messages.batchDelete`, irreversible;
+    /// returns 204 with no body). Unlike trashing, there is a real batch endpoint for this.
+    /// Used by the Trash folder's batch "Delete forever".
+    pub async fn batch_delete(&self, ids: &[String]) -> Result<()> {
+        #[derive(serde::Serialize)]
+        struct BatchDeleteRequest<'a> {
+            ids: &'a [String],
+        }
+        let url = format!("{}/gmail/v1/users/me/messages/batchDelete", self.base_url);
+        self.post_json_no_response(&url, &BatchDeleteRequest { ids }).await
     }
 
     /// List the user's *user-created* labels (system labels like INBOX/UNREAD are dropped —

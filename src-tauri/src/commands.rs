@@ -332,10 +332,33 @@ pub async fn set_message_starred(
 }
 
 
-/// Add/remove labels on many messages in one Gmail call, then reconcile the local cache.
-/// Archive (remove INBOX) / trash (add TRASH) drop the rows from the inbox cache like the
-/// M7 single actions; everything else (read/star) applies the delta in place. DB-aware,
-/// but a no-op on the DB for ids that aren't cached (search/folder results).
+/// How a label delta maps onto Gmail calls. The TRASH label can't ride `batchModify`
+/// — Gmail returns 204 but silently ignores it, so the message never leaves INBOX. It
+/// has to go through the dedicated `messages/{id}/trash` (and `/untrash`) endpoints,
+/// which take one id each. Everything else (INBOX/UNREAD/STARRED/user labels) rides a
+/// single `batchModify`.
+struct LabelPlan {
+    trash: bool,
+    untrash: bool,
+    batch_add: Vec<String>,
+    batch_remove: Vec<String>,
+}
+
+/// Pure split of a label delta into "trash/untrash via dedicated endpoint" vs.
+/// "everything else via batchModify". TRASH is pulled out of the batchModify payload.
+fn plan_label_changes(add: &[String], remove: &[String]) -> LabelPlan {
+    LabelPlan {
+        trash: add.iter().any(|l| l == "TRASH"),
+        untrash: remove.iter().any(|l| l == "TRASH"),
+        batch_add: add.iter().filter(|l| l.as_str() != "TRASH").cloned().collect(),
+        batch_remove: remove.iter().filter(|l| l.as_str() != "TRASH").cloned().collect(),
+    }
+}
+
+/// Add/remove labels on many messages, then reconcile the local cache. Archive (remove
+/// INBOX) / trash (add TRASH) drop the rows from the inbox cache like the M7 single
+/// actions; everything else (read/star) applies the delta in place. DB-aware, but a
+/// no-op on the DB for ids that aren't cached (search/folder results).
 #[tauri::command]
 pub async fn batch_modify_messages(
     ids: Vec<String>,
@@ -350,10 +373,25 @@ pub async fn batch_modify_messages(
     }
     let stored = ensure_access_token().await?;
     let client = GmailClient::new(stored.access_token);
-    // 🦀 `&[&str]` is what batch_modify wants; map the owned Strings to borrowed &str.
-    let add_refs: Vec<&str> = add.iter().map(String::as_str).collect();
-    let remove_refs: Vec<&str> = remove.iter().map(String::as_str).collect();
-    client.batch_modify(&ids, &add_refs, &remove_refs).await?;
+    let plan = plan_label_changes(&add, &remove);
+    // 🦀 Non-TRASH label changes still go through one batchModify call (if any remain).
+    if !plan.batch_add.is_empty() || !plan.batch_remove.is_empty() {
+        let add_refs: Vec<&str> = plan.batch_add.iter().map(String::as_str).collect();
+        let remove_refs: Vec<&str> = plan.batch_remove.iter().map(String::as_str).collect();
+        client.batch_modify(&ids, &add_refs, &remove_refs).await?;
+    }
+    // 🦀 TRASH has no batch endpoint — loop the dedicated per-message call. In this app
+    //    TRASH is never mixed with other labels, and a single delta can't both trash and
+    //    untrash, so the `else if` is safe.
+    if plan.trash {
+        for id in &ids {
+            client.trash_message(id).await?;
+        }
+    } else if plan.untrash {
+        for id in &ids {
+            client.untrash_message(id).await?;
+        }
+    }
 
     let conn = state
         .lock()
@@ -646,6 +684,38 @@ pub async fn delete_message_forever(id: String, state: tauri::State<'_, Db>) -> 
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    Ok(())
+}
+
+/// Restore MANY trashed messages (untrash). Gmail has no batch untrash, so loop the
+/// dedicated per-message endpoint. DB-free — the Trash folder isn't cached.
+#[tauri::command]
+pub async fn batch_restore_messages(ids: Vec<String>) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    for id in &ids {
+        client.untrash_message(id).await?;
+    }
+    Ok(())
+}
+
+/// PERMANENTLY delete MANY messages (irreversible) in one Gmail batchDelete call, then drop
+/// them from the local cache. Powers the Trash folder's batch "Delete forever".
+#[tauri::command]
+pub async fn batch_delete_messages(ids: Vec<String>, state: tauri::State<'_, Db>) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.batch_delete(&ids).await?;
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_messages(&conn, &ids)?;
     Ok(())
 }
 
@@ -969,6 +1039,38 @@ mod tests {
             category: String::new(),
             draft_id: None,
         }
+    }
+
+    #[test]
+    fn plan_routes_trash_to_dedicated_endpoint_not_batch_modify() {
+        // The bug: trash was sent as add=["TRASH"] through batchModify, which Gmail
+        // 204s but ignores. The plan must route TRASH out of the batchModify payload
+        // and onto the dedicated trash endpoint instead.
+        let plan = plan_label_changes(&["TRASH".into()], &[]);
+        assert!(plan.trash);
+        assert!(!plan.untrash);
+        assert!(plan.batch_add.is_empty(), "TRASH must NOT ride batchModify");
+        assert!(plan.batch_remove.is_empty());
+    }
+
+    #[test]
+    fn plan_routes_untrash_to_dedicated_endpoint() {
+        // Undo of a trash sends remove=["TRASH"]; same restriction → /untrash.
+        let plan = plan_label_changes(&[], &["TRASH".into()]);
+        assert!(!plan.trash);
+        assert!(plan.untrash);
+        assert!(plan.batch_add.is_empty());
+        assert!(plan.batch_remove.is_empty(), "TRASH must NOT ride batchModify");
+    }
+
+    #[test]
+    fn plan_keeps_non_trash_labels_on_batch_modify() {
+        // Archive (remove INBOX) and read/star toggles still ride batchModify.
+        let plan = plan_label_changes(&["STARRED".into()], &["INBOX".into(), "UNREAD".into()]);
+        assert!(!plan.trash);
+        assert!(!plan.untrash);
+        assert_eq!(plan.batch_add, vec!["STARRED".to_string()]);
+        assert_eq!(plan.batch_remove, vec!["INBOX".to_string(), "UNREAD".to_string()]);
     }
 
     #[test]

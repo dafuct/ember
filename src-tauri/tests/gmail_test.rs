@@ -4,7 +4,7 @@
 //    This mirrors how a real downstream user would consume the library.
 use ember_lib::gmail::GmailClient;
 use serde_json::json;
-use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
+use wiremock::matchers::{body_json, header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // 🦀 Helper: base64url-encode a string so tests can produce mock payloads without
@@ -521,6 +521,24 @@ async fn untrash_message_posts_to_untrash() {
     client.untrash_message("m1").await.unwrap();
 }
 
+// 🦀 Trashing MUST hit the dedicated endpoint. Adding the TRASH label via
+//    batchModify returns 204 but Gmail silently ignores it (the message stays in
+//    INBOX) — the regression that made "trash" appear to work then reappear.
+#[tokio::test(flavor = "multi_thread")]
+async fn trash_message_posts_to_trash() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/m1/trash"))
+        // 🦀 Gmail's bodyless POST still requires Content-Length: 0 (else 411). reqwest
+        //    only sends it when we give an explicit empty body — guard that here.
+        .and(header("content-length", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "m1" })))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client.trash_message("m1").await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn delete_message_forever_issues_delete() {
     let server = MockServer::start().await;
@@ -650,15 +668,32 @@ async fn batch_modify_posts_ids_and_labels() {
         .and(path("/gmail/v1/users/me/messages/batchModify"))
         .and(body_json(json!({
             "ids": ["a", "b"],
-            "addLabelIds": ["TRASH"],
-            "removeLabelIds": []
+            "addLabelIds": ["STARRED"],
+            "removeLabelIds": ["INBOX"]
         })))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
     let client = GmailClient::with_base_url("tok".into(), server.uri());
+    // NOTE: TRASH deliberately does NOT ride batchModify — see trash_message_posts_to_trash.
     client
-        .batch_modify(&["a".to_string(), "b".to_string()], &["TRASH"], &[])
+        .batch_modify(&["a".to_string(), "b".to_string()], &["STARRED"], &["INBOX"])
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn batch_delete_posts_ids_to_batch_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/batchDelete"))
+        .and(body_json(json!({ "ids": ["a", "b"] })))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = GmailClient::with_base_url("tok".into(), server.uri());
+    client
+        .batch_delete(&["a".to_string(), "b".to_string()])
         .await
         .unwrap();
 }

@@ -134,6 +134,8 @@ pub fn run() {
             commands::delete_draft,
             commands::restore_message,
             commands::delete_message_forever,
+            commands::batch_restore_messages,
+            commands::batch_delete_messages,
             commands::fetch_calendar_week,
             commands::list_calendars,
             commands::create_calendar_event,

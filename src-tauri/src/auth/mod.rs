@@ -26,10 +26,14 @@ use crate::gmail::GmailClient;
 
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const SCOPE_GMAIL_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
-// 🦀 A second OAuth scope. Adding it here means the next `connect()` requests BOTH scopes;
-//    because connect() always sends `prompt=consent`, Google re-prompts and grants the new
-//    scope — no migration needed for a user who reconnects.
+// 🦀 The FULL Gmail scope. `gmail.modify` covers read/label/trash but Gmail gates PERMANENT
+//    deletion (messages.delete / batchDelete → "Delete forever") behind this broadest scope
+//    only — under gmail.modify those calls 403. `mail.google.com/` is a strict superset of
+//    gmail.modify, so every existing call still works; it just also allows permanent delete.
+const SCOPE_GMAIL_FULL: &str = "https://mail.google.com/";
+// 🦀 Adding/changing a scope here means the next `connect()` requests it; because connect()
+//    always sends `prompt=consent`, Google re-prompts and grants — the user must RECONNECT
+//    once for an existing token to gain the new scope. No DB migration needed.
 const SCOPE_CALENDAR_READONLY: &str = "https://www.googleapis.com/auth/calendar.readonly";
 const SCOPE_CALENDAR_EVENTS: &str = "https://www.googleapis.com/auth/calendar.events";
 pub const PRIMARY_ACCOUNT: &str = "primary";
@@ -110,7 +114,7 @@ impl GoogleOAuth {
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let (auth_url, csrf) = client
             .authorize_url(CsrfToken::new_random)
-            .add_scope(Scope::new(SCOPE_GMAIL_MODIFY.into()))
+            .add_scope(Scope::new(SCOPE_GMAIL_FULL.into()))
             .add_scope(Scope::new(SCOPE_CALENDAR_READONLY.into()))
             .add_scope(Scope::new(SCOPE_CALENDAR_EVENTS.into()))
             .add_extra_param("access_type", "offline")

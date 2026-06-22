@@ -90,6 +90,12 @@ export const batchModifyMessages = (
 ): Promise<void> =>
   isTauri() ? invoke<void>("batch_modify_messages", { ids, add, remove }) : Promise.resolve();
 
+// Trash-folder batch actions. Restore = untrash many; delete = permanent batchDelete.
+export const batchRestoreMessages = (ids: string[]): Promise<void> =>
+  isTauri() ? invoke<void>("batch_restore_messages", { ids }) : Promise.resolve();
+export const batchDeleteMessages = (ids: string[]): Promise<void> =>
+  isTauri() ? invoke<void>("batch_delete_messages", { ids }) : Promise.resolve();
+
 export interface ReplyContext {
   message_id: string;
   references: string;

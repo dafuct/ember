@@ -22,6 +22,9 @@ export function MessageList({
   onBatchStar,
   labelsById,
   onBatchLabel,
+  folder,
+  onBatchRestore,
+  onBatchDeleteForever,
   onArchive,
   onStar,
   flat = false,
@@ -43,6 +46,10 @@ export function MessageList({
   onBatchStar?: () => void;
   labelsById?: Map<string, Label>;
   onBatchLabel?: () => void;
+  /** Active folder key. In "trash" the batch bar swaps to Restore / Delete forever. */
+  folder?: string;
+  onBatchRestore?: () => void;
+  onBatchDeleteForever?: () => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   /** When true, render `messages` as a flat list (no stream filter/grouping) — used for search. */
@@ -81,11 +88,24 @@ export function MessageList({
           />
           <span className="batch-count">{selectedIds.size} selected</span>
           <div className="batch-actions">
-            <button className="batch-btn" onClick={() => onBatchArchive?.()}>Archive</button>
-            <button className="batch-btn" onClick={() => onBatchTrash?.()}>Trash</button>
-            <button className="batch-btn" onClick={() => onBatchMarkRead?.()}>Mark read</button>
-            <button className="batch-btn" onClick={() => onBatchStar?.()}>Star</button>
-            <button className="batch-btn" onClick={() => onBatchLabel?.()}>Label</button>
+            {folder === "trash" ? (
+              // In Trash, "Archive"/"Trash" are no-ops (the message is already trashed); the
+              // real actions are untrash (Restore) and permanent delete (Delete forever).
+              <>
+                <button className="batch-btn" onClick={() => onBatchRestore?.()}>Restore</button>
+                <button className="batch-btn batch-btn-danger" onClick={() => onBatchDeleteForever?.()}>
+                  Delete forever
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="batch-btn" onClick={() => onBatchArchive?.()}>Archive</button>
+                <button className="batch-btn" onClick={() => onBatchTrash?.()}>Trash</button>
+                <button className="batch-btn" onClick={() => onBatchMarkRead?.()}>Mark read</button>
+                <button className="batch-btn" onClick={() => onBatchStar?.()}>Star</button>
+                <button className="batch-btn" onClick={() => onBatchLabel?.()}>Label</button>
+              </>
+            )}
           </div>
           <button className="batch-clear" aria-label="Clear selection" onClick={() => onClearSelection?.()}>
             ✕
