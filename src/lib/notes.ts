@@ -1,6 +1,6 @@
 // src/lib/notes.ts — meeting-note API wrappers + types. Notes are LOCAL-only (no Google).
 // Every wrapper is isTauri()-gated so the browser maket runs against an in-memory mock store.
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri, Channel } from "@tauri-apps/api/core";
 import {
   mockGetMeetingNote,
   mockSaveMeetingNote,
@@ -9,6 +9,9 @@ import {
   mockSummarizeMeetingNote,
   mockReadTranscriptFile,
   mockTranscribeRecording,
+  mockListInputDevices,
+  mockStartCapture,
+  mockStopCapture,
 } from "./mock";
 
 export interface MeetingNote {
@@ -77,3 +80,30 @@ export const transcribeRecording = (path: string): Promise<string> =>
   isTauri()
     ? invoke<string>("transcribe_recording", { path })
     : Promise.resolve(mockTranscribeRecording(path));
+
+export interface DeviceInfo {
+  name: string;
+}
+
+// M24: the streamed capture events (matches the Rust #[serde(tag = "type")] enum).
+export type CaptureEvent =
+  | { type: "Chunk"; text: string }
+  | { type: "Error"; message: string }
+  | { type: "Stopped" };
+
+export const listInputDevices = (): Promise<DeviceInfo[]> =>
+  isTauri() ? invoke<DeviceInfo[]>("list_input_devices") : Promise.resolve(mockListInputDevices());
+
+export const startCapture = (
+  deviceName: string,
+  onEvent: (e: CaptureEvent) => void,
+): Promise<void> => {
+  if (!isTauri()) return mockStartCapture(deviceName, onEvent);
+  // The Tauri Channel streams CaptureEvent objects from the Rust worker to onEvent.
+  const ch = new Channel<CaptureEvent>();
+  ch.onmessage = onEvent;
+  return invoke<void>("start_capture", { deviceName, onEvent: ch });
+};
+
+export const stopCapture = (): Promise<void> =>
+  isTauri() ? invoke<void>("stop_capture") : mockStopCapture();

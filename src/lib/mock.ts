@@ -3,7 +3,7 @@
 import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
-import type { MeetingNote, MeetingNoteWrite } from "./notes";
+import type { MeetingNote, MeetingNoteWrite, DeviceInfo, CaptureEvent } from "./notes";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -287,4 +287,48 @@ export function mockReadTranscriptFile(_path: string): string {
 // are visibly different in the maket.
 export function mockTranscribeRecording(_path: string): string {
   return "Dana: Thanks for joining the call.\nYou: Let's start with the budget review.\nDana: Action — send the revised figures by Wednesday.";
+}
+
+// M24: mock input devices for the maket device picker.
+export function mockListInputDevices(): DeviceInfo[] {
+  return [{ name: "MacBook Pro Microphone" }, { name: "BlackHole 2ch" }];
+}
+
+// M24: simulate live capture by emitting canned chunks on a timer until stopped.
+let mockCaptureTimer: ReturnType<typeof setInterval> | null = null;
+let mockOnEvent: ((e: CaptureEvent) => void) | null = null;
+
+export function mockStartCapture(
+  _deviceName: string,
+  onEvent: (e: CaptureEvent) => void,
+): Promise<void> {
+  mockOnEvent = onEvent;
+  const lines = [
+    "[live] Dana: Let's kick off the weekly sync.",
+    "[live] You: Shipping the capture milestone today.",
+    "[live] Dana: Action — review the transcript before the demo.",
+  ];
+  let i = 0;
+  mockCaptureTimer = setInterval(() => {
+    if (i < lines.length) {
+      onEvent({ type: "Chunk", text: lines[i] });
+      i += 1;
+    } else if (mockCaptureTimer) {
+      clearInterval(mockCaptureTimer);
+      mockCaptureTimer = null;
+    }
+  }, 1000);
+  return Promise.resolve();
+}
+
+export function mockStopCapture(): Promise<void> {
+  if (mockCaptureTimer) {
+    clearInterval(mockCaptureTimer);
+    mockCaptureTimer = null;
+  }
+  if (mockOnEvent) {
+    mockOnEvent({ type: "Stopped" });
+    mockOnEvent = null;
+  }
+  return Promise.resolve();
 }
