@@ -74,19 +74,40 @@
 .msg-star:hover { color: var(--star); }
 .msg-star.on { color: var(--star); }
 
-.reading { height: 100%; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.reading-pane { height: 100%; min-height: 0; background: var(--bg); padding: 16px 24px; overflow-y: auto; display: flex; flex-direction: column; }
 .reading-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-faint); font-size: 13px; }
-.reading-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.reading-head { padding: 18px 22px 10px; flex-shrink: 0; }
-.reading-body-area { flex: 1; min-height: 0; display: flex; padding: 0 22px 18px; }
-.reading-subject { font-size: 18px; font-weight: 600; line-height: 1.4; margin: 0 0 16px; color: var(--text); }
-.reading-from { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+
+/* Action bar: green Reply + icon-pill cluster */
+.read-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+.read-bar .spacer { flex: 1; }
+.read-tool { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.read-tool:hover { background: var(--surface-2); color: var(--text); }
+.read-tool.on { background: var(--accent-weak); color: var(--accent-text); border-color: var(--accent); }
+.read-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Header block: category chip + large subject + sender row + divider */
+.reading-head { flex-shrink: 0; }
+.read-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: var(--radius-pill); background: var(--accent-weak); color: var(--accent-text); font-size: 13px; font-weight: 500; }
+.read-subject { font-size: 28px; font-weight: 700; margin: 14px 0 18px; line-height: 1.25; color: var(--text); }
+.read-from { display: flex; align-items: center; gap: 12px; }
 .reading-from-text { flex: 1; min-width: 0; overflow: hidden; }
-.reading-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reading-date { margin-left: auto; font-size: 12px; color: var(--text-faint); flex-shrink: 0; }
-.reading-frame { flex: 1; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
-.reading-text { flex: 1; margin: 0; overflow: auto; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
+.reading-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.reading-email { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reading-meta { text-align: right; flex-shrink: 0; }
+.reading-date { font-size: 12px; color: var(--text-faint); }
+.reading-tome { font-size: 12px; color: var(--text-faint); }
+.read-divider { height: 1px; background: var(--border); margin: 18px 0; }
+
+/* Body */
+.reading-body-area { display: flex; flex-direction: column; flex: 1; min-height: 280px; }
+.reading-frame { flex: 1; width: 100%; min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
+.reading-text { flex: 1; margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
 .reading-status { color: var(--text-muted); font-size: 13px; }
+
+/* Inline reply affordance at the bottom of the message */
+.reply-affordance { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding: 16px; border-radius: var(--radius-card); background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); cursor: text; font-size: 14px; text-align: left; flex-shrink: 0; }
+.reply-affordance:hover { background: var(--surface-2); }
+.reply-affordance:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
 .connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
