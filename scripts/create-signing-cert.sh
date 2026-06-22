@@ -47,8 +47,11 @@ openssl pkcs12 -export -inkey "$DIR/ember-dev-key.pem" -in "$DIR/ember-dev-cert.
 echo "→ Importing into the login keychain (grants /usr/bin/codesign access)..."
 security import "$DIR/ember-dev.p12" -k "$KEYCHAIN" -P "$P12_PASS" -T /usr/bin/codesign
 
-echo "→ Marking certificate as trusted for code signing..."
-security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$DIR/ember-dev-cert.pem"
+echo "→ Marking certificate as trusted for code signing (login domain, code-signing policy only)..."
+# 🦀 Least-privilege trust: no `-d` (user/login domain, no admin needed) and `-p codeSign`
+#    (trusted ONLY for code signing, not as a general-purpose root). This is what Keychain
+#    Access's "Code Signing: Always Trust" does.
+security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$DIR/ember-dev-cert.pem"
 
 echo
 if security find-identity -v -p codesigning | grep -q "$IDENTITY"; then
