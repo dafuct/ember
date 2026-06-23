@@ -181,7 +181,7 @@ impl GoogleOAuth {
             refresh_token,
             expires_at: now_secs() + expires_in,
         };
-        save_token(PRIMARY_ACCOUNT, &stored)?;
+        save_token(&stored.email, &stored)?;
         Ok(stored)
     }
 
@@ -207,21 +207,22 @@ impl GoogleOAuth {
     }
 }
 
-/// Load the stored token, refreshing the access token if it is expired, and return it.
-pub async fn ensure_access_token() -> Result<StoredToken> {
-    // 🦀 `let mut stored` — the `mut` keyword makes the binding *mutable*, allowing
-    //    us to reassign fields on `stored` later (access_token, expires_at) when we
-    //    refresh.  Without `mut` Rust would reject any field assignment as a
-    //    compile error: "cannot assign to `stored.access_token`, as `stored` is not
-    //    declared as mutable."
-    let mut stored =
-        load_token(PRIMARY_ACCOUNT)?.ok_or_else(|| AppError::Auth("no connected account".into()))?;
+/// Load + refresh the token for a SPECIFIC account email.
+pub async fn ensure_token_for(account: &str) -> Result<StoredToken> {
+    let mut stored = load_token(account)?
+        .ok_or_else(|| AppError::Auth(format!("no token for account {account}")))?;
     if stored.is_expired(now_secs(), 60) {
         let oauth = GoogleOAuth::from_env()?;
         let (access, expires_at) = oauth.refresh(&stored.refresh_token).await?;
         stored.access_token = access;
         stored.expires_at = expires_at;
-        save_token(PRIMARY_ACCOUNT, &stored)?;
+        save_token(account, &stored)?;
     }
     Ok(stored)
+}
+
+/// TEMPORARY (replaced in a later task): resolve the legacy primary account so existing
+/// `ensure_access_token()` call sites keep compiling until they are migrated.
+pub async fn ensure_access_token() -> Result<StoredToken> {
+    ensure_token_for(PRIMARY_ACCOUNT).await
 }
