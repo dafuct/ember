@@ -483,6 +483,57 @@ pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
     Ok(())
 }
 
+/// The connected-account index, stored as a JSON array under settings key "accounts".
+/// The Keychain can't enumerate entries, so this is the source of truth for "which
+/// accounts exist". Order is insertion order; duplicates are ignored.
+// 🦀 `serde_json::from_str`/`to_string` return `serde_json::Error`, which is NOT
+//    `rusqlite::Error`, so the `?` operator can't auto-convert it through our `Result`
+//    alias. We `.map_err(...)` it into `AppError::Other` by hand — same pattern the
+//    rest of this file uses for serde failures.
+pub fn get_accounts(conn: &Connection) -> Result<Vec<String>> {
+    match get_setting_raw(conn, "accounts")? {
+        Some(json) => serde_json::from_str(&json).map_err(|e| crate::error::AppError::Other(e.to_string())),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Append `email` to the index. No-op if it is already present (the index is a set).
+pub fn add_account(conn: &Connection, email: &str) -> Result<()> {
+    let mut accounts = get_accounts(conn)?;
+    if !accounts.iter().any(|a| a == email) {
+        accounts.push(email.to_string());
+        let json = serde_json::to_string(&accounts).map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+        set_setting_raw(conn, "accounts", &json)?;
+    }
+    Ok(())
+}
+
+/// Remove `email` from the index. No-op (no DB write) if it was not present.
+pub fn remove_account(conn: &Connection, email: &str) -> Result<()> {
+    let mut accounts = get_accounts(conn)?;
+    let before = accounts.len();
+    accounts.retain(|a| a != email);
+    // 🦀 Only write back when something actually changed — `retain` is a silent no-op
+    //    when `email` isn't in the list, so this mirrors `add_account`'s guarded write
+    //    and avoids a pointless DB round-trip.
+    if accounts.len() != before {
+        let json = serde_json::to_string(&accounts).map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+        set_setting_raw(conn, "accounts", &json)?;
+    }
+    Ok(())
+}
+
+/// The active account email, or None if none is set.
+pub fn get_active_account(conn: &Connection) -> Result<Option<String>> {
+    get_setting_raw(conn, "active_account")
+}
+
+/// Point `active_account` at `email`. The caller must ensure `email` is already in the
+/// accounts index (the command layer validates this) — this is a raw setter with no guard.
+pub fn set_active_account(conn: &Connection, email: &str) -> Result<()> {
+    set_setting_raw(conn, "active_account", email)
+}
+
 /// Clear the local mail cache on disconnect: all `messages` and `sync_state` rows.
 /// `settings` (user prefs) and `meeting_notes` (local-only notes, M20) are intentionally
 /// kept — neither is mail-cache data, and notes are never re-fetchable from Google.
@@ -1132,5 +1183,27 @@ mod tests {
         assert_eq!(n.body, "b");
         init(&c).unwrap(); // idempotent
         assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
+    }
+
+    #[test]
+    fn accounts_index_round_trips() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        assert_eq!(get_accounts(&c).unwrap(), Vec::<String>::new());
+        add_account(&c, "a@gmail.com").unwrap();
+        add_account(&c, "b@gmail.com").unwrap();
+        add_account(&c, "a@gmail.com").unwrap(); // dedup
+        assert_eq!(get_accounts(&c).unwrap(), vec!["a@gmail.com", "b@gmail.com"]);
+        remove_account(&c, "a@gmail.com").unwrap();
+        assert_eq!(get_accounts(&c).unwrap(), vec!["b@gmail.com"]);
+    }
+
+    #[test]
+    fn active_account_pointer_round_trips() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        assert_eq!(get_active_account(&c).unwrap(), None);
+        set_active_account(&c, "b@gmail.com").unwrap();
+        assert_eq!(get_active_account(&c).unwrap(), Some("b@gmail.com".to_string()));
     }
 }
