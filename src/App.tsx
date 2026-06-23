@@ -21,6 +21,9 @@ import {
   listLabels,
   createLabel,
   fetchLabel,
+  listAccounts,
+  setActiveAccount,
+  type AccountInfo,
   type Label,
   type MessagePreview,
   type Settings,
@@ -36,6 +39,7 @@ import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
 import { CalendarView } from "./components/CalendarView";
 import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { AccountSwitcher } from "./components/AccountSwitcher";
 import { IconRail } from "./components/IconRail";
 import { Sidebar } from "./components/Sidebar";
 import { MessageList } from "./components/MessageList";
@@ -68,6 +72,11 @@ export default function App() {
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Multi-account: the switcher popover + the account list it renders. `accountEpoch` bumps on
+  // every successful switch/connect so account-scoped subtrees (CalendarView) remount and refetch.
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [accountEpoch, setAccountEpoch] = useState(0);
   // M10: top-level Mail/Calendar view. Default to Calendar in browser mock mode so the
   // maket shows immediately; the Tauri app opens on Mail.
   const [view, setView] = useState<View>(isTauri() ? "mail" : "calendar");
@@ -172,6 +181,9 @@ export default function App() {
     listLabels()
       .then(setLabels)
       .catch(() => {}); // labels are non-critical; keep [] on error
+    listAccounts()
+      .then(setAccounts)
+      .catch(() => {}); // accounts are non-critical; keep [] on error
   }, []);
 
   async function handleConnect() {
@@ -188,10 +200,34 @@ export default function App() {
       const list = await fetchInboxPreview(50);
       setMessages(list);
       seedKnown(list);
+      // Surface the newly added (now-active) account in the switcher and remount
+      // account-scoped subtrees (CalendarView) so they refetch for the new account.
+      setAccounts(await listAccounts());
+      setAccountEpoch((e) => e + 1);
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Switch the active account: flip the backend pointer, reset mail view state to a clean
+  // inbox, bump the epoch (remounts CalendarView), then refetch accounts + inbox + labels.
+  async function handleSwitchAccount(email: string) {
+    try {
+      await setActiveAccount(email);
+      setAccount(email);
+      setSelectedId(null);
+      setStream("all");
+      setFolder("inbox");
+      setAccountEpoch((e) => e + 1);
+      const [accs, list, labs] = await Promise.all([listAccounts(), fetchInboxPreview(50), listLabels()]);
+      setAccounts(accs);
+      setMessages(list);
+      seedKnown(list);
+      setLabels(labs);
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -776,9 +812,18 @@ export default function App() {
           view={view}
           onSelectView={setView}
           onCompose={openNewCompose}
-          onSettings={() => setSettingsOpen(true)}
+          onAvatar={() => setSwitcherOpen(true)}
           account={account}
         />
+        {switcherOpen && (
+          <AccountSwitcher
+            accounts={accounts}
+            onSwitch={handleSwitchAccount}
+            onAdd={() => { setSwitcherOpen(false); void handleConnect(); }}
+            onManage={() => { setSwitcherOpen(false); setSettingsOpen(true); }}
+            onClose={() => setSwitcherOpen(false)}
+          />
+        )}
         {view === "mail" ? (
           <>
             <Sidebar
@@ -873,6 +918,7 @@ export default function App() {
           </>
         ) : (
           <CalendarView
+            key={`cal-${accountEpoch}`}
             weekStart={weekStart}
             onPrevWeek={() => setWeekStart((w) => addWeeks(w, -1))}
             onToday={() => setWeekStart(startOfWeek(new Date()))}

@@ -7,13 +7,13 @@ export function IconRail({
   view,
   onSelectView,
   onCompose,
-  onSettings,
+  onAvatar,
   account,
 }: {
   view: View;
   onSelectView: (v: View) => void;
   onCompose: () => void;
-  onSettings: () => void;
+  onAvatar: () => void;
   account: string | null;
 }) {
   const { theme, cycleTheme } = useTheme();
@@ -26,7 +26,7 @@ export function IconRail({
       <div className="rail-spacer" />
       <button className="rail-item" aria-label="Theme" onClick={cycleTheme}>{theme === "light" ? <Moon size={18} /> : <Sun size={18} />}</button>
       <button className="rail-item rail-compose" aria-label="Compose" onClick={onCompose}><Plus size={20} /></button>
-      <button className="rail-avatar" aria-label="Account" onClick={onSettings}>{initials}</button>
+      <button className="rail-avatar" aria-label="Account" onClick={onAvatar}>{initials}</button>
     </nav>
   );
 }
