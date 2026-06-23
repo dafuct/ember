@@ -116,7 +116,8 @@ pub fn init(conn: &Connection) -> Result<()> {
             to_addr       TEXT NOT NULL DEFAULT '',
             has_list_unsubscribe INTEGER NOT NULL DEFAULT 0,
             has_list_id   INTEGER NOT NULL DEFAULT 0,
-            category      TEXT NOT NULL DEFAULT ''
+            category      TEXT NOT NULL DEFAULT '',
+            account       TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_messages_internal_date
             ON messages(internal_date DESC);
@@ -141,6 +142,7 @@ pub fn init(conn: &Connection) -> Result<()> {
             summary     TEXT NOT NULL DEFAULT '',
             summary_updated_at INTEGER NOT NULL DEFAULT 0,
             transcript  TEXT NOT NULL DEFAULT '',
+            account     TEXT NOT NULL DEFAULT '',
             UNIQUE(calendar_id, event_id)
         );
         CREATE TABLE IF NOT EXISTS snoozed (
@@ -151,7 +153,8 @@ pub fn init(conn: &Connection) -> Result<()> {
             from_addr     TEXT NOT NULL DEFAULT '',
             subject       TEXT NOT NULL DEFAULT '',
             snippet       TEXT NOT NULL DEFAULT '',
-            internal_date INTEGER NOT NULL DEFAULT 0
+            internal_date INTEGER NOT NULL DEFAULT 0,
+            account       TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_snoozed_wake_at ON snoozed(wake_at);",
     )?;
@@ -175,8 +178,22 @@ pub fn init(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "meeting_notes", "summary_updated_at", "INTEGER NOT NULL DEFAULT 0")?;
     // 🦀 M22 additive migration: existing M20/M21 DBs get the transcript column here.
     add_column_if_missing(conn, "meeting_notes", "transcript", "TEXT NOT NULL DEFAULT ''")?;
+    // 🦀 Multi-account additive migration: existing single-account DBs get the account column
+    //    on all three cache tables. Default '' preserves the old implicit "one account" behavior
+    //    until the sync layer starts stamping the real email on new/updated rows.
+    add_column_if_missing(conn, "messages", "account", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "snoozed", "account", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "meeting_notes", "account", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)",
+        [],
+    )?;
+    // 🦀 Composite index for the per-account inbox query: filter rows to one account, then
+    //    return them newest-first. Without this index SQLite would scan all messages and sort;
+    //    with it the account prefix prunes the scan and internal_date DESC satisfies the ORDER BY.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_account_internal_date
+         ON messages(account, internal_date DESC)",
         [],
     )?;
     if needs_migration {
