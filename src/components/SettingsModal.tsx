@@ -1,29 +1,31 @@
 import { useEffect, useState } from "react";
-import { setSettings, disconnect, type Settings } from "../lib/api";
+import { setSettings, type AccountInfo, type Settings } from "../lib/api";
 import { ensureNotificationPermission } from "../lib/notify";
 import { isTauri } from "@tauri-apps/api/core";
 import { useTheme, type Theme } from "../theme";
 import { X } from "lucide-react";
 
 export function SettingsModal({
-  account,
+  accounts,
   initial,
   onClose,
   onSaved,
-  onDisconnected,
+  onRemove,
+  onAdd,
 }: {
-  account: string;
+  accounts: AccountInfo[];
   initial: Settings;
   onClose: () => void;
   onSaved: (s: Settings) => void;
-  onDisconnected: () => void;
+  onRemove: (email: string) => Promise<void>;
+  onAdd: () => void;
 }) {
   const { theme, setTheme } = useTheme();
   const [signature, setSignature] = useState(initial.signature);
   const [remoteImages, setRemoteImages] = useState(initial.remote_images);
   const [notifications, setNotifications] = useState(initial.notifications);
   const [permBlocked, setPermBlocked] = useState(false);
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [confirmingEmail, setConfirmingEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,14 +52,16 @@ export function SettingsModal({
     }
   }
 
-  async function handleDisconnect() {
+  async function handleRemove(email: string) {
     setBusy(true);
     setError(null);
     try {
-      await disconnect();
-      onDisconnected(); // unmounts the modal — intentionally no `finally` resetting busy
+      await onRemove(email);
+      // On success App reloads/closes; only reset the confirm row if we're still mounted.
+      setConfirmingEmail(null);
     } catch (e) {
       setError(String(e));
+    } finally {
       setBusy(false);
     }
   }
@@ -79,9 +83,48 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="settings-row">
-          <span className="settings-label">Account</span>
-          <span className="settings-value">{account}</span>
+        <div className="settings-field">
+          <span className="settings-label">Accounts</span>
+          {accounts.map((a) => (
+            <div className="settings-row" key={a.email}>
+              <span className="settings-value">
+                {a.email}
+                {a.active && <span className="settings-chip">Active</span>}
+              </span>
+              {confirmingEmail === a.email ? (
+                <div className="settings-confirm">
+                  <span>Remove?</span>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => handleRemove(a.email)}
+                    disabled={busy}
+                  >
+                    {busy ? "Removing…" : "Remove"}
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => setConfirmingEmail(null)}
+                    disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-danger-outline"
+                  onClick={() => setConfirmingEmail(a.email)}
+                  disabled={busy}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+          <div className="settings-disconnect">
+            <button className="btn" onClick={onAdd} disabled={busy}>
+              Add account
+            </button>
+          </div>
         </div>
 
         <div className="settings-row">
@@ -147,28 +190,6 @@ export function SettingsModal({
         </div>
 
         {error && <div className="compose-error">{error}</div>}
-
-        <div className="settings-disconnect">
-          {confirmingDisconnect ? (
-            <div className="settings-confirm">
-              <span>Disconnect? This signs out and clears the local cache.</span>
-              <button className="btn btn-danger" onClick={handleDisconnect} disabled={busy}>
-                {busy ? "Disconnecting…" : "Disconnect"}
-              </button>
-              <button className="btn" onClick={() => setConfirmingDisconnect(false)} disabled={busy}>
-                Keep connected
-              </button>
-            </div>
-          ) : (
-            <button
-              className="btn btn-danger-outline"
-              onClick={() => setConfirmingDisconnect(true)}
-              disabled={busy}
-            >
-              Disconnect account
-            </button>
-          )}
-        </div>
 
         <div className="compose-actions">
           <button className="btn" onClick={onClose} disabled={busy}>

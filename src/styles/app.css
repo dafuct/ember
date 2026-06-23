@@ -152,6 +152,7 @@
 .settings-signature { min-height: 80px; }
 .settings-disconnect { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px; }
 .settings-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--text); }
+.settings-chip { font-size: 10px; font-weight: 600; line-height: 1.4; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--accent-weak); color: var(--accent-text); letter-spacing: 0.04em; text-transform: uppercase; }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-danger-outline { border-color: var(--danger); color: var(--danger); background: transparent; }
 .seg-btn:focus-visible, .settings-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

@@ -23,6 +23,7 @@ import {
   fetchLabel,
   listAccounts,
   setActiveAccount,
+  removeAccount,
   type AccountInfo,
   type Label,
   type MessagePreview,
@@ -226,6 +227,31 @@ export default function App() {
       setMessages(list);
       seedKnown(list);
       setLabels(labs);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRemoveAccount(email: string) {
+    try {
+      const next = await removeAccount(email);
+      const accs = await listAccounts();
+      setAccounts(accs);
+      if (next) {
+        // Switched to a remaining account — reload its view.
+        setAccount(next);
+        setSelectedId(null);
+        setStream("all");
+        setFolder("inbox");
+        setAccountEpoch((e) => e + 1);
+        const [list, labs] = await Promise.all([fetchInboxPreview(50), listLabels()]);
+        setMessages(list);
+        seedKnown(list);
+        setLabels(labs);
+      } else {
+        // Removed the last account → back to the connect screen.
+        handleDisconnected();
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -945,14 +971,15 @@ export default function App() {
       )}
       {settingsOpen && (
         <SettingsModal
-          account={account}
+          accounts={accounts}
           initial={settings}
           onClose={() => setSettingsOpen(false)}
           onSaved={(s) => {
             setSettings(s);
             setSettingsOpen(false);
           }}
-          onDisconnected={handleDisconnected}
+          onRemove={handleRemoveAccount}
+          onAdd={() => { setSettingsOpen(false); void handleConnect(); }}
         />
       )}
       {undo && (
