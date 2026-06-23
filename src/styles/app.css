@@ -152,6 +152,7 @@
 .settings-signature { min-height: 80px; }
 .settings-disconnect { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px; }
 .settings-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--text); }
+.settings-chip { font-size: 10px; font-weight: 600; line-height: 1.4; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--accent-weak); color: var(--accent-text); letter-spacing: 0.04em; text-transform: uppercase; }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-danger-outline { border-color: var(--danger); color: var(--danger); background: transparent; }
 .seg-btn:focus-visible, .settings-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -515,3 +516,19 @@
 .msg-clock:hover { color: var(--accent-text); }
 .snoozed-card { align-items: center; }
 .snooze-wake { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--accent-text); }
+
+/* Account switcher popover — anchored bottom-left near the rail avatar. */
+.account-backdrop { position: fixed; inset: 0; z-index: 40; }
+.account-switcher { position: fixed; left: calc(var(--rail-w) + 6px); bottom: 12px; z-index: 41; min-width: 240px; padding: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
+.account-switcher-head { padding: 6px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.account-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; cursor: pointer; text-align: left; }
+.account-row:hover { background: var(--accent-weak); }
+.account-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.account-row.active { background: var(--accent-weak); cursor: default; }
+.account-initials { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-contrast); font-size: 11px; font-weight: 600; flex: none; }
+.account-row .account-email { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
+.account-unread { flex: none; min-width: 18px; padding: 1px 6px; border-radius: var(--radius-pill); background: var(--accent-weak); color: var(--accent-text); font-size: 11px; font-weight: 600; text-align: center; }
+.account-check { color: var(--accent); flex: none; }
+.account-switcher-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.account-action { color: var(--text); }
+.account-action-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--surface); color: var(--text-muted); flex: none; }
