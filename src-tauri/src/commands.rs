@@ -239,6 +239,26 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
     })
 }
 
+/// Sync EVERY connected account into the scoped cache (the all-accounts background loop).
+/// Returns one summary per account so the frontend can notify per account. A single account's
+/// failure is logged and skipped — it must not block syncing the others.
+#[tauri::command]
+pub async fn sync_all_accounts(state: tauri::State<'_, Db>) -> Result<Vec<AccountSyncSummary>> {
+    let accounts = {
+        let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::get_accounts(&conn)?
+    };
+    let mut out = Vec::new();
+    for email in accounts {
+        match sync_one_account(&state, &email).await {
+            Ok(summary) => out.push(summary),
+            // 🦀 One bad account (revoked token, network blip) shouldn't abort the whole loop.
+            Err(e) => eprintln!("[ember] sync failed for {email}: {e}"),
+        }
+    }
+    Ok(out)
+}
+
 /// The most recent inbox previews, read from the local DB (fast, works offline).
 #[tauri::command]
 pub async fn fetch_inbox_preview(

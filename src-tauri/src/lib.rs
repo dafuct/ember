@@ -122,6 +122,7 @@ pub fn run() {
             commands::get_connected_account,
             commands::fetch_inbox_preview,
             commands::sync_inbox,
+            commands::sync_all_accounts,
             commands::fetch_message_body,
             commands::download_attachment,
             commands::set_message_read,
