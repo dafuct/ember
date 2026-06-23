@@ -617,24 +617,26 @@ fn row_to_note(row: &rusqlite::Row) -> rusqlite::Result<MeetingNote> {
     })
 }
 
-/// Read one note by (calendar_id, event_id), or `None` if there isn't one.
-pub fn get_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str) -> Result<Option<MeetingNote>> {
+/// Read one note by (calendar_id, event_id) for `account`, or `None` if there isn't one.
+/// `account` scopes the read so one account can never see another's note (even with the same
+/// calendar_id/event_id) — the UNIQUE constraint stays on (calendar_id, event_id).
+pub fn get_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str, account: &str) -> Result<Option<MeetingNote>> {
     // 🦀 NOTE_COLS is a compile-time constant (never user input), so formatting it into the
     //    SQL is injection-safe; the actual values are still passed as bound `?` params.
     let mut stmt = conn.prepare(&format!(
-        "SELECT {NOTE_COLS} FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2"
+        "SELECT {NOTE_COLS} FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2 AND account = ?3"
     ))?;
     // 🦀 `.optional()` (OptionalExtension) turns "no rows" into Ok(None) instead of an error.
-    let note = stmt.query_row(params![calendar_id, event_id], row_to_note).optional()?;
+    let note = stmt.query_row(params![calendar_id, event_id, account], row_to_note).optional()?;
     Ok(note)
 }
 
-/// All notes, most-recently-edited first (drives the Notes panel).
-pub fn list_meeting_notes(conn: &Connection) -> Result<Vec<MeetingNote>> {
+/// All notes for `account`, most-recently-edited first (drives the Notes panel).
+pub fn list_meeting_notes(conn: &Connection, account: &str) -> Result<Vec<MeetingNote>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {NOTE_COLS} FROM meeting_notes ORDER BY updated_at DESC"
+        "SELECT {NOTE_COLS} FROM meeting_notes WHERE account = ?1 ORDER BY updated_at DESC"
     ))?;
-    let rows = stmt.query_map([], row_to_note)?;
+    let rows = stmt.query_map(params![account], row_to_note)?;
     // 🦀 Each item is a rusqlite::Result; `r?` propagates a row error into our Result<Vec<…>>.
     let mut out = Vec::new();
     for r in rows {
@@ -646,34 +648,38 @@ pub fn list_meeting_notes(conn: &Connection) -> Result<Vec<MeetingNote>> {
 /// Insert a new note, or update the existing one for this (calendar_id, event_id). `now_ms`
 /// is the caller's clock (Unix ms): it sets `updated_at` always and `created_at` only on the
 /// initial insert (preserved on update). The snapshot (title/start) is refreshed each save.
-pub fn upsert_meeting_note(conn: &Connection, w: &MeetingNoteWrite, now_ms: i64) -> Result<MeetingNote> {
+pub fn upsert_meeting_note(conn: &Connection, account: &str, w: &MeetingNoteWrite, now_ms: i64) -> Result<MeetingNote> {
     // 🦀 `?7` is reused for BOTH created_at and updated_at on insert. ON CONFLICT updates
     //    updated_at (= excluded.updated_at = ?7) but NOT created_at — so created_at keeps
     //    its first-insert value while updated_at moves forward. `summary`/`summary_updated_at`
     //    stay OUT of this statement, so a body/transcript save never clobbers the summary.
+    //    `account` (?8) is stamped on insert and refreshed on conflict (= excluded.account);
+    //    the UNIQUE constraint is still (calendar_id, event_id), so account is a filter column.
     conn.execute(
         "INSERT INTO meeting_notes
-            (calendar_id, event_id, event_title, event_start, body, transcript, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+            (calendar_id, event_id, event_title, event_start, body, transcript, created_at, updated_at, account)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
          ON CONFLICT(calendar_id, event_id) DO UPDATE SET
             event_title = excluded.event_title,
             event_start = excluded.event_start,
             body = excluded.body,
             transcript = excluded.transcript,
-            updated_at = excluded.updated_at",
-        params![w.calendar_id, w.event_id, w.event_title, w.event_start, w.body, w.transcript, now_ms],
+            updated_at = excluded.updated_at,
+            account = excluded.account",
+        params![w.calendar_id, w.event_id, w.event_title, w.event_start, w.body, w.transcript, now_ms, account],
     )?;
     // 🦀 Re-read the stored row so the caller gets the real id + preserved created_at. The row
     //    must exist now, so `None` here is a genuine bug — surface it loudly rather than panic.
-    get_meeting_note(conn, &w.calendar_id, &w.event_id)?
+    get_meeting_note(conn, &w.calendar_id, &w.event_id, account)?
         .ok_or_else(|| crate::error::AppError::Other("meeting note vanished after upsert".into()))
 }
 
-/// Delete the note for (calendar_id, event_id). A missing note is a silent no-op (0 rows).
-pub fn delete_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str) -> Result<()> {
+/// Delete the note for (calendar_id, event_id) within `account`. A missing note is a silent
+/// no-op (0 rows); the `account` filter means a wrong-account delete touches nothing.
+pub fn delete_meeting_note(conn: &Connection, calendar_id: &str, event_id: &str, account: &str) -> Result<()> {
     conn.execute(
-        "DELETE FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2",
-        params![calendar_id, event_id],
+        "DELETE FROM meeting_notes WHERE calendar_id = ?1 AND event_id = ?2 AND account = ?3",
+        params![calendar_id, event_id, account],
     )?;
     Ok(())
 }
@@ -685,15 +691,16 @@ pub fn set_meeting_note_summary(
     conn: &Connection,
     calendar_id: &str,
     event_id: &str,
+    account: &str,
     summary: &str,
     now_ms: i64,
 ) -> Result<MeetingNote> {
     conn.execute(
         "UPDATE meeting_notes SET summary = ?1, summary_updated_at = ?2
-         WHERE calendar_id = ?3 AND event_id = ?4",
-        params![summary, now_ms, calendar_id, event_id],
+         WHERE calendar_id = ?3 AND event_id = ?4 AND account = ?5",
+        params![summary, now_ms, calendar_id, event_id, account],
     )?;
-    get_meeting_note(conn, calendar_id, event_id)?
+    get_meeting_note(conn, calendar_id, event_id, account)?
         .ok_or_else(|| crate::error::AppError::Other("note not found".into()))
 }
 
@@ -713,45 +720,50 @@ pub struct SnoozedRow {
     pub internal_date: i64,
 }
 
-/// Upsert a snooze record (INSERT OR REPLACE — re-snooze replaces the old wake_at).
-pub fn insert_snooze(conn: &Connection, r: &SnoozedRow) -> Result<()> {
+/// Upsert a snooze record (INSERT OR REPLACE — re-snooze replaces the old wake_at). `account`
+/// stamps the owning account on the row so reads/wakes can be scoped to one account.
+pub fn insert_snooze(conn: &Connection, account: &str, r: &SnoozedRow) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO snoozed
-           (message_id, thread_id, wake_at, snoozed_at, from_addr, subject, snippet, internal_date)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![r.message_id, r.thread_id, r.wake_at, r.snoozed_at, r.from_addr, r.subject, r.snippet, r.internal_date],
+           (message_id, thread_id, wake_at, snoozed_at, from_addr, subject, snippet, internal_date, account)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![r.message_id, r.thread_id, r.wake_at, r.snoozed_at, r.from_addr, r.subject, r.snippet, r.internal_date, account],
     )?;
     Ok(())
 }
 
-/// Remove snoozed rows by message_id (used after waking or manual un-snooze).
-pub fn delete_snoozes(conn: &Connection, ids: &[String]) -> Result<()> {
+/// Remove snoozed rows by message_id within `account` (used after waking or manual un-snooze).
+/// Message ids are per-account, so the `AND account = ?` scope is defensive — a wrong-account id
+/// matches nothing.
+pub fn delete_snoozes(conn: &Connection, account: &str, ids: &[String]) -> Result<()> {
     if ids.is_empty() { return Ok(()); }
     // 🦀 Build an IN (?,?,…) clause dynamically. Table name and column name are
-    //    compile-time constants; only the values go through bound params.
+    //    compile-time constants; only the values go through bound params. `account` is bound
+    //    as the LAST param after all the id placeholders.
     let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!("DELETE FROM snoozed WHERE message_id IN ({placeholders})");
-    let refs: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let sql = format!("DELETE FROM snoozed WHERE message_id IN ({placeholders}) AND account = ?");
+    let mut refs: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    refs.push(&account as &dyn rusqlite::ToSql);
     conn.execute(&sql, refs.as_slice())?;
     Ok(())
 }
 
-/// IDs of messages whose `wake_at <= now_ms`, ordered earliest-first.
-pub fn due_snoozes(conn: &Connection, now_ms: i64) -> Result<Vec<String>> {
+/// IDs of `account`'s messages whose `wake_at <= now_ms`, ordered earliest-first.
+pub fn due_snoozes(conn: &Connection, account: &str, now_ms: i64) -> Result<Vec<String>> {
     let mut stmt = conn.prepare(
-        "SELECT message_id FROM snoozed WHERE wake_at <= ?1 ORDER BY wake_at ASC",
+        "SELECT message_id FROM snoozed WHERE wake_at <= ?1 AND account = ?2 ORDER BY wake_at ASC",
     )?;
-    let rows = stmt.query_map(params![now_ms], |r| r.get::<_, String>(0))?;
+    let rows = stmt.query_map(params![now_ms, account], |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// All snoozed rows, ordered by wake_at ASC (drives the Snoozed view).
-pub fn list_snoozes(conn: &Connection) -> Result<Vec<SnoozedRow>> {
+/// All snoozed rows for `account`, ordered by wake_at ASC (drives the Snoozed view).
+pub fn list_snoozes(conn: &Connection, account: &str) -> Result<Vec<SnoozedRow>> {
     let mut stmt = conn.prepare(
         "SELECT message_id, thread_id, wake_at, snoozed_at, from_addr, subject, snippet, internal_date
-         FROM snoozed ORDER BY wake_at ASC",
+         FROM snoozed WHERE account = ?1 ORDER BY wake_at ASC",
     )?;
-    let rows = stmt.query_map([], |r| Ok(SnoozedRow {
+    let rows = stmt.query_map(params![account], |r| Ok(SnoozedRow {
         message_id: r.get(0)?,
         thread_id:  r.get(1)?,
         wake_at:    r.get(2)?,
@@ -1057,52 +1069,52 @@ mod tests {
     #[test]
     fn meeting_note_upsert_inserts_then_updates_same_row() {
         let c = conn();
-        let inserted = upsert_meeting_note(&c, &note_write("primary", "e1", "first"), 1000).unwrap();
+        let inserted = upsert_meeting_note(&c, "me@x.com", &note_write("primary", "e1", "first"), 1000).unwrap();
         assert_eq!(inserted.created_at, 1000);
         assert_eq!(inserted.updated_at, 1000);
         assert_eq!(inserted.body, "first");
 
         let mut w = note_write("primary", "e1", "second");
         w.event_title = "Standup (edited)".into();
-        let updated = upsert_meeting_note(&c, &w, 2000).unwrap();
+        let updated = upsert_meeting_note(&c, "me@x.com", &w, 2000).unwrap();
         assert_eq!(updated.id, inserted.id); // same row, not a second insert
         assert_eq!(updated.created_at, 1000); // preserved on update
         assert_eq!(updated.updated_at, 2000); // refreshed
         assert_eq!(updated.body, "second");
         assert_eq!(updated.event_title, "Standup (edited)"); // snapshot refreshed
-        assert_eq!(list_meeting_notes(&c).unwrap().len(), 1); // still exactly one row
+        assert_eq!(list_meeting_notes(&c, "me@x.com").unwrap().len(), 1); // still exactly one row
     }
 
     #[test]
     fn meeting_note_get_returns_some_and_none() {
         let c = conn();
-        assert!(get_meeting_note(&c, "primary", "missing").unwrap().is_none());
-        upsert_meeting_note(&c, &note_write("primary", "e1", "hi"), 1).unwrap();
-        let got = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        assert!(get_meeting_note(&c, "primary", "missing", "me@x.com").unwrap().is_none());
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "e1", "hi"), 1).unwrap();
+        let got = get_meeting_note(&c, "primary", "e1", "me@x.com").unwrap().unwrap();
         assert_eq!(got.body, "hi");
         // a different calendar with the same event id is a distinct note
-        assert!(get_meeting_note(&c, "other", "e1").unwrap().is_none());
+        assert!(get_meeting_note(&c, "other", "e1", "me@x.com").unwrap().is_none());
     }
 
     #[test]
     fn list_meeting_notes_orders_by_updated_at_desc() {
         let c = conn();
-        upsert_meeting_note(&c, &note_write("primary", "old", "o"), 100).unwrap();
-        upsert_meeting_note(&c, &note_write("primary", "new", "n"), 300).unwrap();
-        upsert_meeting_note(&c, &note_write("primary", "mid", "m"), 200).unwrap();
-        let ids: Vec<String> = list_meeting_notes(&c).unwrap().into_iter().map(|n| n.event_id).collect();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "old", "o"), 100).unwrap();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "new", "n"), 300).unwrap();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "mid", "m"), 200).unwrap();
+        let ids: Vec<String> = list_meeting_notes(&c, "me@x.com").unwrap().into_iter().map(|n| n.event_id).collect();
         assert_eq!(ids, vec!["new".to_string(), "mid".to_string(), "old".to_string()]);
     }
 
     #[test]
     fn delete_meeting_note_removes_only_that_note() {
         let c = conn();
-        upsert_meeting_note(&c, &note_write("primary", "a", "a"), 1).unwrap();
-        upsert_meeting_note(&c, &note_write("primary", "b", "b"), 2).unwrap();
-        delete_meeting_note(&c, "primary", "a").unwrap();
-        let ids: Vec<String> = list_meeting_notes(&c).unwrap().into_iter().map(|n| n.event_id).collect();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "a", "a"), 1).unwrap();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "b", "b"), 2).unwrap();
+        delete_meeting_note(&c, "primary", "a", "me@x.com").unwrap();
+        let ids: Vec<String> = list_meeting_notes(&c, "me@x.com").unwrap().into_iter().map(|n| n.event_id).collect();
         assert_eq!(ids, vec!["b".to_string()]);
-        assert!(get_meeting_note(&c, "primary", "a").unwrap().is_none());
+        assert!(get_meeting_note(&c, "primary", "a", "me@x.com").unwrap().is_none());
     }
 
     #[test]
@@ -1110,19 +1122,19 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         init(&c).unwrap();
         init(&c).unwrap(); // second init must not error on the existing table
-        upsert_meeting_note(&c, &note_write("primary", "e1", "ok"), 1).unwrap();
-        assert_eq!(list_meeting_notes(&c).unwrap().len(), 1);
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "e1", "ok"), 1).unwrap();
+        assert_eq!(list_meeting_notes(&c, "me@x.com").unwrap().len(), 1);
     }
 
     #[test]
     fn set_meeting_note_summary_sets_summary_without_bumping_updated_at() {
         let c = conn();
-        let n = upsert_meeting_note(&c, &note_write("primary", "e1", "body"), 1000).unwrap();
+        let n = upsert_meeting_note(&c, "me@x.com", &note_write("primary", "e1", "body"), 1000).unwrap();
         assert_eq!(n.summary, ""); // default after insert
         assert_eq!(n.summary_updated_at, 0);
         assert_eq!(n.updated_at, 1000);
 
-        let updated = set_meeting_note_summary(&c, "primary", "e1", "## Summary\n- ok", 2000).unwrap();
+        let updated = set_meeting_note_summary(&c, "primary", "e1", "me@x.com", "## Summary\n- ok", 2000).unwrap();
         assert_eq!(updated.summary, "## Summary\n- ok");
         assert_eq!(updated.summary_updated_at, 2000);
         assert_eq!(updated.updated_at, 1000); // body's updated_at must NOT move
@@ -1132,12 +1144,12 @@ mod tests {
     #[test]
     fn body_resave_preserves_existing_summary() {
         let c = conn();
-        upsert_meeting_note(&c, &note_write("primary", "e1", "body1"), 1000).unwrap();
-        set_meeting_note_summary(&c, "primary", "e1", "the summary", 1500).unwrap();
+        upsert_meeting_note(&c, "me@x.com", &note_write("primary", "e1", "body1"), 1000).unwrap();
+        set_meeting_note_summary(&c, "primary", "e1", "me@x.com", "the summary", 1500).unwrap();
         // Edit the body later (a fresh save with a newer clock).
         let mut w = note_write("primary", "e1", "body2");
         w.event_title = "1:1".into();
-        let after = upsert_meeting_note(&c, &w, 3000).unwrap();
+        let after = upsert_meeting_note(&c, "me@x.com", &w, 3000).unwrap();
         assert_eq!(after.body, "body2");
         assert_eq!(after.updated_at, 3000); // body edit advanced updated_at
         assert_eq!(after.summary, "the summary"); // summary PRESERVED
@@ -1163,14 +1175,14 @@ mod tests {
 
         init(&c).unwrap();
 
-        let n = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        let n = get_meeting_note(&c, "primary", "e1", "").unwrap().unwrap();
         assert_eq!(n.summary, ""); // backfilled default
         assert_eq!(n.summary_updated_at, 0);
         assert_eq!(n.body, "b");
 
         // Idempotent: a second init must not error and the row survives.
         init(&c).unwrap();
-        assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
+        assert!(get_meeting_note(&c, "primary", "e1", "").unwrap().is_some());
     }
 
     #[test]
@@ -1178,9 +1190,9 @@ mod tests {
         let c = conn();
         let mut w = note_write("primary", "e1", "body");
         w.transcript = "line one\nline two".into();
-        let n = upsert_meeting_note(&c, &w, 1000).unwrap();
+        let n = upsert_meeting_note(&c, "me@x.com", &w, 1000).unwrap();
         assert_eq!(n.transcript, "line one\nline two");
-        let got = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        let got = get_meeting_note(&c, "primary", "e1", "me@x.com").unwrap().unwrap();
         assert_eq!(got.transcript, "line one\nline two"); // persisted
     }
 
@@ -1189,12 +1201,12 @@ mod tests {
         let c = conn();
         let mut w = note_write("primary", "e1", "body1");
         w.transcript = "t1".into();
-        upsert_meeting_note(&c, &w, 1000).unwrap();
-        set_meeting_note_summary(&c, "primary", "e1", "sum", 1200).unwrap();
+        upsert_meeting_note(&c, "me@x.com", &w, 1000).unwrap();
+        set_meeting_note_summary(&c, "primary", "e1", "me@x.com", "sum", 1200).unwrap();
         // edit body + transcript, re-save later
         let mut w2 = note_write("primary", "e1", "body2");
         w2.transcript = "t2".into();
-        let after = upsert_meeting_note(&c, &w2, 3000).unwrap();
+        let after = upsert_meeting_note(&c, "me@x.com", &w2, 3000).unwrap();
         assert_eq!(after.body, "body2");
         assert_eq!(after.transcript, "t2");
         assert_eq!(after.updated_at, 3000); // bumped by the body/transcript save
@@ -1210,17 +1222,56 @@ mod tests {
             message_id: id.into(), thread_id: "t".into(), wake_at: wake, snoozed_at: 1,
             from_addr: "a@b.co".into(), subject: "s".into(), snippet: "sn".into(), internal_date: wake,
         };
-        insert_snooze(&c, &row("a", 1000)).unwrap();
-        insert_snooze(&c, &row("b", 3000)).unwrap();
-        assert_eq!(due_snoozes(&c, 999).unwrap(), Vec::<String>::new());
-        assert_eq!(due_snoozes(&c, 1000).unwrap(), vec!["a".to_string()]);
-        assert_eq!(due_snoozes(&c, 5000).unwrap(), vec!["a".to_string(), "b".to_string()]);
-        insert_snooze(&c, &row("a", 9000)).unwrap();
-        assert_eq!(list_snoozes(&c).unwrap().len(), 2);
-        delete_snoozes(&c, &["a".to_string()]).unwrap();
-        let left = list_snoozes(&c).unwrap();
+        insert_snooze(&c, "me@x.com", &row("a", 1000)).unwrap();
+        insert_snooze(&c, "me@x.com", &row("b", 3000)).unwrap();
+        assert_eq!(due_snoozes(&c, "me@x.com", 999).unwrap(), Vec::<String>::new());
+        assert_eq!(due_snoozes(&c, "me@x.com", 1000).unwrap(), vec!["a".to_string()]);
+        assert_eq!(due_snoozes(&c, "me@x.com", 5000).unwrap(), vec!["a".to_string(), "b".to_string()]);
+        insert_snooze(&c, "me@x.com", &row("a", 9000)).unwrap();
+        assert_eq!(list_snoozes(&c, "me@x.com").unwrap().len(), 2);
+        delete_snoozes(&c, "me@x.com", &["a".to_string()]).unwrap();
+        let left = list_snoozes(&c, "me@x.com").unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].message_id, "b");
+    }
+
+    #[test]
+    fn snoozes_filter_by_account() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        let row = |id: &str, wake: i64| SnoozedRow {
+            message_id: id.into(), thread_id: "t".into(), wake_at: wake, snoozed_at: 1,
+            from_addr: "a@b.co".into(), subject: "s".into(), snippet: "sn".into(), internal_date: wake,
+        };
+        let row_a = row("s_a", 1000);
+        let row_b = row("s_b", 1000);
+        insert_snooze(&c, "a@x.com", &row_a).unwrap();
+        insert_snooze(&c, "b@x.com", &row_b).unwrap();
+        // list is scoped to one account
+        assert_eq!(list_snoozes(&c, "a@x.com").unwrap().len(), 1);
+        assert_eq!(list_snoozes(&c, "b@x.com").unwrap().len(), 1);
+        // due_snoozes is scoped too: only a@x.com's row comes back for a@x.com
+        assert_eq!(due_snoozes(&c, "a@x.com", 5000).unwrap(), vec!["s_a".to_string()]);
+        // deleting in one account leaves the other account's row intact
+        delete_snoozes(&c, "a@x.com", &["s_b".to_string()]).unwrap(); // wrong account → no-op
+        assert_eq!(list_snoozes(&c, "b@x.com").unwrap().len(), 1);
+        delete_snoozes(&c, "b@x.com", &["s_b".to_string()]).unwrap();
+        assert_eq!(list_snoozes(&c, "b@x.com").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn meeting_notes_filter_by_account() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        let note_a = note_write("primary", "ev_a", "note a");
+        let note_b = note_write("primary", "ev_b", "note b");
+        upsert_meeting_note(&c, "a@x.com", &note_a, 1000).unwrap();
+        upsert_meeting_note(&c, "b@x.com", &note_b, 1000).unwrap();
+        assert_eq!(list_meeting_notes(&c, "a@x.com").unwrap().len(), 1);
+        assert_eq!(list_meeting_notes(&c, "b@x.com").unwrap().len(), 1);
+        // a@x.com cannot read b@x.com's note even with the right (calendar_id, event_id)
+        assert!(get_meeting_note(&c, &note_b.calendar_id, &note_b.event_id, "a@x.com").unwrap().is_none());
+        assert!(get_meeting_note(&c, &note_b.calendar_id, &note_b.event_id, "b@x.com").unwrap().is_some());
     }
 
     #[test]
@@ -1240,11 +1291,11 @@ mod tests {
         )
         .unwrap();
         init(&c).unwrap();
-        let n = get_meeting_note(&c, "primary", "e1").unwrap().unwrap();
+        let n = get_meeting_note(&c, "primary", "e1", "").unwrap().unwrap();
         assert_eq!(n.transcript, ""); // backfilled default
         assert_eq!(n.body, "b");
         init(&c).unwrap(); // idempotent
-        assert!(get_meeting_note(&c, "primary", "e1").unwrap().is_some());
+        assert!(get_meeting_note(&c, "primary", "e1", "").unwrap().is_some());
     }
 
     #[test]

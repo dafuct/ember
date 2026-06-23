@@ -787,7 +787,7 @@ pub async fn snooze_message(
     client.batch_modify(std::slice::from_ref(&id), &[], &["INBOX"]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
     db::delete_messages(&conn, &stored.email, std::slice::from_ref(&id))?;
-    db::insert_snooze(&conn, &db::SnoozedRow {
+    db::insert_snooze(&conn, &stored.email, &db::SnoozedRow {
         message_id: id, thread_id, wake_at, snoozed_at: now_millis(),
         from_addr, subject, snippet, internal_date,
     })?;
@@ -801,23 +801,30 @@ pub async fn unsnooze_message(id: String, state: tauri::State<'_, Db>) -> Result
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(std::slice::from_ref(&id), &["INBOX", "UNREAD"], &[]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_snoozes(&conn, std::slice::from_ref(&id))?;
+    db::delete_snoozes(&conn, &stored.email, std::slice::from_ref(&id))?;
     Ok(())
 }
 
 /// Wake all snoozes whose wake_at has passed. Returns early (no network) when none are due.
 #[tauri::command]
 pub async fn wake_due_snoozes(state: tauri::State<'_, Db>) -> Result<Vec<String>> {
+    // 🦀 Resolve the active account inside the first locked block so the due-query is scoped to
+    //    it. No active account → nothing to wake (mirror fetch_inbox_preview's empty-result path).
     let ids = {
         let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        db::due_snoozes(&conn, now_millis())?
+        let Some(account) = db::get_active_account(&conn)? else {
+            return Ok(Vec::new());
+        };
+        db::due_snoozes(&conn, &account, now_millis())?
     };
     if ids.is_empty() { return Ok(Vec::new()); }
     let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(&ids, &["INBOX", "UNREAD"], &[]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_snoozes(&conn, &ids)?;
+    // 🦀 `stored.email` is the same active account resolved above — active_token reads the same
+    //    active_account pointer, so the delete is scoped to the account the ids came from.
+    db::delete_snoozes(&conn, &stored.email, &ids)?;
     Ok(ids)
 }
 
@@ -825,7 +832,12 @@ pub async fn wake_due_snoozes(state: tauri::State<'_, Db>) -> Result<Vec<String>
 #[tauri::command]
 pub fn list_snoozed(state: tauri::State<'_, Db>) -> Result<Vec<db::SnoozedRow>> {
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::list_snoozes(&conn)
+    // 🦀 Scope to the active account; no active account → no snoozes to show (mirror
+    //    fetch_inbox_preview's empty-result path for a read with no account).
+    let Some(account) = db::get_active_account(&conn)? else {
+        return Ok(Vec::new());
+    };
+    db::list_snoozes(&conn, &account)
 }
 
 /// Restore MANY trashed messages (untrash). Gmail has no batch untrash, so loop the
@@ -1024,7 +1036,12 @@ pub async fn get_meeting_note(
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::get_meeting_note(&conn, &calendar_id, &event_id)
+    // 🦀 Scope to the active account; no active account → no note (mirror the read pattern in
+    //    fetch_inbox_preview / list_snoozed).
+    let Some(account) = db::get_active_account(&conn)? else {
+        return Ok(None);
+    };
+    db::get_meeting_note(&conn, &calendar_id, &event_id, &account)
 }
 
 /// Create or update the meeting note for one event (upsert). Returns the stored note.
@@ -1036,8 +1053,11 @@ pub async fn save_meeting_note(
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    // 🦀 A write needs an owning account; without one there's nothing to scope the note to.
+    let account = db::get_active_account(&conn)?
+        .ok_or_else(|| AppError::Auth("no active account".into()))?;
     // 🦀 The backend stamps the timestamp; the frontend never sends one.
-    db::upsert_meeting_note(&conn, &note, now_millis())
+    db::upsert_meeting_note(&conn, &account, &note, now_millis())
 }
 
 /// Delete the meeting note for one event (silent no-op if there isn't one).
@@ -1050,7 +1070,9 @@ pub async fn delete_meeting_note(
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_meeting_note(&conn, &calendar_id, &event_id)
+    let account = db::get_active_account(&conn)?
+        .ok_or_else(|| AppError::Auth("no active account".into()))?;
+    db::delete_meeting_note(&conn, &calendar_id, &event_id, &account)
 }
 
 /// List all meeting notes, most-recently-edited first (drives the Notes panel).
@@ -1059,7 +1081,11 @@ pub async fn list_meeting_notes(state: tauri::State<'_, Db>) -> Result<Vec<db::M
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::list_meeting_notes(&conn)
+    // 🦀 Scope to the active account; no active account → no notes (read-path empty result).
+    let Some(account) = db::get_active_account(&conn)? else {
+        return Ok(Vec::new());
+    };
+    db::list_meeting_notes(&conn, &account)
 }
 
 /// Summarize a meeting note with local Ollama (M21/M22). Reads the SAVED note, combines the
@@ -1072,14 +1098,18 @@ pub async fn summarize_meeting_note(
     state: tauri::State<'_, Db>,
 ) -> Result<db::MeetingNote> {
     // 🦀 Build the summary input from the SAVED note (notes + transcript combined) in a short
-    //    locked block, then DROP the guard before the network await.
-    let input = {
+    //    locked block, then DROP the guard before the network await. The active account is
+    //    resolved HERE (under the lock) and carried out so the read AND the later persist use the
+    //    SAME account — no risk of a switch between the read and the write changing scope.
+    let (input, account) = {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        let note = db::get_meeting_note(&conn, &calendar_id, &event_id)?
+        let account = db::get_active_account(&conn)?
+            .ok_or_else(|| AppError::Auth("no active account".into()))?;
+        let note = db::get_meeting_note(&conn, &calendar_id, &event_id, &account)?
             .ok_or_else(|| AppError::Other("Save the note before summarizing.".into()))?;
-        crate::transcript::build_summary_input(&note.body, &note.transcript)
+        (crate::transcript::build_summary_input(&note.body, &note.transcript), account)
     };
     if input.trim().is_empty() {
         return Err(AppError::Other(
@@ -1089,10 +1119,11 @@ pub async fn summarize_meeting_note(
     // 🦀 The slow part: a local HTTP call to Ollama. No DB lock is held across this await.
     let summary = crate::ollama::OllamaClient::new().summarize(&input).await?;
     // 🦀 Re-lock to persist. This UPDATE does NOT bump the body's updated_at (staleness logic).
+    //    Reuse the account resolved above so the write is scoped to the same note we read.
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::set_meeting_note_summary(&conn, &calendar_id, &event_id, &summary, now_millis())
+    db::set_meeting_note_summary(&conn, &calendar_id, &event_id, &account, &summary, now_millis())
 }
 
 /// Read a user-picked transcript file (.txt or .vtt) into plain text (M22). DB-free; `.vtt` is
