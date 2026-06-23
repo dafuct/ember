@@ -4,6 +4,7 @@ import type { CalendarEvent } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
 import type { MeetingNote, MeetingNoteWrite, DeviceInfo, CaptureEvent } from "./notes";
+import type { SnoozedRow } from "./snooze";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
@@ -331,4 +332,34 @@ export function mockStopCapture(): Promise<void> {
     mockOnEvent = null;
   }
   return Promise.resolve();
+}
+
+// --- Snooze (M25) -----------------------------------------------------
+// In-memory snooze store for the browser maket.
+
+const _snoozed: SnoozedRow[] = [];
+
+export function mockSnooze(m: MessagePreview, wakeAt: number): Promise<void> {
+  const i = _snoozed.findIndex((r) => r.message_id === m.id);
+  const row: SnoozedRow = {
+    message_id: m.id, thread_id: m.thread_id, wake_at: wakeAt,
+    snoozed_at: Date.now(), from_addr: m.from, subject: m.subject,
+    snippet: m.snippet, internal_date: m.internal_date,
+  };
+  if (i >= 0) _snoozed[i] = row; else _snoozed.push(row);
+  return Promise.resolve();
+}
+
+export function mockUnsnooze(id: string): Promise<void> {
+  const i = _snoozed.findIndex((r) => r.message_id === id);
+  if (i >= 0) _snoozed.splice(i, 1);
+  return Promise.resolve();
+}
+
+export function mockWakeDue(): Promise<string[]> {
+  return Promise.resolve([]);
+}
+
+export function mockListSnoozed(): Promise<SnoozedRow[]> {
+  return Promise.resolve([..._snoozed].sort((a, b) => a.wake_at - b.wake_at));
 }
