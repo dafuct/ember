@@ -982,6 +982,43 @@ pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
     Ok(())
 }
 
+/// One row for the account-switcher UI. `active` marks the current account; `unread` is the
+/// cached unread count for the per-account badge.
+#[derive(serde::Serialize)]
+pub struct AccountInfo {
+    pub email: String,
+    pub active: bool,
+    pub unread: i64,
+}
+
+/// All connected accounts (for the switcher popover + Settings list).
+#[tauri::command]
+pub async fn list_accounts(state: tauri::State<'_, Db>) -> Result<Vec<AccountInfo>> {
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    let active = db::get_active_account(&conn)?;
+    let mut out = Vec::new();
+    for email in db::get_accounts(&conn)? {
+        let unread = db::unread_count(&conn, &email)?;
+        // 🦀 Compute the flag before moving `email` into the struct — the field init order
+        //    left-to-right guarantees `active:` evaluates first, but the borrow-checker can
+        //    complain if both the flag and the struct init reference `email` simultaneously.
+        //    Using `as_deref()` compares `Option<String>` with `Option<&str>` cleanly.
+        let active_flag = active.as_deref() == Some(email.as_str());
+        out.push(AccountInfo { email, active: active_flag, unread });
+    }
+    Ok(out)
+}
+
+/// Switch the active account. Validates the email is a connected account.
+#[tauri::command]
+pub async fn set_active_account(state: tauri::State<'_, Db>, email: String) -> Result<()> {
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    if !db::get_accounts(&conn)?.iter().any(|a| a == &email) {
+        return Err(AppError::Other(format!("unknown account {email}")));
+    }
+    db::set_active_account(&conn, &email)
+}
+
 /// List the user's calendars (for the create-event calendar picker). DB-free.
 #[tauri::command]
 pub async fn list_calendars(state: tauri::State<'_, Db>) -> Result<Vec<CalendarSummary>> {

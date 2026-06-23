@@ -388,6 +388,18 @@ pub fn prune_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
     Ok(removed)
 }
 
+/// Count cached UNREAD messages for one account (drives the switcher's per-account badge).
+// 🦀 label_ids is a comma-joined Gmail label string; LIKE '%UNREAD%' is a cheap contains-check.
+//    Gmail's label token is the literal "UNREAD", so substring matching is safe here.
+pub fn unread_count(conn: &Connection, account: &str) -> Result<i64> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE account = ?1 AND label_ids LIKE '%UNREAD%'",
+        params![account],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
 /// The most recent `max` messages for `account`, newest first.
 pub fn recent_previews(conn: &Connection, account: &str, max: u32) -> Result<Vec<StoredMessage>> {
     // 🦀 `prepare` parses and compiles the SQL into a reusable `Statement` object.
@@ -1408,5 +1420,16 @@ mod tests {
         // Removing the LAST account clears the pointer.
         assert_eq!(remove_account_and_repoint(&c, "a@x.com").unwrap(), None);
         assert_eq!(get_accounts(&c).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn unread_count_counts_unread_for_account() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        c.execute("INSERT INTO messages (id, account, label_ids) VALUES ('a1','a@x.com','INBOX,UNREAD')", []).unwrap();
+        c.execute("INSERT INTO messages (id, account, label_ids) VALUES ('a2','a@x.com','INBOX')", []).unwrap();
+        c.execute("INSERT INTO messages (id, account, label_ids) VALUES ('b1','b@x.com','INBOX,UNREAD')", []).unwrap();
+        assert_eq!(unread_count(&c, "a@x.com").unwrap(), 1);
+        assert_eq!(unread_count(&c, "b@x.com").unwrap(), 1);
     }
 }
