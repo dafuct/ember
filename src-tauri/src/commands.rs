@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 
-use crate::auth::tokens::{delete_token, StoredToken};
+use crate::auth::tokens::{delete_token, load_token, save_token, StoredToken};
 use crate::auth::{ensure_token_for, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
@@ -49,6 +49,30 @@ async fn active_token(state: &tauri::State<'_, Db>) -> Result<StoredToken> {
     }
     .ok_or_else(|| AppError::Auth("no active account".into()))?;
     ensure_token_for(&account).await
+}
+
+/// Run once at startup: if a legacy "primary" Keychain token exists and no accounts are
+/// registered yet, migrate it to the email-keyed scheme and stamp cached rows. Idempotent.
+pub fn migrate_legacy_primary_account(conn: &rusqlite::Connection) -> Result<()> {
+    // Already migrated (accounts registered) → nothing to do.
+    if !db::get_accounts(conn)?.is_empty() {
+        return Ok(());
+    }
+    // No legacy token (fresh install) → nothing to migrate.
+    let Some(token) = load_token(PRIMARY_ACCOUNT)? else {
+        return Ok(());
+    };
+    let email = token.email.clone();
+    // 🦀 Order matters for crash-safety. `add_account` is the "already migrated" marker
+    //    (the `get_accounts().is_empty()` guard above). Stamp the cache rows FIRST so that
+    //    a crash before `add_account` just re-runs the whole (idempotent) migration next
+    //    startup, rather than marking it done with rows still left at account=''.
+    save_token(&email, &token)?;
+    db::stamp_legacy_account(conn, &email)?;
+    db::add_account(conn, &email)?;
+    db::set_active_account(conn, &email)?;
+    delete_token(PRIMARY_ACCOUNT)?;
+    Ok(())
 }
 
 /// Run the interactive Google sign-in. Returns the connected email address.

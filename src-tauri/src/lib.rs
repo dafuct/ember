@@ -104,6 +104,12 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let conn = rusqlite::Connection::open(dir.join("ember.db"))?;
             crate::db::init(&conn)?;
+            // 🦀 One-time migration of a pre-multi-account "primary" token into the
+            //    email-keyed scheme. Non-fatal: on failure we log and continue (the user
+            //    can simply reconnect, which re-registers the account on next sign-in).
+            if let Err(e) = commands::migrate_legacy_primary_account(&conn) {
+                eprintln!("[ember] legacy account migration failed: {e}");
+            }
             // 🦀 `app.manage(...)` stores a value in Tauri's typed state registry;
             //    commands receive it later via `tauri::State<'_, Db>`.
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(conn)));

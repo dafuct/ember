@@ -564,6 +564,19 @@ pub fn clear_account_data(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// One-time migration: stamp pre-multi-account cache rows (account='') and the legacy
+/// 'primary' sync_state with the given account email. Idempotent — re-running finds no
+/// account='' rows to update.
+pub fn stamp_legacy_account(conn: &Connection, email: &str) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE messages SET account = ?1 WHERE account = ''", params![email])?;
+    tx.execute("UPDATE snoozed SET account = ?1 WHERE account = ''", params![email])?;
+    tx.execute("UPDATE meeting_notes SET account = ?1 WHERE account = ''", params![email])?;
+    tx.execute("UPDATE sync_state SET account = ?1 WHERE account = 'primary'", params![email])?;
+    tx.commit()?;
+    Ok(())
+}
+
 // 🦀 The column list, in one `const` so get + list read the same shape (DRY).
 const NOTE_COLS: &str = "id, calendar_id, event_id, event_title, event_start, body, created_at, updated_at, summary, summary_updated_at, transcript";
 
@@ -1213,6 +1226,19 @@ mod tests {
         assert_eq!(get_accounts(&c).unwrap(), vec!["a@gmail.com", "b@gmail.com"]);
         remove_account(&c, "a@gmail.com").unwrap();
         assert_eq!(get_accounts(&c).unwrap(), vec!["b@gmail.com"]);
+    }
+
+    #[test]
+    fn stamp_legacy_account_backfills_empty_account_rows() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        c.execute("INSERT INTO messages (id, account) VALUES ('m1', '')", []).unwrap();
+        c.execute("INSERT INTO sync_state (account, last_history_id, last_synced_at) VALUES ('primary', 5, 0)", []).unwrap();
+        stamp_legacy_account(&c, "me@gmail.com").unwrap();
+        let acct: String = c.query_row("SELECT account FROM messages WHERE id='m1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(acct, "me@gmail.com");
+        let sacct: String = c.query_row("SELECT account FROM sync_state", [], |r| r.get(0)).unwrap();
+        assert_eq!(sacct, "me@gmail.com");
     }
 
     #[test]
