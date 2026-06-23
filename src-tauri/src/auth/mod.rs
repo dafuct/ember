@@ -220,9 +220,3 @@ pub async fn ensure_token_for(account: &str) -> Result<StoredToken> {
     }
     Ok(stored)
 }
-
-/// TEMPORARY (replaced in a later task): resolve the legacy primary account so existing
-/// `ensure_access_token()` call sites keep compiling until they are migrated.
-pub async fn ensure_access_token() -> Result<StoredToken> {
-    ensure_token_for(PRIMARY_ACCOUNT).await
-}

@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 
-use crate::auth::tokens::{delete_token, load_token};
-use crate::auth::{ensure_access_token, GoogleOAuth, PRIMARY_ACCOUNT};
+use crate::auth::tokens::{delete_token, StoredToken};
+use crate::auth::{ensure_token_for, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::gmail::types::{MessagePreview, ReplyContext};
@@ -35,6 +35,22 @@ const SEARCH_MAX: u32 = 50;
 const CALENDAR_CONCURRENCY: usize = 6;
 const SYNC_WINDOW_DAYS: i64 = 30;
 
+/// Resolve the active account from the DB pointer, then load + refresh its token.
+/// This is the multi-account replacement for the old `ensure_access_token()`.
+// 🦀 The DB lock is taken inside a block so the MutexGuard is dropped before the
+//    `.await` below — a std MutexGuard must never be held across an await point, and
+//    every command that calls this then takes its own lock afterward.
+async fn active_token(state: &tauri::State<'_, Db>) -> Result<StoredToken> {
+    let account = {
+        let conn = state
+            .lock()
+            .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::get_active_account(&conn)?
+    }
+    .ok_or_else(|| AppError::Auth("no active account".into()))?;
+    ensure_token_for(&account).await
+}
+
 /// Run the interactive Google sign-in. Returns the connected email address.
 #[tauri::command]
 pub async fn connect_gmail() -> Result<String> {
@@ -43,10 +59,13 @@ pub async fn connect_gmail() -> Result<String> {
     Ok(stored.email)
 }
 
-/// The currently connected account email, if any.
+/// The currently active account email, if any.
 #[tauri::command]
-pub async fn get_connected_account() -> Result<Option<String>> {
-    Ok(load_token(PRIMARY_ACCOUNT)?.map(|t| t.email))
+pub async fn get_connected_account(state: tauri::State<'_, Db>) -> Result<Option<String>> {
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::get_active_account(&conn)
 }
 
 /// Sync INBOX into the local DB. Uses Gmail history deltas when we have a stored
@@ -54,7 +73,7 @@ pub async fn get_connected_account() -> Result<Option<String>> {
 /// historyId expired. Returns the number of messages added and removed this run.
 #[tauri::command]
 pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     // 🦀 Prune cutoff: 30 days ago, in Unix MILLISECONDS (internal_date's unit).
     let cutoff_ms = (now_secs() as i64 - SYNC_WINDOW_DAYS * 24 * 60 * 60) * 1000;
@@ -65,7 +84,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        db::get_sync_state(&conn, PRIMARY_ACCOUNT)?.and_then(|s| s.last_history_id)
+        db::get_sync_state(&conn, &stored.email)?.and_then(|s| s.last_history_id)
     };
 
     // 🦀 Fast path: with a baseline, ask Gmail only for what CHANGED since then.
@@ -93,7 +112,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
                     .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
                 // 🦀 One atomic transaction for the whole delta (see db::apply_delta).
                 db::apply_delta(&conn, &rows, &delta.removed_ids, cutoff_ms)?;
-                db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(new_hid), now_secs() as i64)?;
+                db::set_sync_state(&conn, &stored.email, Some(new_hid), now_secs() as i64)?;
             }
             // NOTE (known limitation): Gmail's labelId=INBOX history filter can omit a
             // *hard* delete of an INBOX message; such rows are removed by the 30-day prune.
@@ -128,7 +147,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
         // 🦀 Full resync: upsert everything, no deletes, prune old — one transaction.
         db::apply_delta(&conn, &rows, &[], cutoff_ms)?;
-        db::set_sync_state(&conn, PRIMARY_ACCOUNT, Some(baseline_hid), now_secs() as i64)?;
+        db::set_sync_state(&conn, &stored.email, Some(baseline_hid), now_secs() as i64)?;
     }
     Ok(SyncSummary { added: count, removed: 0 })
 }
@@ -243,8 +262,12 @@ pub struct MessageBody {
 //    The return type `Result<MessageBody>` serializes to JSON via the `#[derive(serde::Serialize)]`
 //    on `MessageBody` — Tauri handles the conversion automatically.
 #[tauri::command]
-pub async fn fetch_message_body(id: String, load_images: bool) -> Result<MessageBody> {
-    let stored = ensure_access_token().await?;
+pub async fn fetch_message_body(
+    id: String,
+    load_images: bool,
+    state: tauri::State<'_, Db>,
+) -> Result<MessageBody> {
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let raw = client.get_message_body(&id).await?;
     // 🦀 Prefer the HTML body; fall back to plain text. `if let Some(..)` both checks the
@@ -271,8 +294,9 @@ pub async fn download_attachment(
     message_id: String,
     attachment_id: String,
     dest_path: String,
+    state: tauri::State<'_, Db>,
 ) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let bytes = client.get_attachment(&message_id, &attachment_id).await?;
     // 🦀 `map_err` converts the std::io::Error into our AppError so `?` can propagate it
@@ -293,7 +317,7 @@ async fn set_label(
     present: bool,
     state: &tauri::State<'_, Db>,
 ) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(state).await?;
     let client = GmailClient::new(stored.access_token);
     // 🦀 Pass the one-element slice directly as an argument so its temporary lives
     //    for the call (a `let` binding of `&[label]` would be dropped too early).
@@ -371,7 +395,7 @@ pub async fn batch_modify_messages(
     if ids.is_empty() || (add.is_empty() && remove.is_empty()) {
         return Ok(());
     }
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let plan = plan_label_changes(&add, &remove);
     // 🦀 Non-TRASH label changes still go through one batchModify call (if any remain).
@@ -434,8 +458,9 @@ pub async fn send_email(
     thread_id: Option<String>,
     attachment_paths: Vec<String>,
     forwarded_attachments: Vec<ForwardedAttachmentRef>,
+    state: tauri::State<'_, Db>,
 ) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let msg = crate::mime::OutgoingMessage {
         from: stored.email,
@@ -500,8 +525,8 @@ pub async fn send_email(
 /// Fetch the data a reply needs: the original's Message-ID/References (threading) and its
 /// plain-text body (quoting).
 #[tauri::command]
-pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
-    let stored = ensure_access_token().await?;
+pub async fn get_reply_context(id: String, state: tauri::State<'_, Db>) -> Result<ReplyContext> {
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.get_reply_context(&id).await
 }
@@ -510,10 +535,14 @@ pub async fn get_reply_context(id: String) -> Result<ReplyContext> {
 /// results are fetched live, not cached. Reuses the smart-inbox scorer to set each result's category
 /// (for the category dot), exactly as the sync path does.
 #[tauri::command]
-pub async fn search_messages(query: String, max: u32) -> Result<Vec<MessagePreview>> {
+pub async fn search_messages(
+    query: String,
+    max: u32,
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<MessagePreview>> {
     // 🦀 `clamp` keeps `max` within 1..=SEARCH_MAX regardless of what the frontend sends.
     let max = max.clamp(1, SEARCH_MAX);
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let ids = client.search_message_ids(&query, max).await?;
     let mut previews = client.get_message_previews(&ids, PREVIEW_CONCURRENCY).await?;
@@ -538,9 +567,13 @@ pub async fn search_messages(query: String, max: u32) -> Result<Vec<MessagePrevi
 /// includeSpamTrash flag, lists ids, hydrates, recency-sorts. Folder results are NOT classified
 /// (category dots are an inbox concept).
 #[tauri::command]
-pub async fn fetch_folder(folder: String, max: u32) -> Result<Vec<MessagePreview>> {
+pub async fn fetch_folder(
+    folder: String,
+    max: u32,
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<MessagePreview>> {
     let max = max.clamp(1, SEARCH_MAX);
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
 
     // Drafts have their own API (a draft id wraps a message id), so they can't go through
@@ -577,8 +610,11 @@ pub async fn fetch_folder(folder: String, max: u32) -> Result<Vec<MessagePreview
 
 /// Fetch one draft's editable content (DB-free). Used to open a draft in the compose editor.
 #[tauri::command]
-pub async fn get_draft(draft_id: String) -> Result<crate::gmail::types::DraftContent> {
-    let stored = ensure_access_token().await?;
+pub async fn get_draft(
+    draft_id: String,
+    state: tauri::State<'_, Db>,
+) -> Result<crate::gmail::types::DraftContent> {
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.get_draft(&draft_id).await
 }
@@ -596,8 +632,9 @@ pub async fn save_draft(
     in_reply_to: Option<String>,
     references: Option<String>,
     thread_id: Option<String>,
+    state: tauri::State<'_, Db>,
 ) -> Result<String> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let msg = crate::mime::OutgoingMessage { from: stored.email, to, cc, subject, body, in_reply_to, references };
     let raw = crate::mime::build_rfc822(&msg);
@@ -620,8 +657,9 @@ pub async fn send_draft(
     in_reply_to: Option<String>,
     references: Option<String>,
     thread_id: Option<String>,
+    state: tauri::State<'_, Db>,
 ) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     let msg = crate::mime::OutgoingMessage { from: stored.email, to, cc, subject, body, in_reply_to, references };
     let raw = crate::mime::build_rfc822(&msg);
@@ -630,24 +668,29 @@ pub async fn send_draft(
 
 /// Permanently delete a draft. DB-free.
 #[tauri::command]
-pub async fn delete_draft(draft_id: String) -> Result<()> {
-    let stored = ensure_access_token().await?;
+pub async fn delete_draft(draft_id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.delete_draft(&draft_id).await
 }
 
 /// List the user's user-created labels (DB-free). Drives the rail labels section + picker + chips.
 #[tauri::command]
-pub async fn list_labels() -> Result<Vec<crate::gmail::types::Label>> {
-    let stored = ensure_access_token().await?; // 🦀 refresh token if expired, same pattern as every DB-free command
+pub async fn list_labels(
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<crate::gmail::types::Label>> {
+    let stored = active_token(&state).await?; // 🦀 refresh token if expired, same pattern as every DB-free command
     let client = GmailClient::new(stored.access_token); // 🦀 thin wrapper around an access token + reqwest client
     client.list_labels().await // 🦀 delegate straight to GmailClient; ? propagates any AppError
 }
 
 /// Create a new user label (DB-free). Returns the created label.
 #[tauri::command]
-pub async fn create_label(name: String) -> Result<crate::gmail::types::Label> {
-    let stored = ensure_access_token().await?; // 🦀 same token-refresh dance
+pub async fn create_label(
+    name: String,
+    state: tauri::State<'_, Db>,
+) -> Result<crate::gmail::types::Label> {
+    let stored = active_token(&state).await?; // 🦀 same token-refresh dance
     let client = GmailClient::new(stored.access_token);
     client.create_label(&name).await // 🦀 &name borrows the owned String as &str — no copy needed
 }
@@ -655,9 +698,13 @@ pub async fn create_label(name: String) -> Result<crate::gmail::types::Label> {
 /// Fetch one label's messages (DB-free) — a user label is just a label id, so this mirrors
 /// fetch_folder's generic arm over list_message_ids.
 #[tauri::command]
-pub async fn fetch_label(label_id: String, max: u32) -> Result<Vec<MessagePreview>> {
+pub async fn fetch_label(
+    label_id: String,
+    max: u32,
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<MessagePreview>> {
     let max = max.clamp(1, SEARCH_MAX); // 🦀 clamp: saturate to [1, SEARCH_MAX] regardless of frontend input
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     // 🦀 `Some(label_id.as_str())` → Option<&str> to match list_message_ids' `label` param.
     let ids = client.list_message_ids(Some(label_id.as_str()), "", max, false).await?;
@@ -668,8 +715,8 @@ pub async fn fetch_label(label_id: String, max: u32) -> Result<Vec<MessagePrevie
 
 /// Restore a trashed message (untrash). DB-free — the Trash folder isn't cached.
 #[tauri::command]
-pub async fn restore_message(id: String) -> Result<()> {
-    let stored = ensure_access_token().await?;
+pub async fn restore_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.untrash_message(&id).await
 }
@@ -677,7 +724,7 @@ pub async fn restore_message(id: String) -> Result<()> {
 /// Permanently delete a message (irreversible) and drop it from the local cache if present.
 #[tauri::command]
 pub async fn delete_message_forever(id: String, state: tauri::State<'_, Db>) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.delete_message_forever(&id).await?;
     let conn = state
@@ -695,7 +742,7 @@ pub async fn snooze_message(
     subject: String, snippet: String, internal_date: i64,
     state: tauri::State<'_, Db>,
 ) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(std::slice::from_ref(&id), &[], &["INBOX"]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
@@ -710,7 +757,7 @@ pub async fn snooze_message(
 /// Manual un-snooze: re-add INBOX + UNREAD on Gmail, drop the local row.
 #[tauri::command]
 pub async fn unsnooze_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(std::slice::from_ref(&id), &["INBOX", "UNREAD"], &[]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
@@ -726,7 +773,7 @@ pub async fn wake_due_snoozes(state: tauri::State<'_, Db>) -> Result<Vec<String>
         db::due_snoozes(&conn, now_millis())?
     };
     if ids.is_empty() { return Ok(Vec::new()); }
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(&ids, &["INBOX", "UNREAD"], &[]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
@@ -744,11 +791,11 @@ pub fn list_snoozed(state: tauri::State<'_, Db>) -> Result<Vec<db::SnoozedRow>> 
 /// Restore MANY trashed messages (untrash). Gmail has no batch untrash, so loop the
 /// dedicated per-message endpoint. DB-free — the Trash folder isn't cached.
 #[tauri::command]
-pub async fn batch_restore_messages(ids: Vec<String>) -> Result<()> {
+pub async fn batch_restore_messages(ids: Vec<String>, state: tauri::State<'_, Db>) -> Result<()> {
     if ids.is_empty() {
         return Ok(());
     }
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     for id in &ids {
         client.untrash_message(id).await?;
@@ -763,7 +810,7 @@ pub async fn batch_delete_messages(ids: Vec<String>, state: tauri::State<'_, Db>
     if ids.is_empty() {
         return Ok(());
     }
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = GmailClient::new(stored.access_token);
     client.batch_delete(&ids).await?;
     let conn = state
@@ -777,8 +824,12 @@ pub async fn batch_delete_messages(ids: Vec<String>, state: tauri::State<'_, Db>
 /// frontend, in local time). Reads all *selected* calendars concurrently, merges, and sorts.
 /// DB-free — calendar data is fetched live, not cached.
 #[tauri::command]
-pub async fn fetch_calendar_week(time_min: String, time_max: String) -> Result<Vec<CalendarEvent>> {
-    let stored = ensure_access_token().await?;
+pub async fn fetch_calendar_week(
+    time_min: String,
+    time_max: String,
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<CalendarEvent>> {
+    let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
 
     // 🦀 Google omits `selected` on the primary calendar; treat "absent" as shown. We only
@@ -864,8 +915,8 @@ pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
 
 /// List the user's calendars (for the create-event calendar picker). DB-free.
 #[tauri::command]
-pub async fn list_calendars() -> Result<Vec<CalendarSummary>> {
-    let stored = ensure_access_token().await?;
+pub async fn list_calendars(state: tauri::State<'_, Db>) -> Result<Vec<CalendarSummary>> {
+    let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
     let entries = client.list_calendars().await?;
     // 🦀 `.into_iter().map(...).collect()` is the idiomatic way to transform an owned Vec
@@ -890,8 +941,9 @@ pub async fn create_calendar_event(
     calendar_id: String,
     event: EventWrite,
     add_meet: bool,
+    state: tauri::State<'_, Db>,
 ) -> Result<CalendarEvent> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
     client.create_event(&calendar_id, &event, add_meet).await
 }
@@ -902,16 +954,21 @@ pub async fn update_calendar_event(
     calendar_id: String,
     event_id: String,
     event: EventWrite,
+    state: tauri::State<'_, Db>,
 ) -> Result<CalendarEvent> {
-    let stored = ensure_access_token().await?;
+    let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
     client.update_event(&calendar_id, &event_id, &event).await
 }
 
 /// Delete a calendar event. DB-free.
 #[tauri::command]
-pub async fn delete_calendar_event(calendar_id: String, event_id: String) -> Result<()> {
-    let stored = ensure_access_token().await?;
+pub async fn delete_calendar_event(
+    calendar_id: String,
+    event_id: String,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
     client.delete_event(&calendar_id, &event_id).await
 }
