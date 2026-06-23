@@ -705,6 +705,14 @@ pub fn upsert_meeting_note(conn: &Connection, account: &str, w: &MeetingNoteWrit
     //    stay OUT of this statement, so a body/transcript save never clobbers the summary.
     //    `account` (?8) is stamped on insert and refreshed on conflict (= excluded.account);
     //    the UNIQUE constraint is still (calendar_id, event_id), so account is a filter column.
+    // 🦀 KNOWN v1 LIMITATION: because the UNIQUE key omits `account`, if two CONNECTED accounts
+    //    are both on the SAME shared calendar event (identical calendar_id + event_id), the
+    //    second account's save will conflict on the shared row and overwrite the first account's
+    //    note (reassigning ownership via account = excluded.account). Reads stay correctly
+    //    account-scoped, so this is a narrow local-data-loss edge — not a cross-account leak.
+    //    Fixing it properly means a UNIQUE(calendar_id, event_id, account) which needs a table
+    //    rebuild (SQLite can't drop an inline UNIQUE), deferred out of this milestone. See the
+    //    spec's "Known limitations".
     conn.execute(
         "INSERT INTO meeting_notes
             (calendar_id, event_id, event_title, event_start, body, transcript, created_at, updated_at, account)

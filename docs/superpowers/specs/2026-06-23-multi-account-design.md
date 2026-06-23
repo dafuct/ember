@@ -217,3 +217,15 @@ Flyway. Safe-DDL spirit still applies: add columns NOT NULL **with** a DEFAULT.
   is the cursor of record.
 - **Background loop cost** scales with account count; deltas keep it cheap after first
   sync. First-sync-per-account is the only heavy step.
+
+## Known limitations (accepted for this milestone)
+
+- **Shared-calendar-event meeting notes.** `meeting_notes` keeps `UNIQUE(calendar_id,
+  event_id)` (account is a filter column, not part of the key). If two *connected*
+  accounts are both on the **same shared** calendar event (identical `calendar_id` +
+  `event_id`) and both take local notes, the second save overwrites the first account's
+  note and reassigns ownership. Reads stay account-scoped, so this is a narrow
+  local-data-loss edge, not a cross-account leak. A proper fix
+  (`UNIQUE(calendar_id, event_id, account)`) needs a SQLite table rebuild (you can't drop
+  an inline UNIQUE via `ALTER`), deferred out of this milestone. Documented at
+  `db::upsert_meeting_note`.

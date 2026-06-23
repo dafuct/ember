@@ -238,7 +238,6 @@ export const getSettings = (): Promise<Settings> =>
   invoke<Settings>("get_settings");
 export const setSettings = (settings: Settings): Promise<void> =>
   invoke<void>("set_settings", { settings });
-export const disconnect = (): Promise<void> => invoke<void>("disconnect");
 
 export const fetchCalendarWeek = (timeMin: string, timeMax: string): Promise<CalendarEvent[]> =>
   isTauri()
