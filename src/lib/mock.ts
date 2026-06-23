@@ -8,6 +8,20 @@ import type { SnoozedRow } from "./snooze";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
+// Multi-account maket state. Mutable `mockActive` simulates the backend active-account pointer.
+export const MOCK_ACCOUNTS = [MOCK_ACCOUNT, "work@example.com (mock)"];
+let mockActive = MOCK_ACCOUNTS[0];
+export const mockGetActive = (): string => mockActive;
+export const mockSetActiveAccount = (email: string): void => { mockActive = email; };
+export const mockListAccounts = () =>
+  MOCK_ACCOUNTS.map((email) => ({ email, active: email === mockActive, unread: email === mockActive ? 2 : 1 }));
+export const mockRemoveAccount = (email: string): string | null => {
+  const i = MOCK_ACCOUNTS.indexOf(email);
+  if (i >= 0) MOCK_ACCOUNTS.splice(i, 1);
+  if (mockActive === email) mockActive = MOCK_ACCOUNTS[0] ?? "";
+  return MOCK_ACCOUNTS.length ? mockActive : null;
+};
+
 export const MOCK_MESSAGES: MessagePreview[] = [
   {
     id: "m1", thread_id: "t1", from: "Maya <maya@studio.co>", subject: "Q3 roadmap",
@@ -363,3 +377,15 @@ export function mockWakeDue(): Promise<string[]> {
 export function mockListSnoozed(): Promise<SnoozedRow[]> {
   return Promise.resolve([..._snoozed].sort((a, b) => a.wake_at - b.wake_at));
 }
+
+// A small distinct inbox for the 2nd mock account so switching is visibly different in the maket.
+const MOCK_MESSAGES_WORK: MessagePreview[] = [
+  {
+    id: "w1", thread_id: "tw1", from: "Payroll <payroll@work.example>", subject: "Payslip for June",
+    date: "Wed, 18 Jun 2026 09:00:00 -0700", snippet: "Your June payslip is ready…",
+    internal_date: 1750100000000, category: "notifications", label_ids: ["INBOX", "UNREAD"],
+    to_addr: "work@example.com",
+  },
+];
+export const mockInboxForActive = (): MessagePreview[] =>
+  mockActive === MOCK_ACCOUNTS[0] ? MOCK_MESSAGES : MOCK_MESSAGES_WORK;

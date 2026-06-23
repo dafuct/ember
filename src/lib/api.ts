@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_ACCOUNT, MOCK_MESSAGES, MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars } from "./mock";
+import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive } from "./mock";
 
 export type { CalendarEvent };
 
@@ -24,10 +24,21 @@ export interface MessagePreview {
 export const connectGmail = (): Promise<string> =>
   invoke<string>("connect_gmail");
 export const getConnectedAccount = (): Promise<string | null> =>
-  isTauri() ? invoke<string | null>("get_connected_account") : Promise.resolve(MOCK_ACCOUNT);
+  isTauri() ? invoke<string | null>("get_connected_account") : Promise.resolve(mockGetActive());
 
 export const fetchInboxPreview = (max = 20): Promise<MessagePreview[]> =>
-  isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(MOCK_MESSAGES);
+  isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(mockInboxForActive());
+
+export interface AccountInfo { email: string; active: boolean; unread: number }
+
+export const listAccounts = (): Promise<AccountInfo[]> =>
+  isTauri() ? invoke<AccountInfo[]>("list_accounts") : Promise.resolve(mockListAccounts());
+
+export const setActiveAccount = (email: string): Promise<void> =>
+  isTauri() ? invoke<void>("set_active_account", { email }) : (mockSetActiveAccount(email), Promise.resolve());
+
+export const removeAccount = (email: string): Promise<string | null> =>
+  isTauri() ? invoke<string | null>("remove_account", { email }) : Promise.resolve(mockRemoveAccount(email));
 
 export const searchMessages = (query: string, max = 50): Promise<MessagePreview[]> =>
   isTauri()
