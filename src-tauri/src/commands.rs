@@ -30,6 +30,18 @@ pub struct SyncSummary {
     pub removed: usize,
 }
 
+/// Per-account result of a sync. `new_previews` carries the incrementally-added messages so
+/// the frontend can notify per account; it is EMPTY on a `baseline` run (full resync) to
+/// avoid notifying on ~30 days of backfill. `account` is the email this summary is for.
+#[derive(serde::Serialize)]
+pub struct AccountSyncSummary {
+    pub account: String,
+    pub added: usize,
+    pub removed: usize,
+    pub baseline: bool,
+    pub new_previews: Vec<MessagePreview>,
+}
+
 const PREVIEW_CONCURRENCY: usize = 8;
 const SEARCH_MAX: u32 = 50;
 const CALENDAR_CONCURRENCY: usize = 6;
@@ -102,12 +114,16 @@ pub async fn get_connected_account(state: tauri::State<'_, Db>) -> Result<Option
     db::get_active_account(&conn)
 }
 
-/// Sync INBOX into the local DB. Uses Gmail history deltas when we have a stored
-/// historyId (fast); falls back to a full ~30-day resync on first run or if the
-/// historyId expired. Returns the number of messages added and removed this run.
-#[tauri::command]
-pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
-    let stored = active_token(&state).await?;
+/// Sync ONE account's INBOX into the scoped cache. Fast path (history delta) reports
+/// baseline=false with the added previews; slow path (first sync / expired historyId)
+/// reports baseline=true with empty new_previews (so callers don't notify on backfill).
+// 🦀 Takes an explicit `email` and resolves its token via `ensure_token_for` (not the
+//    active-account `active_token`), so the all-accounts loop can sync any account.
+async fn sync_one_account(
+    state: &tauri::State<'_, Db>,
+    email: &str,
+) -> Result<AccountSyncSummary> {
+    let stored = ensure_token_for(email).await?;
     let client = GmailClient::new(stored.access_token);
     // 🦀 Prune cutoff: 30 days ago, in Unix MILLISECONDS (internal_date's unit).
     let cutoff_ms = (now_secs() as i64 - SYNC_WINDOW_DAYS * 24 * 60 * 60) * 1000;
@@ -118,7 +134,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
         let conn = state
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-        db::get_sync_state(&conn, &stored.email)?.and_then(|s| s.last_history_id)
+        db::get_sync_state(&conn, email)?.and_then(|s| s.last_history_id)
     };
 
     // 🦀 Fast path: with a baseline, ask Gmail only for what CHANGED since then.
@@ -128,6 +144,9 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
             let previews = client
                 .get_message_previews(&delta.added_ids, PREVIEW_CONCURRENCY)
                 .await?;
+            // 🦀 Clone the previews for the notification payload BEFORE `to_rows` consumes
+            //    the Vec — only the FAST path notifies (baseline=false).
+            let new_previews = previews.clone();
             let rows = to_rows(previews);
             let count = rows.len();
             // 🦀 Advance the baseline: use the new historyId when Gmail returns one,
@@ -145,17 +164,25 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
                     .lock()
                     .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
                 // 🦀 One atomic transaction for the whole delta (see db::apply_delta).
-                db::apply_delta(&conn, &stored.email, &rows, &delta.removed_ids, cutoff_ms)?;
-                db::set_sync_state(&conn, &stored.email, Some(new_hid), now_secs() as i64)?;
+                db::apply_delta(&conn, email, &rows, &delta.removed_ids, cutoff_ms)?;
+                db::set_sync_state(&conn, email, Some(new_hid), now_secs() as i64)?;
             }
             // NOTE (known limitation): Gmail's labelId=INBOX history filter can omit a
             // *hard* delete of an INBOX message; such rows are removed by the 30-day prune.
-            return Ok(SyncSummary { added: count, removed });
+            return Ok(AccountSyncSummary {
+                account: email.to_string(),
+                added: count,
+                removed,
+                baseline: false,
+                new_previews,
+            });
         }
-        // 🦀 `too_old` → stored historyId expired (Gmail keeps ~a week). Fall through.
+        // 🦀 `too_old` → stored historyId expired (Gmail keeps ~a week). Fall through to a
+        //    full resync (treated as a baseline → no notifications).
     }
 
-    // Slow path: first sync ever, or the historyId aged out — pull the whole window.
+    // Slow path / baseline: first sync ever, or the historyId aged out — pull the whole
+    // window. No notifications fire on this path (new_previews stays empty).
     // 🦀 Read the baseline historyId BEFORE the heavy message fetch: if this network
     //    call fails we bail early (no wasted fetch), and capturing it first means any
     //    messages that arrive *during* the fetch are simply re-seen on the next sync
@@ -180,10 +207,36 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
         // 🦀 Full resync: upsert everything, no deletes, prune old — one transaction.
-        db::apply_delta(&conn, &stored.email, &rows, &[], cutoff_ms)?;
-        db::set_sync_state(&conn, &stored.email, Some(baseline_hid), now_secs() as i64)?;
+        db::apply_delta(&conn, email, &rows, &[], cutoff_ms)?;
+        db::set_sync_state(&conn, email, Some(baseline_hid), now_secs() as i64)?;
     }
-    Ok(SyncSummary { added: count, removed: 0 })
+    Ok(AccountSyncSummary {
+        account: email.to_string(),
+        added: count,
+        removed: 0,
+        baseline: true,
+        new_previews: Vec::new(),
+    })
+}
+
+/// Sync the ACTIVE account's INBOX into the local DB. Thin wrapper over
+/// `sync_one_account`. Uses Gmail history deltas when we have a stored historyId
+/// (fast); falls back to a full ~30-day resync on first run or if the historyId
+/// expired. Returns the number of messages added and removed this run.
+#[tauri::command]
+pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
+    let email = {
+        let conn = state
+            .lock()
+            .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::get_active_account(&conn)?
+            .ok_or_else(|| AppError::Auth("no active account".into()))?
+    };
+    let s = sync_one_account(&state, &email).await?;
+    Ok(SyncSummary {
+        added: s.added,
+        removed: s.removed,
+    })
 }
 
 /// The most recent inbox previews, read from the local DB (fast, works offline).
