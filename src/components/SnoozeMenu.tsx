@@ -1,0 +1,31 @@
+import { useState } from "react";
+import { snoozePresets } from "../lib/snooze";
+
+export function SnoozeMenu({
+  anchor, onPick, onClose,
+}: {
+  anchor: { x: number; y: number };
+  onPick: (wakeAt: number) => void;
+  onClose: () => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const presets = snoozePresets();
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  return (
+    <>
+      <div className="snooze-backdrop" onClick={onClose} />
+      <div className="snooze-menu" style={{ left: anchor.x, top: anchor.y }} role="menu">
+        {presets.map((p) => (
+          <button key={p.label} className="snooze-item" onClick={() => onPick(p.wakeAt)}>
+            <span>{p.label}</span><span className="snooze-when">{fmt(p.wakeAt)}</span>
+          </button>
+        ))}
+        <div className="snooze-custom">
+          <input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} aria-label="Custom snooze time" />
+          <button className="snooze-go" disabled={!custom} onClick={() => { const t = new Date(custom).getTime(); if (!Number.isNaN(t)) onPick(t); }}>Snooze</button>
+        </div>
+      </div>
+    </>
+  );
+}

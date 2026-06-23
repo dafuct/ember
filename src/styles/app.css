@@ -500,3 +500,16 @@
 .sb-label { flex: 1; }
 .sb-count { font-size: 12px; font-weight: 600; color: var(--text-muted); background: var(--surface-2); border-radius: var(--radius-pill); padding: 1px 8px; }
 .sb-item.active .sb-count { background: var(--accent); color: var(--accent-contrast); }
+
+/* Snooze menu + card/reading-pane clock triggers. */
+.snooze-backdrop { position: fixed; inset: 0; z-index: 40; }
+.snooze-menu { position: fixed; z-index: 41; min-width: 220px; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
+.snooze-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 8px 10px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; cursor: pointer; }
+.snooze-item:hover { background: var(--accent-weak); color: var(--accent-text); }
+.snooze-when { color: var(--text-faint); font-size: 12px; }
+.snooze-custom { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); margin-top: 4px; }
+.snooze-custom input { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 4px 8px; }
+.snooze-go { background: var(--accent); color: var(--accent-contrast); border: none; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+.snooze-go:disabled { opacity: .5; cursor: default; }
+.msg-clock { background: none; border: none; color: var(--text-faint); cursor: pointer; }
+.msg-clock:hover { color: var(--accent-text); }

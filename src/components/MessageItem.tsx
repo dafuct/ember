@@ -1,7 +1,7 @@
 import type { MessagePreview, Label } from "../lib/api";
 import { isStarred, isUnread, userLabelChips } from "../lib/labels";
 import { relativeTime } from "../lib/time";
-import { Star } from "lucide-react";
+import { Star, Clock } from "lucide-react";
 import { LabelChips } from "./LabelChips";
 
 // Deterministic avatar tint from the sender string so the same correspondent
@@ -26,6 +26,7 @@ export function MessageItem({
   onToggleSelect,
   onArchive,
   onStar,
+  onSnooze,
   showRecipient = false,
   labelsById,
 }: {
@@ -36,6 +37,7 @@ export function MessageItem({
   onToggleSelect?: (id: string) => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
+  onSnooze?: (msg: MessagePreview, e: { clientX: number; clientY: number }) => void;
   showRecipient?: boolean;
   labelsById?: Map<string, Label>;
 }) {
@@ -89,6 +91,18 @@ export function MessageItem({
         {labelsById && <LabelChips labels={userLabelChips(msg, labelsById)} />}
         <div className="snippet">{msg.snippet}</div>
       </div>
+      {onSnooze && (
+        <button
+          className="msg-clock"
+          aria-label="Snooze"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSnooze(msg, e);
+          }}
+        >
+          <Clock size={16} />
+        </button>
+      )}
       <button
         className={starred ? "msg-star on" : "msg-star"}
         aria-label={starred ? "Unstar" : "Star"}

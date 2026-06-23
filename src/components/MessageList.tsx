@@ -36,6 +36,7 @@ export function MessageList({
   onBatchDeleteForever,
   onArchive,
   onStar,
+  onSnooze,
   flat = false,
   title,
   emptyText,
@@ -67,6 +68,7 @@ export function MessageList({
   onBatchDeleteForever?: () => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
+  onSnooze?: (msg: MessagePreview, e: { clientX: number; clientY: number }) => void;
   /** When true, render `messages` as a flat list (no stream filter/grouping) — used for search. */
   flat?: boolean;
   /** Header title override (used in flat/search mode). */
@@ -195,6 +197,7 @@ export function MessageList({
                     labelsById={labelsById}
                     onArchive={onArchive}
                     onStar={onStar}
+                    onSnooze={onSnooze}
                     showRecipient={showRecipient}
                   />
                 ))}
@@ -213,6 +216,7 @@ export function MessageList({
               labelsById={labelsById}
               onArchive={onArchive}
               onStar={onStar}
+              onSnooze={onSnooze}
               showRecipient={showRecipient}
             />
           ))

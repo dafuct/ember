@@ -43,6 +43,8 @@ import { UndoToast } from "./components/UndoToast";
 import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { LabelPicker } from "./components/LabelPicker";
+import { SnoozeMenu } from "./components/SnoozeMenu";
+import { snoozeMessage } from "./lib/snooze";
 import { FOLDERS } from "./lib/folders";
 
 // Top-level Mail/Calendar view (was imported from the now-retired Header).
@@ -105,6 +107,18 @@ export default function App() {
   const [labels, setLabels] = useState<Label[]>([]);
   const labelsById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const [labelPicker, setLabelPicker] = useState<MessagePreview[] | null>(null);
+
+  // Snooze: anchor the menu at the click point; picking a wake time optimistically removes
+  // the row from the active list (reusing removeWithAction) and persists via snoozeMessage.
+  const [snoozeTarget, setSnoozeTarget] = useState<{ msg: MessagePreview; x: number; y: number } | null>(null);
+  const openSnoozeMenu = (msg: MessagePreview, e: { clientX: number; clientY: number }) =>
+    setSnoozeTarget({ msg, x: e.clientX, y: e.clientY });
+  const handleSnoozePick = (wakeAt: number) => {
+    const t = snoozeTarget;
+    if (!t) return;
+    setSnoozeTarget(null);
+    removeWithAction(t.msg, () => snoozeMessage(t.msg, wakeAt));
+  };
 
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
@@ -770,6 +784,7 @@ export default function App() {
                   onSelect={handleRowSelect}
                   onArchive={handleArchive}
                   onStar={toggleStar}
+                  onSnooze={(msg, e) => openSnoozeMenu(msg, e)}
                   selectedIds={selectedIds}
                   onToggleSelect={toggleSelect}
                   onSelectAllVisible={selectAllVisible}
@@ -822,6 +837,7 @@ export default function App() {
                   onReply={handleReply}
                   onReplyAll={handleReplyAll}
                   onForward={handleForward}
+                  onSnooze={(msg, e) => openSnoozeMenu(msg, e)}
                   folder={folder}
                   onRestore={handleRestore}
                   onDeleteForever={handleDeleteForever}
@@ -884,6 +900,13 @@ export default function App() {
           onApply={(labelId, add) => applyLabel(labelPicker, labelId, add)}
           onCreate={(name) => handleCreateLabel(name, labelPicker)}
           onClose={() => setLabelPicker(null)}
+        />
+      )}
+      {snoozeTarget && (
+        <SnoozeMenu
+          anchor={{ x: snoozeTarget.x, y: snoozeTarget.y }}
+          onPick={handleSnoozePick}
+          onClose={() => setSnoozeTarget(null)}
         />
       )}
     </div>

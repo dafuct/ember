@@ -9,7 +9,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { formatBytes } from "../lib/attachments";
-import { Mail, Archive, Trash2, Star, RotateCcw, Tag, Paperclip, Reply, ReplyAll, Forward } from "lucide-react";
+import { Mail, Archive, Trash2, Star, RotateCcw, Tag, Paperclip, Reply, ReplyAll, Forward, Clock } from "lucide-react";
 import { isStarred, userLabelChips } from "../lib/labels";
 import { CATEGORY_LABEL } from "../lib/streams";
 import { LabelChips } from "./LabelChips";
@@ -25,6 +25,7 @@ export function ReadingPane({
   onReply,
   onReplyAll,
   onForward,
+  onSnooze,
   folder = "inbox",
   onRestore,
   onDeleteForever,
@@ -40,6 +41,7 @@ export function ReadingPane({
   onReply: (m: MessagePreview) => void;
   onReplyAll: (m: MessagePreview) => void;
   onForward: (m: MessagePreview) => void;
+  onSnooze?: (m: MessagePreview, e: { clientX: number; clientY: number }) => void;
   folder?: string;
   onRestore?: (m: MessagePreview) => void;
   onDeleteForever?: (m: MessagePreview) => void;
@@ -178,6 +180,11 @@ export function ReadingPane({
             <button className="read-tool" aria-label="Archive" onClick={() => onArchive(msg)}>
               <Archive size={16} />
             </button>
+            {onSnooze && (
+              <button className="read-tool" aria-label="Snooze" onClick={(e) => onSnooze(msg, e)}>
+                <Clock size={16} />
+              </button>
+            )}
             <button className="read-tool" aria-label="Mark as unread" onClick={() => onMarkUnread(msg)}>
               <Mail size={16} />
             </button>
