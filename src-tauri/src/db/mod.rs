@@ -142,7 +142,18 @@ pub fn init(conn: &Connection) -> Result<()> {
             summary_updated_at INTEGER NOT NULL DEFAULT 0,
             transcript  TEXT NOT NULL DEFAULT '',
             UNIQUE(calendar_id, event_id)
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS snoozed (
+            message_id    TEXT PRIMARY KEY,
+            thread_id     TEXT NOT NULL DEFAULT '',
+            wake_at       INTEGER NOT NULL,
+            snoozed_at    INTEGER NOT NULL,
+            from_addr     TEXT NOT NULL DEFAULT '',
+            subject       TEXT NOT NULL DEFAULT '',
+            snippet       TEXT NOT NULL DEFAULT '',
+            internal_date INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_snoozed_wake_at ON snoozed(wake_at);",
     )?;
 
     // 🦀 Additive migration for DBs created before the M6 smart-inbox columns. The
@@ -587,6 +598,73 @@ pub fn set_meeting_note_summary(
         .ok_or_else(|| crate::error::AppError::Other("note not found".into()))
 }
 
+// ── Snooze helpers ────────────────────────────────────────────────────────────
+
+/// One row in the `snoozed` table. `message_id` is the PRIMARY KEY, so
+/// `insert_snooze` with a repeated id replaces the existing snooze (re-snooze).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SnoozedRow {
+    pub message_id: String,
+    pub thread_id: String,
+    pub wake_at: i64,
+    pub snoozed_at: i64,
+    pub from_addr: String,
+    pub subject: String,
+    pub snippet: String,
+    pub internal_date: i64,
+}
+
+/// Upsert a snooze record (INSERT OR REPLACE — re-snooze replaces the old wake_at).
+pub fn insert_snooze(conn: &Connection, r: &SnoozedRow) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO snoozed
+           (message_id, thread_id, wake_at, snoozed_at, from_addr, subject, snippet, internal_date)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![r.message_id, r.thread_id, r.wake_at, r.snoozed_at, r.from_addr, r.subject, r.snippet, r.internal_date],
+    )?;
+    Ok(())
+}
+
+/// Remove snoozed rows by message_id (used after waking or manual un-snooze).
+pub fn delete_snoozes(conn: &Connection, ids: &[String]) -> Result<()> {
+    if ids.is_empty() { return Ok(()); }
+    // 🦀 Build an IN (?,?,…) clause dynamically. Table name and column name are
+    //    compile-time constants; only the values go through bound params.
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("DELETE FROM snoozed WHERE message_id IN ({placeholders})");
+    let refs: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    conn.execute(&sql, refs.as_slice())?;
+    Ok(())
+}
+
+/// IDs of messages whose `wake_at <= now_ms`, ordered earliest-first.
+pub fn due_snoozes(conn: &Connection, now_ms: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id FROM snoozed WHERE wake_at <= ?1 ORDER BY wake_at ASC",
+    )?;
+    let rows = stmt.query_map(params![now_ms], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// All snoozed rows, ordered by wake_at ASC (drives the Snoozed view).
+pub fn list_snoozes(conn: &Connection) -> Result<Vec<SnoozedRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id, thread_id, wake_at, snoozed_at, from_addr, subject, snippet, internal_date
+         FROM snoozed ORDER BY wake_at ASC",
+    )?;
+    let rows = stmt.query_map([], |r| Ok(SnoozedRow {
+        message_id: r.get(0)?,
+        thread_id:  r.get(1)?,
+        wake_at:    r.get(2)?,
+        snoozed_at: r.get(3)?,
+        from_addr:  r.get(4)?,
+        subject:    r.get(5)?,
+        snippet:    r.get(6)?,
+        internal_date: r.get(7)?,
+    }))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1009,6 +1087,27 @@ mod tests {
         assert_eq!(after.updated_at, 3000); // bumped by the body/transcript save
         assert_eq!(after.summary, "sum"); // summary preserved (stays out of the upsert)
         assert_eq!(after.summary_updated_at, 1200);
+    }
+
+    #[test]
+    fn snooze_insert_due_list_delete() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        let row = |id: &str, wake: i64| SnoozedRow {
+            message_id: id.into(), thread_id: "t".into(), wake_at: wake, snoozed_at: 1,
+            from_addr: "a@b.co".into(), subject: "s".into(), snippet: "sn".into(), internal_date: wake,
+        };
+        insert_snooze(&c, &row("a", 1000)).unwrap();
+        insert_snooze(&c, &row("b", 3000)).unwrap();
+        assert_eq!(due_snoozes(&c, 999).unwrap(), Vec::<String>::new());
+        assert_eq!(due_snoozes(&c, 1000).unwrap(), vec!["a".to_string()]);
+        assert_eq!(due_snoozes(&c, 5000).unwrap(), vec!["a".to_string(), "b".to_string()]);
+        insert_snooze(&c, &row("a", 9000)).unwrap();
+        assert_eq!(list_snoozes(&c).unwrap().len(), 2);
+        delete_snoozes(&c, &["a".to_string()]).unwrap();
+        let left = list_snoozes(&c).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].message_id, "b");
     }
 
     #[test]
