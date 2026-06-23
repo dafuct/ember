@@ -75,11 +75,21 @@ pub fn migrate_legacy_primary_account(conn: &rusqlite::Connection) -> Result<()>
     Ok(())
 }
 
-/// Run the interactive Google sign-in. Returns the connected email address.
+/// Run the interactive Google sign-in, register the account in the index, and make it
+/// active. Returns the connected email address.
 #[tauri::command]
-pub async fn connect_gmail() -> Result<String> {
+pub async fn connect_gmail(state: tauri::State<'_, Db>) -> Result<String> {
     let oauth = GoogleOAuth::from_env()?;
-    let stored = oauth.connect().await?;
+    let stored = oauth.connect().await?; // already saves the token under stored.email
+    // 🦀 Register + activate AFTER the await (the OAuth round-trip is the slow part); the
+    //    DB lock is taken only for these two quick writes and dropped at the block's end.
+    {
+        let conn = state
+            .lock()
+            .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::add_account(&conn, &stored.email)?;      // idempotent — no dup if already present
+        db::set_active_account(&conn, &stored.email)?; // newly connected account becomes active
+    }
     Ok(stored.email)
 }
 
