@@ -12,6 +12,13 @@ export function SnoozeMenu({
   const presets = snoozePresets();
   const fmt = (ms: number) =>
     new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  // Min for the custom picker = local "now" as YYYY-MM-DDTHH:mm, so a past wake (which would
+  // archive then immediately un-snooze on the next wake tick) can't be picked.
+  const localNow = (() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  })();
   return (
     <>
       <div className="snooze-backdrop" onClick={onClose} />
@@ -22,7 +29,7 @@ export function SnoozeMenu({
           </button>
         ))}
         <div className="snooze-custom">
-          <input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} aria-label="Custom snooze time" />
+          <input type="datetime-local" min={localNow} value={custom} onChange={(e) => setCustom(e.target.value)} aria-label="Custom snooze time" />
           <button className="snooze-go" disabled={!custom} onClick={() => { const t = new Date(custom).getTime(); if (!Number.isNaN(t)) onPick(t); }}>Snooze</button>
         </div>
       </div>
