@@ -687,6 +687,60 @@ pub async fn delete_message_forever(id: String, state: tauri::State<'_, Db>) -> 
     Ok(())
 }
 
+/// Snooze: archive on Gmail (remove INBOX), drop from the inbox cache, record a local wake-time.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn snooze_message(
+    id: String, wake_at: i64, thread_id: String, from_addr: String,
+    subject: String, snippet: String, internal_date: i64,
+    state: tauri::State<'_, Db>,
+) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.batch_modify(std::slice::from_ref(&id), &[], &["INBOX"]).await?;
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    db::insert_snooze(&conn, &db::SnoozedRow {
+        message_id: id, thread_id, wake_at, snoozed_at: now_millis(),
+        from_addr, subject, snippet, internal_date,
+    })?;
+    Ok(())
+}
+
+/// Manual un-snooze: re-add INBOX + UNREAD on Gmail, drop the local row.
+#[tauri::command]
+pub async fn unsnooze_message(id: String, state: tauri::State<'_, Db>) -> Result<()> {
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.batch_modify(std::slice::from_ref(&id), &["INBOX", "UNREAD"], &[]).await?;
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_snoozes(&conn, std::slice::from_ref(&id))?;
+    Ok(())
+}
+
+/// Wake all snoozes whose wake_at has passed. Returns early (no network) when none are due.
+#[tauri::command]
+pub async fn wake_due_snoozes(state: tauri::State<'_, Db>) -> Result<Vec<String>> {
+    let ids = {
+        let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+        db::due_snoozes(&conn, now_millis())?
+    };
+    if ids.is_empty() { return Ok(Vec::new()); }
+    let stored = ensure_access_token().await?;
+    let client = GmailClient::new(stored.access_token);
+    client.batch_modify(&ids, &["INBOX", "UNREAD"], &[]).await?;
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::delete_snoozes(&conn, &ids)?;
+    Ok(ids)
+}
+
+/// List pending snoozes for the Snoozed view (DB-only).
+#[tauri::command]
+pub fn list_snoozed(state: tauri::State<'_, Db>) -> Result<Vec<db::SnoozedRow>> {
+    let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    db::list_snoozes(&conn)
+}
+
 /// Restore MANY trashed messages (untrash). Gmail has no batch untrash, so loop the
 /// dedicated per-message endpoint. DB-free — the Trash folder isn't cached.
 #[tauri::command]
