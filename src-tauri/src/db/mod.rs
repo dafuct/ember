@@ -582,6 +582,44 @@ pub fn clear_account_data(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Wipe all cache rows for ONE account (used on per-account removal). Mirrors
+/// clear_account_data but scoped — and also clears that account's snoozed + meeting_notes.
+pub fn remove_account_data(conn: &Connection, account: &str) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM messages WHERE account = ?1", params![account])?;
+    tx.execute("DELETE FROM snoozed WHERE account = ?1", params![account])?;
+    tx.execute("DELETE FROM meeting_notes WHERE account = ?1", params![account])?;
+    tx.execute("DELETE FROM sync_state WHERE account = ?1", params![account])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Remove the active-account pointer entirely (used when the last account is removed).
+pub fn clear_active_account(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = 'active_account'", [])?;
+    Ok(())
+}
+
+/// Remove `email` from the accounts index and re-point the active pointer — but ONLY when
+/// the removed account was the active one. Removing a *non-active* account must leave the
+/// current active account untouched (e.g. removing C while B is active keeps B active).
+/// Returns the resulting active account (None when the last/active account was removed and
+/// none remain). The cache wipe (remove_account_data) is the caller's responsibility.
+// 🦀 The `was_active` capture BEFORE the index edit is the whole point: without it, naively
+//    re-pointing to `get_accounts().first()` would silently switch the active account every
+//    time you removed any non-first account.
+pub fn remove_account_and_repoint(conn: &Connection, email: &str) -> Result<Option<String>> {
+    let was_active = get_active_account(conn)?.as_deref() == Some(email);
+    remove_account(conn, email)?;
+    if was_active {
+        match get_accounts(conn)?.first() {
+            Some(e) => set_active_account(conn, e)?,
+            None => clear_active_account(conn)?,
+        }
+    }
+    get_active_account(conn)
+}
+
 /// One-time migration: stamp pre-multi-account cache rows (account='') and the legacy
 /// 'primary' sync_state with the given account email. Idempotent — re-running finds no
 /// account='' rows to update.
@@ -1054,6 +1092,22 @@ mod tests {
         assert!(!s.notifications);
     }
 
+    #[test]
+    fn remove_account_data_only_wipes_that_account() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        c.execute("INSERT INTO messages (id, account) VALUES ('a1','a@x.com')", []).unwrap();
+        c.execute("INSERT INTO messages (id, account) VALUES ('b1','b@x.com')", []).unwrap();
+        c.execute("INSERT INTO sync_state (account,last_history_id,last_synced_at) VALUES ('a@x.com',1,0)", []).unwrap();
+        remove_account_data(&c, "a@x.com").unwrap();
+        let n: i64 = c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+        let left: String = c.query_row("SELECT account FROM messages", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, "b@x.com");
+        let synced: i64 = c.query_row("SELECT COUNT(*) FROM sync_state WHERE account='a@x.com'", [], |r| r.get(0)).unwrap();
+        assert_eq!(synced, 0);
+    }
+
     // 🦀 Build a MeetingNoteWrite with given key + body; snapshot fields are filler.
     fn note_write(cal: &str, ev: &str, body: &str) -> MeetingNoteWrite {
         MeetingNoteWrite {
@@ -1331,5 +1385,28 @@ mod tests {
         assert_eq!(get_active_account(&c).unwrap(), None);
         set_active_account(&c, "b@gmail.com").unwrap();
         assert_eq!(get_active_account(&c).unwrap(), Some("b@gmail.com".to_string()));
+    }
+
+    #[test]
+    fn remove_account_and_repoint_covers_all_three_branches() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        for e in ["a@x.com", "b@x.com", "c@x.com"] {
+            add_account(&c, e).unwrap();
+        }
+        set_active_account(&c, "b@x.com").unwrap();
+        // Removing a NON-active account preserves the active one (B stays active, NOT reset to A).
+        assert_eq!(
+            remove_account_and_repoint(&c, "c@x.com").unwrap(),
+            Some("b@x.com".to_string())
+        );
+        // Removing the ACTIVE account re-points to the first remaining (A).
+        assert_eq!(
+            remove_account_and_repoint(&c, "b@x.com").unwrap(),
+            Some("a@x.com".to_string())
+        );
+        // Removing the LAST account clears the pointer.
+        assert_eq!(remove_account_and_repoint(&c, "a@x.com").unwrap(), None);
+        assert_eq!(get_accounts(&c).unwrap(), Vec::<String>::new());
     }
 }

@@ -164,6 +164,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::disconnect,
+            commands::remove_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

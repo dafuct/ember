@@ -947,22 +947,39 @@ pub async fn set_settings(settings: db::Settings, state: tauri::State<'_, Db>) -
     db::save_settings(&conn, &settings)
 }
 
-/// Sign out: delete the Keychain token and clear the local mail cache (messages +
-/// sync_state). Settings (user prefs) are kept. After this, the app returns to the
-/// connect screen.
+/// Remove one account everywhere: Keychain token, scoped cache, and the index; then
+/// re-point `active_account` ONLY if the removed account was the active one (removing a
+/// non-active account preserves the current active account — see db::remove_account_and_repoint).
+/// Returns the resulting active account (None if none remain). Takes the already-held conn.
+fn remove_account_inner(conn: &rusqlite::Connection, email: &str) -> Result<Option<String>> {
+    delete_token(email)?;
+    db::remove_account_data(conn, email)?;
+    db::remove_account_and_repoint(conn, email)
+}
+
+/// Remove ONE account (by email). Returns the new active account, or None if none remain.
 #[tauri::command]
-pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
-    // 🦀 `delete_token` is synchronous (keyring), so there's no `.await` between it and
-    //    taking the DB lock — no MutexGuard-across-await concern.
-    delete_token(PRIMARY_ACCOUNT)?;
-    // 🦀 Token-first ordering is deliberate: a sign-out must guarantee the credential is
-    //    gone (the privacy-critical part). If clear_account_data below then fails, the
-    //    cache rows are orphaned but harmless — get_connected_account still returns None
-    //    (token deleted → connect screen) and the stale rows are overwritten on next sync.
+pub async fn remove_account(state: tauri::State<'_, Db>, email: String) -> Result<Option<String>> {
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::clear_account_data(&conn)
+    remove_account_inner(&conn, &email)
+}
+
+/// Sign out of the ACTIVE account (back-compat for the current frontend; superseded by
+/// the per-account `remove_account` once the multi-account UI lands). Removes the active
+/// account's token + scoped cache and re-points to another account if one exists.
+#[tauri::command]
+pub async fn disconnect(state: tauri::State<'_, Db>) -> Result<()> {
+    // 🦀 `delete_token` (inside the helper) is synchronous (keyring), so there's no `.await`
+    //    while the DB lock is held — no MutexGuard-across-await concern.
+    let conn = state
+        .lock()
+        .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
+    if let Some(active) = db::get_active_account(&conn)? {
+        remove_account_inner(&conn, &active)?;
+    }
+    Ok(())
 }
 
 /// List the user's calendars (for the create-event calendar picker). DB-free.
