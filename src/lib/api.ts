@@ -60,6 +60,16 @@ export interface SyncSummary {
 export const syncInbox = (): Promise<SyncSummary> =>
   isTauri() ? invoke<SyncSummary>("sync_inbox") : Promise.resolve(MOCK_SYNC);
 
+export interface AccountSyncSummary {
+  account: string;
+  added: number;
+  removed: number;
+  baseline: boolean;
+  new_previews: MessagePreview[];
+}
+export const syncAllAccounts = (): Promise<AccountSyncSummary[]> =>
+  isTauri() ? invoke<AccountSyncSummary[]>("sync_all_accounts") : Promise.resolve([]);
+
 export interface Attachment {
   filename: string;
   mime_type: string;

@@ -40,13 +40,14 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 /** Post one native banner for a new message. No-ops (logs) outside Tauri or on failure. */
-export async function notifyNewMail(m: MessagePreview): Promise<void> {
+export async function notifyNewMail(m: MessagePreview, accountLabel?: string): Promise<void> {
   if (!isTauri()) {
-    console.debug("[ember] (maket) new mail:", displayName(m.from), "—", m.subject);
+    console.debug("[ember] (maket) new mail:", displayName(m.from), "—", m.subject, accountLabel ? `(${accountLabel})` : "");
     return;
   }
   try {
-    sendNotification({ title: displayName(m.from), body: m.subject });
+    const title = accountLabel ? `${displayName(m.from)} · ${accountLabel}` : displayName(m.from);
+    sendNotification({ title, body: m.subject });
   } catch (e) {
     console.warn("[ember] sendNotification failed:", e);
   }

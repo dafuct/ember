@@ -24,7 +24,9 @@ import {
   listAccounts,
   setActiveAccount,
   removeAccount,
+  syncAllAccounts,
   type AccountInfo,
+  type AccountSyncSummary,
   type Label,
   type MessagePreview,
   type Settings,
@@ -271,9 +273,10 @@ export default function App() {
 
   // Background poll: sync every POLL_MS while connected with notifications on. Tearing
   // down on dep change means disconnect / toggle-off / unmount all stop the timer.
+  // Syncs ALL connected accounts (not just the active one) and notifies per account.
   useEffect(() => {
     if (!account || !settings.notifications) return;
-    const id = setInterval(() => void runSyncRef.current(false), POLL_MS);
+    const id = setInterval(() => void runBackgroundSyncRef.current(), POLL_MS);
     return () => clearInterval(id);
   }, [account, settings.notifications]);
 
@@ -345,10 +348,46 @@ export default function App() {
 
   const handleSync = () => runSync(true);
 
+  // Background ALL-accounts sync (the poll timer). Syncs every connected account and posts
+  // notifications per account using the backend's baseline/new_previews (so a newly-added
+  // account's full backfill doesn't spam banners). The active account's visible list is
+  // refreshed too. Distinct from runSync (the manual, active-account Sync button).
+  async function runBackgroundSync() {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    try {
+      const summaries: AccountSyncSummary[] = await syncAllAccounts();
+      for (const s of summaries) {
+        if (s.account === account) {
+          // Refresh the visible inbox for the active account.
+          const list = await fetchInboxPreview(50);
+          setMessages(list);
+          for (const m of list) knownIdsRef.current.add(m.id);
+        }
+        // Notify per account. baseline runs already carry empty new_previews (no backfill spam).
+        if (!s.baseline && s.new_previews.length && notifyAllowedRef.current && !document.hasFocus()) {
+          const fresh = s.new_previews
+            .filter((m) => !knownIdsRef.current.has(m.id))
+            .sort((a, b) => b.internal_date - a.internal_date)
+            .slice(0, MAX_NOTIFY_PER_SYNC);
+          for (const m of fresh) { knownIdsRef.current.add(m.id); void notifyNewMail(m, s.account); }
+        }
+      }
+    } catch (e) {
+      console.warn("[ember] background all-accounts sync failed:", e);
+    } finally {
+      syncingRef.current = false;
+    }
+  }
+
   // Live ref to runSync so the interval always calls the latest closure without
   // re-subscribing the timer on every render.
   const runSyncRef = useRef(runSync);
   runSyncRef.current = runSync;
+
+  // Live ref to runBackgroundSync (the all-accounts poll path), same rationale as runSyncRef.
+  const runBackgroundSyncRef = useRef(runBackgroundSync);
+  runBackgroundSyncRef.current = runBackgroundSync;
 
   // Wake loop: independent of the notifications poller (snoozes wake even with notifications
   // off). Every 60s, wake any due snoozes server-side; if anything woke, refresh the inbox.
