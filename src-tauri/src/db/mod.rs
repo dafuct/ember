@@ -240,8 +240,8 @@ fn add_column_if_missing(conn: &Connection, table: &str, col: &str, decl: &str) 
 //    share exactly one definition instead of duplicating the SQL.
 const UPSERT_SQL: &str = "INSERT INTO messages
         (id, thread_id, from_addr, subject, snippet, date_header, internal_date,
-         label_ids, to_addr, has_list_unsubscribe, has_list_id, category)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         label_ids, to_addr, has_list_unsubscribe, has_list_id, category, account)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
      ON CONFLICT(id) DO UPDATE SET
         thread_id = excluded.thread_id,
         from_addr = excluded.from_addr,
@@ -253,27 +253,31 @@ const UPSERT_SQL: &str = "INSERT INTO messages
         to_addr = excluded.to_addr,
         has_list_unsubscribe = excluded.has_list_unsubscribe,
         has_list_id = excluded.has_list_id,
-        category = excluded.category";
+        category = excluded.category,
+        account = excluded.account";
 
 // 🦀 Upsert one message against a connection OR a transaction. rusqlite's `Transaction`
 //    derefs to `Connection`, so callers can pass `&tx` here and it coerces to `&Connection`.
-fn upsert_one(conn: &Connection, m: &StoredMessage) -> Result<()> {
+//    `account` is the owning account email, stamped on the row (the new ?13 bind) so reads
+//    can filter the cache to one account.
+fn upsert_one(conn: &Connection, account: &str, m: &StoredMessage) -> Result<()> {
     conn.execute(
         UPSERT_SQL,
         params![
             m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date_header,
             m.internal_date, m.label_ids, m.to_addr, m.has_list_unsubscribe,
-            m.has_list_id, m.category
+            m.has_list_id, m.category, account
         ],
     )?;
     Ok(())
 }
 
-/// Insert each message, or update it in place if its id already exists.
-pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<()> {
+/// Insert each message, or update it in place if its id already exists. Every upserted
+/// row is stamped with `account`.
+pub fn upsert_messages(conn: &Connection, account: &str, messages: &[StoredMessage]) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     for m in messages {
-        upsert_one(&tx, m)?;
+        upsert_one(&tx, account, m)?;
     }
     tx.commit()?;
     Ok(())
@@ -283,6 +287,7 @@ pub fn upsert_messages(conn: &Connection, messages: &[StoredMessage]) -> Result<
 /// prune messages older than `prune_cutoff_ms`. All-or-nothing.
 pub fn apply_delta(
     conn: &Connection,
+    account: &str,
     upserts: &[StoredMessage],
     delete_ids: &[String],
     prune_cutoff_ms: i64,
@@ -292,11 +297,16 @@ pub fn apply_delta(
     //    (e.g. additions saved but removals lost).
     let tx = conn.unchecked_transaction()?;
     for m in upserts {
-        upsert_one(&tx, m)?;
+        upsert_one(&tx, account, m)?;
     }
     for id in delete_ids {
-        tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        // 🦀 Scope the delete to this account so one account's removal can never evict
+        //    another account's identically-id'd row (Gmail ids are per-account).
+        tx.execute("DELETE FROM messages WHERE id = ?1 AND account = ?2", params![id, account])?;
     }
+    // 🦀 The cutoff prune is INTENTIONALLY GLOBAL (no `account` filter): the 30-day window
+    //    is the same for every account, so each sync re-prunes the same old rows. Scoping it
+    //    would only mean another account's prune still removes them — harmless either way.
     tx.execute(
         "DELETE FROM messages WHERE internal_date < ?1",
         params![prune_cutoff_ms],
@@ -305,12 +315,13 @@ pub fn apply_delta(
     Ok(())
 }
 
-/// Delete the given message ids (e.g. messages removed from Gmail or archived).
-pub fn delete_messages(conn: &Connection, ids: &[String]) -> Result<()> {
+/// Delete the given message ids for `account` (e.g. messages removed from Gmail or archived).
+pub fn delete_messages(conn: &Connection, account: &str, ids: &[String]) -> Result<()> {
     // 🦀 Reuse a single transaction so the whole batch of deletes commits at once.
     let tx = conn.unchecked_transaction()?;
     for id in ids {
-        tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        // 🦀 `AND account = ?2` keeps the delete inside the active account's rows only.
+        tx.execute("DELETE FROM messages WHERE id = ?1 AND account = ?2", params![id, account])?;
     }
     tx.commit()?;
     Ok(())
@@ -320,12 +331,13 @@ pub fn delete_messages(conn: &Connection, ids: &[String]) -> Result<()> {
 /// message stays in the cache, only its `label_ids` column changes (so its
 /// category and the M6 scoring signals are preserved). A non-existent `id` is a
 /// silent no-op (0 rows updated) — callers only toggle messages already cached.
-pub fn update_message_labels(conn: &Connection, id: &str, label_ids_csv: &str) -> Result<()> {
-    // 🦀 `conn.execute` runs one statement with bound params (`?1`, `?2`), which
-    //    SQLite escapes for us — never string-format user values into SQL.
+pub fn update_message_labels(conn: &Connection, id: &str, label_ids_csv: &str, account: &str) -> Result<()> {
+    // 🦀 `conn.execute` runs one statement with bound params (`?1`..`?3`), which
+    //    SQLite escapes for us — never string-format user values into SQL. `AND account = ?3`
+    //    scopes the update so it can only touch the active account's copy of this id.
     conn.execute(
-        "UPDATE messages SET label_ids = ?1 WHERE id = ?2",
-        params![label_ids_csv, id],
+        "UPDATE messages SET label_ids = ?1 WHERE id = ?2 AND account = ?3",
+        params![label_ids_csv, id, account],
     )?;
     Ok(())
 }
@@ -334,7 +346,7 @@ pub fn update_message_labels(conn: &Connection, id: &str, label_ids_csv: &str) -
 /// batch mark-read/star path — Gmail's batchModify returns no labels, so we update the
 /// cache from the known delta. Idempotent; ids not in the cache (search/folder results)
 /// are silently skipped. One transaction.
-pub fn apply_label_delta(conn: &Connection, ids: &[String], add: &[String], remove: &[String]) -> Result<()> {
+pub fn apply_label_delta(conn: &Connection, account: &str, ids: &[String], add: &[String], remove: &[String]) -> Result<()> {
     // 🦀 Nothing to change → skip the whole transaction (no wasted per-id writes).
     if add.is_empty() && remove.is_empty() {
         return Ok(());
@@ -345,8 +357,10 @@ pub fn apply_label_delta(conn: &Connection, ids: &[String], add: &[String], remo
     for id in ids {
         // 🦀 `.optional()` (from OptionalExtension) turns "no rows" into `Ok(None)` instead
         //    of an error, so an uncached id just falls through the `else { continue }`.
+        //    `AND account = ?2` means another account's row with the same id is treated as
+        //    "uncached" here, so the delta only ever touches the active account's rows.
         let current: Option<String> = tx
-            .query_row("SELECT label_ids FROM messages WHERE id = ?1", params![id], |r| r.get(0))
+            .query_row("SELECT label_ids FROM messages WHERE id = ?1 AND account = ?2", params![id, account], |r| r.get(0))
             .optional()?;
         let Some(csv) = current else { continue };
         // 🦀 Parse the comma-joined labels into an owned Vec, dropping empties.
@@ -357,7 +371,7 @@ pub fn apply_label_delta(conn: &Connection, ids: &[String], add: &[String], remo
                 labels.push(a.clone());
             }
         }
-        tx.execute("UPDATE messages SET label_ids = ?1 WHERE id = ?2", params![labels.join(","), id])?;
+        tx.execute("UPDATE messages SET label_ids = ?1 WHERE id = ?2 AND account = ?3", params![labels.join(","), id, account])?;
     }
     tx.commit()?;
     Ok(())
@@ -374,23 +388,27 @@ pub fn prune_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
     Ok(removed)
 }
 
-/// The most recent `max` messages, newest first.
-pub fn recent_previews(conn: &Connection, max: u32) -> Result<Vec<StoredMessage>> {
+/// The most recent `max` messages for `account`, newest first.
+pub fn recent_previews(conn: &Connection, account: &str, max: u32) -> Result<Vec<StoredMessage>> {
     // 🦀 `prepare` parses and compiles the SQL into a reusable `Statement` object.
     //    When a query runs in a tight loop you'd prepare once outside the loop and
     //    reuse it; here we prepare per call for simplicity since this path isn't hot.
+    //    `WHERE account = ?1` is the correctness-critical scope: the inbox only ever
+    //    surfaces the active account's mail. The idx_messages_account_internal_date index
+    //    serves both the filter and the ORDER BY.
     let mut stmt = conn.prepare(
         "SELECT id, thread_id, from_addr, subject, snippet, date_header, internal_date,
                 label_ids, to_addr, has_list_unsubscribe, has_list_id, category
          FROM messages
+         WHERE account = ?1
          ORDER BY internal_date DESC
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
     // 🦀 `query_map` executes the prepared statement and returns a lazy iterator
     //    of `rusqlite::Result<T>`.  The closure receives a `Row` and maps each
     //    column by zero-based index via `row.get(i)?`, which uses the `FromSql`
     //    trait to decode the SQLite column type into the Rust type on the left.
-    let rows = stmt.query_map(params![max], |row| {
+    let rows = stmt.query_map(params![account, max], |row| {
         Ok(StoredMessage {
             id: row.get(0)?,
             thread_id: row.get(1)?,
@@ -782,18 +800,18 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         init(&c).unwrap();
         init(&c).unwrap();
-        upsert_messages(&c, &[msg("a", 1)]).unwrap();
-        assert_eq!(recent_previews(&c, 10).unwrap().len(), 1);
+        upsert_messages(&c, "me@x.com", &[msg("a", 1)]).unwrap();
+        assert_eq!(recent_previews(&c, "me@x.com", 10).unwrap().len(), 1);
     }
 
     #[test]
     fn upsert_updates_existing_row() {
         let c = conn();
-        upsert_messages(&c, &[msg("a", 1)]).unwrap();
+        upsert_messages(&c, "me@x.com", &[msg("a", 1)]).unwrap();
         let mut updated = msg("a", 1);
         updated.subject = "new subject".into();
-        upsert_messages(&c, &[updated]).unwrap();
-        let rows = recent_previews(&c, 10).unwrap();
+        upsert_messages(&c, "me@x.com", &[updated]).unwrap();
+        let rows = recent_previews(&c, "me@x.com", 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].subject, "new subject");
     }
@@ -801,8 +819,8 @@ mod tests {
     #[test]
     fn recent_previews_orders_newest_first_and_limits() {
         let c = conn();
-        upsert_messages(&c, &[msg("old", 100), msg("new", 300), msg("mid", 200)]).unwrap();
-        let rows = recent_previews(&c, 2).unwrap();
+        upsert_messages(&c, "me@x.com", &[msg("old", 100), msg("new", 300), msg("mid", 200)]).unwrap();
+        let rows = recent_previews(&c, "me@x.com", 2).unwrap();
         assert_eq!(
             rows.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
             vec!["new", "mid"]
@@ -810,11 +828,25 @@ mod tests {
     }
 
     #[test]
+    fn recent_previews_filters_by_account() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        // Reuse the `msg` builder the other upsert tests use; ids "a1" and "b1".
+        let a = msg("a1", 1);
+        let b = msg("b1", 2);
+        upsert_messages(&c, "a@x.com", std::slice::from_ref(&a)).unwrap();
+        upsert_messages(&c, "b@x.com", std::slice::from_ref(&b)).unwrap();
+        let only_a = recent_previews(&c, "a@x.com", 50).unwrap();
+        assert_eq!(only_a.len(), 1);
+        assert_eq!(only_a[0].id, "a1");
+    }
+
+    #[test]
     fn delete_messages_removes_only_given_ids() {
         let c = conn();
-        upsert_messages(&c, &[msg("a", 1), msg("b", 2), msg("c", 3)]).unwrap();
-        delete_messages(&c, &["b".to_string()]).unwrap();
-        let ids: Vec<String> = recent_previews(&c, 10)
+        upsert_messages(&c, "me@x.com", &[msg("a", 1), msg("b", 2), msg("c", 3)]).unwrap();
+        delete_messages(&c, "me@x.com", &["b".to_string()]).unwrap();
+        let ids: Vec<String> = recent_previews(&c, "me@x.com", 10)
             .unwrap()
             .into_iter()
             .map(|m| m.id)
@@ -825,10 +857,10 @@ mod tests {
     #[test]
     fn prune_older_than_deletes_below_cutoff_and_counts() {
         let c = conn();
-        upsert_messages(&c, &[msg("old", 100), msg("new", 300)]).unwrap();
+        upsert_messages(&c, "me@x.com", &[msg("old", 100), msg("new", 300)]).unwrap();
         let removed = prune_older_than(&c, 200).unwrap();
         assert_eq!(removed, 1);
-        let ids: Vec<String> = recent_previews(&c, 10)
+        let ids: Vec<String> = recent_previews(&c, "me@x.com", 10)
             .unwrap()
             .into_iter()
             .map(|m| m.id)
@@ -849,9 +881,9 @@ mod tests {
     #[test]
     fn apply_delta_upserts_deletes_and_prunes_atomically() {
         let c = conn();
-        upsert_messages(&c, &[msg("keep", 500), msg("archive", 600), msg("old", 100)]).unwrap();
-        apply_delta(&c, &[msg("newmsg", 700)], &["archive".to_string()], 200).unwrap();
-        let mut ids: Vec<String> = recent_previews(&c, 10)
+        upsert_messages(&c, "me@x.com", &[msg("keep", 500), msg("archive", 600), msg("old", 100)]).unwrap();
+        apply_delta(&c, "me@x.com", &[msg("newmsg", 700)], &["archive".to_string()], 200).unwrap();
+        let mut ids: Vec<String> = recent_previews(&c, "me@x.com", 10)
             .unwrap()
             .into_iter()
             .map(|m| m.id)
@@ -884,7 +916,7 @@ mod tests {
 
         // New column exists; old cache wiped; history baseline cleared → next sync is full.
         assert!(column_exists(&c, "messages", "category").unwrap());
-        assert_eq!(recent_previews(&c, 10).unwrap().len(), 0);
+        assert_eq!(recent_previews(&c, "me@x.com", 10).unwrap().len(), 0);
         assert_eq!(
             get_sync_state(&c, "primary").unwrap().unwrap().last_history_id,
             None
@@ -892,10 +924,10 @@ mod tests {
 
         // Idempotent: insert a fresh row, run init() AGAIN, and confirm it was NOT
         // wiped a second time (needs_migration must be false now that category exists).
-        upsert_messages(&c, &[msg("fresh", 5)]).unwrap();
+        upsert_messages(&c, "me@x.com", &[msg("fresh", 5)]).unwrap();
         init(&c).unwrap();
         assert!(column_exists(&c, "messages", "category").unwrap());
-        let rows = recent_previews(&c, 10).unwrap();
+        let rows = recent_previews(&c, "me@x.com", 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "fresh");
     }
@@ -906,11 +938,11 @@ mod tests {
         let mut m = msg("a", 1);
         m.category = "people".into();
         m.label_ids = "INBOX,UNREAD".into();
-        upsert_messages(&c, &[m]).unwrap();
+        upsert_messages(&c, "me@x.com", &[m]).unwrap();
 
-        update_message_labels(&c, "a", "INBOX").unwrap();
+        update_message_labels(&c, "a", "INBOX", "me@x.com").unwrap();
 
-        let rows = recent_previews(&c, 10).unwrap();
+        let rows = recent_previews(&c, "me@x.com", 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label_ids, "INBOX"); // UNREAD removed
         assert_eq!(rows[0].category, "people"); // category untouched
@@ -923,8 +955,8 @@ mod tests {
         m.category = "newsletters".into();
         m.has_list_unsubscribe = true;
         m.label_ids = "INBOX,CATEGORY_PROMOTIONS".into();
-        upsert_messages(&c, &[m]).unwrap();
-        let rows = recent_previews(&c, 10).unwrap();
+        upsert_messages(&c, "me@x.com", &[m]).unwrap();
+        let rows = recent_previews(&c, "me@x.com", 10).unwrap();
         assert_eq!(rows[0].category, "newsletters");
         assert!(rows[0].has_list_unsubscribe);
         assert_eq!(rows[0].label_ids, "INBOX,CATEGORY_PROMOTIONS");
@@ -967,11 +999,11 @@ mod tests {
         let c = conn();
         let mut m = msg("x", 1);
         m.label_ids = "INBOX,UNREAD".into();
-        upsert_messages(&c, &[m]).unwrap();
+        upsert_messages(&c, "me@x.com", &[m]).unwrap();
 
         // remove UNREAD, add STARRED
-        apply_label_delta(&c, &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
-        let labels: Vec<String> = recent_previews(&c, 10).unwrap()[0]
+        apply_label_delta(&c, "me@x.com", &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
+        let labels: Vec<String> = recent_previews(&c, "me@x.com", 10).unwrap()[0]
             .label_ids
             .split(',')
             .map(String::from)
@@ -981,28 +1013,28 @@ mod tests {
         assert!(!labels.contains(&"UNREAD".to_string()));
 
         // idempotent: applying the same delta again changes nothing (still INBOX+STARRED, no UNREAD, no dup)
-        apply_label_delta(&c, &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
-        let again: Vec<String> = recent_previews(&c, 10).unwrap()[0].label_ids.split(',').map(String::from).collect();
+        apply_label_delta(&c, "me@x.com", &["x".to_string()], &["STARRED".to_string()], &["UNREAD".to_string()]).unwrap();
+        let again: Vec<String> = recent_previews(&c, "me@x.com", 10).unwrap()[0].label_ids.split(',').map(String::from).collect();
         assert_eq!(again.iter().filter(|l| *l == "STARRED").count(), 1);
         assert!(again.contains(&"INBOX".to_string()));
         assert!(!again.contains(&"UNREAD".to_string()));
 
         // an uncached id is skipped without error and doesn't touch the bystander row "x"
-        let before = recent_previews(&c, 10).unwrap()[0].label_ids.clone();
-        apply_label_delta(&c, &["nope".to_string()], &[], &["INBOX".to_string()]).unwrap();
-        assert_eq!(recent_previews(&c, 10).unwrap()[0].label_ids, before);
+        let before = recent_previews(&c, "me@x.com", 10).unwrap()[0].label_ids.clone();
+        apply_label_delta(&c, "me@x.com", &["nope".to_string()], &[], &["INBOX".to_string()]).unwrap();
+        assert_eq!(recent_previews(&c, "me@x.com", 10).unwrap()[0].label_ids, before);
     }
 
     #[test]
     fn clear_account_data_wipes_cache_but_keeps_settings() {
         let c = conn();
-        upsert_messages(&c, &[msg("a", 1)]).unwrap();
+        upsert_messages(&c, "me@x.com", &[msg("a", 1)]).unwrap();
         set_sync_state(&c, "primary", Some(7), 1).unwrap();
         save_settings(&c, &Settings { signature: "sig".into(), remote_images: false, notifications: false }).unwrap();
 
         clear_account_data(&c).unwrap();
 
-        assert_eq!(recent_previews(&c, 10).unwrap().len(), 0);
+        assert_eq!(recent_previews(&c, "me@x.com", 10).unwrap().len(), 0);
         assert_eq!(get_sync_state(&c, "primary").unwrap(), None);
         let s = get_settings(&c).unwrap();
         assert_eq!(s.signature, "sig");

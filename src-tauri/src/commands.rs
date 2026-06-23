@@ -145,7 +145,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
                     .lock()
                     .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
                 // 🦀 One atomic transaction for the whole delta (see db::apply_delta).
-                db::apply_delta(&conn, &rows, &delta.removed_ids, cutoff_ms)?;
+                db::apply_delta(&conn, &stored.email, &rows, &delta.removed_ids, cutoff_ms)?;
                 db::set_sync_state(&conn, &stored.email, Some(new_hid), now_secs() as i64)?;
             }
             // NOTE (known limitation): Gmail's labelId=INBOX history filter can omit a
@@ -180,7 +180,7 @@ pub async fn sync_inbox(state: tauri::State<'_, Db>) -> Result<SyncSummary> {
             .lock()
             .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
         // 🦀 Full resync: upsert everything, no deletes, prune old — one transaction.
-        db::apply_delta(&conn, &rows, &[], cutoff_ms)?;
+        db::apply_delta(&conn, &stored.email, &rows, &[], cutoff_ms)?;
         db::set_sync_state(&conn, &stored.email, Some(baseline_hid), now_secs() as i64)?;
     }
     Ok(SyncSummary { added: count, removed: 0 })
@@ -196,7 +196,13 @@ pub async fn fetch_inbox_preview(
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    let rows = db::recent_previews(&conn, max)?;
+    // 🦀 The inbox preview is a pure DB read (no token needed), but it MUST be scoped to the
+    //    active account so it only ever surfaces that account's mail. No active account → no
+    //    mail to show, so return an empty list rather than the whole (unscoped) cache.
+    let Some(account) = db::get_active_account(&conn)? else {
+        return Ok(Vec::new());
+    };
+    let rows = db::recent_previews(&conn, &account, max)?;
     Ok(rows
         .into_iter()
         .map(|m| MessagePreview {
@@ -364,7 +370,7 @@ async fn set_label(
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::update_message_labels(&conn, id, &csv)?;
+    db::update_message_labels(&conn, id, &csv, &stored.email)?;
     Ok(())
 }
 
@@ -457,9 +463,9 @@ pub async fn batch_modify_messages(
     // 🦀 `iter().any(|l| l == "TRASH")` — does the slice contain this label? Archiving
     //    (remove INBOX) or trashing (add TRASH) means the row leaves the inbox cache.
     if add.iter().any(|l| l == "TRASH") || remove.iter().any(|l| l == "INBOX") {
-        db::delete_messages(&conn, &ids)?;
+        db::delete_messages(&conn, &stored.email, &ids)?;
     } else {
-        db::apply_label_delta(&conn, &ids, &add, &remove)?;
+        db::apply_label_delta(&conn, &stored.email, &ids, &add, &remove)?;
     }
     Ok(())
 }
@@ -764,7 +770,7 @@ pub async fn delete_message_forever(id: String, state: tauri::State<'_, Db>) -> 
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    db::delete_messages(&conn, &stored.email, std::slice::from_ref(&id))?;
     Ok(())
 }
 
@@ -780,7 +786,7 @@ pub async fn snooze_message(
     let client = GmailClient::new(stored.access_token);
     client.batch_modify(std::slice::from_ref(&id), &[], &["INBOX"]).await?;
     let conn = state.lock().map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_messages(&conn, std::slice::from_ref(&id))?;
+    db::delete_messages(&conn, &stored.email, std::slice::from_ref(&id))?;
     db::insert_snooze(&conn, &db::SnoozedRow {
         message_id: id, thread_id, wake_at, snoozed_at: now_millis(),
         from_addr, subject, snippet, internal_date,
@@ -850,7 +856,7 @@ pub async fn batch_delete_messages(ids: Vec<String>, state: tauri::State<'_, Db>
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;
-    db::delete_messages(&conn, &ids)?;
+    db::delete_messages(&conn, &stored.email, &ids)?;
     Ok(())
 }
 
