@@ -1,4 +1,4 @@
-import { PenSquare, Inbox, Users, Bell, Newspaper, Star, Send, FileText, Archive, Trash2, AlertOctagon, Tag } from "lucide-react";
+import { PenSquare, Inbox, Users, Bell, Newspaper, Star, Send, FileText, Archive, Trash2, AlertOctagon, Tag, Clock } from "lucide-react";
 import { STREAMS, filterByStream, type Stream } from "../lib/streams";
 import type { Label, MessagePreview } from "../lib/api";
 
@@ -50,6 +50,9 @@ export function Sidebar({
         <div className="sb-section">Saved</div>
         <button className={`sb-item${folder === "starred" ? " active" : ""}`} onClick={() => onSelectFolder("starred")}>
           <span className="sb-ic"><Star size={16} /></span><span className="sb-label">Pinned</span>
+        </button>
+        <button className={`sb-item${folder === "snoozed" ? " active" : ""}`} onClick={() => onSelectFolder("snoozed")}>
+          <span className="sb-ic"><Clock size={16} /></span><span className="sb-label">Snoozed</span>
         </button>
         <div className="sb-section">Folders</div>
         {FOLDER_ITEMS.map((f) => (

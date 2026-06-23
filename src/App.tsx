@@ -44,7 +44,8 @@ import { ReadingPane } from "./components/ReadingPane";
 import { SplitView } from "./components/SplitView";
 import { LabelPicker } from "./components/LabelPicker";
 import { SnoozeMenu } from "./components/SnoozeMenu";
-import { snoozeMessage } from "./lib/snooze";
+import { SnoozedList } from "./components/SnoozedList";
+import { snoozeMessage, listSnoozed, unsnoozeMessage, wakeDueSnoozes, type SnoozedRow } from "./lib/snooze";
 import { FOLDERS } from "./lib/folders";
 
 // Top-level Mail/Calendar view (was imported from the now-retired Header).
@@ -111,6 +112,7 @@ export default function App() {
   // Snooze: anchor the menu at the click point; picking a wake time optimistically removes
   // the row from the active list (reusing removeWithAction) and persists via snoozeMessage.
   const [snoozeTarget, setSnoozeTarget] = useState<{ msg: MessagePreview; x: number; y: number } | null>(null);
+  const [snoozedRows, setSnoozedRows] = useState<SnoozedRow[]>([]);
   const openSnoozeMenu = (msg: MessagePreview, e: { clientX: number; clientY: number }) =>
     setSnoozeTarget({ msg, x: e.clientX, y: e.clientY });
   const handleSnoozePick = (wakeAt: number) => {
@@ -119,10 +121,18 @@ export default function App() {
     setSnoozeTarget(null);
     removeWithAction(t.msg, () => snoozeMessage(t.msg, wakeAt));
   };
+  const handleUnsnooze = (id: string) => {
+    setSnoozedRows((r) => r.filter((x) => x.message_id !== id));
+    unsnoozeMessage(id).catch((e) => setError(String(e)));
+  };
 
   // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
     if (folder === "inbox") return;
+    if (folder === "snoozed") {
+      listSnoozed().then(setSnoozedRows).catch((e) => setError(String(e)));
+      return;
+    }
     let cancelled = false;
     setFolderLoading(true);
     setError(null);
@@ -277,6 +287,16 @@ export default function App() {
   // re-subscribing the timer on every render.
   const runSyncRef = useRef(runSync);
   runSyncRef.current = runSync;
+
+  // Wake loop: independent of the notifications poller (snoozes wake even with notifications
+  // off). Every 60s, wake any due snoozes server-side; if anything woke, refresh the inbox.
+  useEffect(() => {
+    if (!account) return;
+    const tick = () => wakeDueSnoozes().then((woken) => { if (woken.length > 0) void runSyncRef.current(false); }).catch(() => {});
+    tick(); // launch check
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [account]);
 
   // Active list: search results > a live folder > the cached inbox. All selection + action
   // handlers operate on it, so they work identically across inbox, search, and folders.
@@ -777,6 +797,9 @@ export default function App() {
             />
             <SplitView
               left={
+                folder === "snoozed" ? (
+                <SnoozedList rows={snoozedRows} onUnsnooze={handleUnsnooze} />
+                ) : (
                 <MessageList
                   messages={activeList}
                   stream={stream}
@@ -825,6 +848,7 @@ export default function App() {
                   }
                   showRecipient={folder === "sent" || folder === "drafts"}
                 />
+                )
               }
               right={
                 <ReadingPane

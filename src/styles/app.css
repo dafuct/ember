@@ -513,3 +513,5 @@
 .snooze-go:disabled { opacity: .5; cursor: default; }
 .msg-clock { background: none; border: none; color: var(--text-faint); cursor: pointer; }
 .msg-clock:hover { color: var(--accent-text); }
+.snoozed-card { align-items: center; }
+.snooze-wake { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--accent-text); }
