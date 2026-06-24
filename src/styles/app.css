@@ -29,6 +29,8 @@
 
 .msglist { display: flex; flex-direction: column; height: 100%; background: var(--bg); min-height: 0; }
 .msglist-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
+/* Infinite-scroll trigger: a real (non-zero) height makes IntersectionObserver reliable. */
+.msglist-sentinel { height: 1px; }
 .empty { padding: 32px 16px; text-align: center; color: var(--text-faint); font-size: 13px; }
 
 /* List-column header: title + Sync */

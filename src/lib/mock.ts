@@ -37,6 +37,23 @@ export const MOCK_MESSAGES: MessagePreview[] = [
   },
 ];
 
+// Bulk filler so the maket inbox exceeds one 50-row page and infinite scroll is demonstrable.
+const CATS = ["people", "notifications", "newsletters"] as const;
+for (let i = 0; i < 64; i++) {
+  MOCK_MESSAGES.push({
+    id: `bulk${i}`,
+    thread_id: `bulkt${i}`,
+    from: `Sender ${i} <sender${i}@example.com>`,
+    subject: `Older message #${i}`,
+    date: "Mon, 02 Jun 2026 09:00:00 -0700",
+    snippet: `This is older cached message number ${i}…`,
+    internal_date: 1_748_000_000_000 - i * 60_000, // descending, older than the curated set
+    category: CATS[i % 3],
+    label_ids: i % 4 === 0 ? ["INBOX", "UNREAD"] : ["INBOX"],
+    to_addr: "you@example.com",
+  });
+}
+
 export const MOCK_SYNC: SyncSummary = { added: 0, removed: 0 };
 
 /** Generate a plausible week of events anchored to the requested window's Monday. */

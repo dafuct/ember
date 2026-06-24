@@ -27,7 +27,7 @@ export const getConnectedAccount = (): Promise<string | null> =>
   isTauri() ? invoke<string | null>("get_connected_account") : Promise.resolve(mockGetActive());
 
 export const fetchInboxPreview = (max = 20): Promise<MessagePreview[]> =>
-  isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(mockInboxForActive());
+  isTauri() ? invoke<MessagePreview[]>("fetch_inbox_preview", { max }) : Promise.resolve(mockInboxForActive().slice(0, max));
 
 export interface AccountInfo { email: string; active: boolean; unread: number }
 
