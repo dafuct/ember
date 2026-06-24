@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive } from "./mock";
+import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials } from "./mock";
 
 export type { CalendarEvent };
 
@@ -238,6 +238,23 @@ export const getSettings = (): Promise<Settings> =>
   invoke<Settings>("get_settings");
 export const setSettings = (settings: Settings): Promise<void> =>
   invoke<void>("set_settings", { settings });
+
+export interface CredentialStatus { configured: boolean; source: string }
+
+export const googleCredentialsStatus = (): Promise<CredentialStatus> =>
+  isTauri()
+    ? invoke<CredentialStatus>("google_credentials_status")
+    : Promise.resolve(mockCredentialStatus());
+
+export const setGoogleCredentials = (clientId: string, clientSecret: string): Promise<void> =>
+  isTauri()
+    ? invoke<void>("set_google_credentials", { clientId, clientSecret })
+    : (mockSetCredentials(), Promise.resolve());
+
+export const clearGoogleCredentials = (): Promise<void> =>
+  isTauri()
+    ? invoke<void>("clear_google_credentials")
+    : (mockClearCredentials(), Promise.resolve());
 
 export const fetchCalendarWeek = (timeMin: string, timeMax: string): Promise<CalendarEvent[]> =>
   isTauri()

@@ -389,3 +389,11 @@ const MOCK_MESSAGES_WORK: MessagePreview[] = [
 ];
 export const mockInboxForActive = (): MessagePreview[] =>
   mockActive === MOCK_ACCOUNTS[0] ? MOCK_MESSAGES : MOCK_MESSAGES_WORK;
+
+// --- Google credentials (BYO) -----------------------------------------------
+// The maket assumes the app is already configured, so report credentials as configured
+// and skip the BYO onboarding. set/clear are no-ops in the maket (toggle the flag).
+let mockConfigured = true;
+export const mockCredentialStatus = () => ({ configured: mockConfigured, source: mockConfigured ? "stored" : "none" });
+export const mockSetCredentials = () => { mockConfigured = true; };
+export const mockClearCredentials = () => { mockConfigured = false; };
