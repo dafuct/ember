@@ -70,6 +70,20 @@ Produces a `.app` and `.dmg` under `src-tauri/target/release/bundle/`. The build
 - **Apple Silicon → Intel (or both):** build a universal binary with
   `rustup target add x86_64-apple-darwin && npm run tauri build -- --target universal-apple-darwin`.
 
+### Distributing to others (bring-your-own credentials)
+
+Ember can be shared with other people, each using their **own** Google Cloud project:
+
+- Build the `.dmg` **without** baking your credentials — just don't ship `src-tauri/.env`
+  (an absent/empty `.env` means nothing is baked in).
+- On first launch, each user is asked to paste **their own** Client ID + secret (stored in
+  their Mac's Keychain). They follow the same Google OAuth setup as above and add
+  themselves as a Test user of their own project.
+- Credentials can be updated or cleared anytime in **Settings → Google API**.
+
+(Your own personal build that includes `src-tauri/.env` keeps working with no entry — the
+baked credentials are used automatically.)
+
 ## Install on another Mac
 
 1. Copy the `.dmg` (e.g. `Ember_0.1.0_aarch64.dmg`) to the other Mac and drag **Ember** into **Applications**.

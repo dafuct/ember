@@ -65,30 +65,64 @@ pub struct GoogleOAuth {
     client_secret: String,
 }
 
-impl GoogleOAuth {
-    pub fn from_env() -> Result<Self> {
-        // 🦀 Resolve a credential from the RUNTIME env first (set by dotenvy in dev, or a real
-        //    shell env var), then fall back to the value BAKED in at build time by build.rs
-        //    via `option_env!` (a compile-time env lookup). The baked fallback is what lets a
-        //    packaged release run on another machine, where the dev `.env` path is absent.
-        //    `.filter(|s| !s.is_empty())` treats an empty value as "not set".
-        fn resolve(runtime_key: &str, baked: Option<&str>) -> Option<String> {
-            std::env::var(runtime_key)
-                .ok()
-                .or_else(|| baked.map(str::to_string))
-                .filter(|s| !s.is_empty())
+/// Pure precedence picker: returns the first source whose id AND secret are both non-empty,
+/// with a label for the winning source ("stored" | "env" | "baked" | "none").
+pub(crate) fn pick_credentials(
+    stored: Option<(String, String)>,
+    env: Option<(String, String)>,
+    baked: Option<(String, String)>,
+) -> (Option<(String, String)>, &'static str) {
+    for (pair, label) in [(stored, "stored"), (env, "env"), (baked, "baked")] {
+        if let Some((id, secret)) = pair {
+            if !id.is_empty() && !secret.is_empty() {
+                return (Some((id, secret)), label);
+            }
         }
-        let client_id = resolve("EMBER_GOOGLE_CLIENT_ID", option_env!("EMBER_GOOGLE_CLIENT_ID"))
-            .ok_or_else(|| AppError::Config("EMBER_GOOGLE_CLIENT_ID not set".into()))?;
-        let client_secret = resolve(
-            "EMBER_GOOGLE_CLIENT_SECRET",
-            option_env!("EMBER_GOOGLE_CLIENT_SECRET"),
+    }
+    (None, "none")
+}
+
+// 🦀 Both EMBER_GOOGLE_* env vars must be present for the env source to count.
+fn pair_from_env() -> Option<(String, String)> {
+    Some((
+        std::env::var("EMBER_GOOGLE_CLIENT_ID").ok()?,
+        std::env::var("EMBER_GOOGLE_CLIENT_SECRET").ok()?,
+    ))
+}
+
+// 🦀 `option_env!` reads a compile-time env var baked by build.rs; None if it wasn't set.
+fn baked_pair() -> Option<(String, String)> {
+    Some((
+        option_env!("EMBER_GOOGLE_CLIENT_ID")?.to_string(),
+        option_env!("EMBER_GOOGLE_CLIENT_SECRET")?.to_string(),
+    ))
+}
+
+impl GoogleOAuth {
+    /// Resolve credentials: Keychain (user-supplied) → runtime env → build-time baked.
+    pub fn resolve() -> Result<Self> {
+        let (pair, _) = pick_credentials(
+            crate::auth::tokens::load_credentials()?,
+            pair_from_env(),
+            baked_pair(),
+        );
+        match pair {
+            Some((client_id, client_secret)) => Ok(Self {
+                client_id,
+                client_secret,
+            }),
+            None => Err(AppError::Config("no Google credentials configured".into())),
+        }
+    }
+
+    /// Which source currently provides the credentials ("stored" | "env" | "baked" | "none").
+    pub fn credentials_source() -> Result<&'static str> {
+        Ok(pick_credentials(
+            crate::auth::tokens::load_credentials()?,
+            pair_from_env(),
+            baked_pair(),
         )
-        .ok_or_else(|| AppError::Config("EMBER_GOOGLE_CLIENT_SECRET not set".into()))?;
-        Ok(Self {
-            client_id,
-            client_secret,
-        })
+        .1)
     }
 
     /// Run the full interactive loopback + PKCE flow, fetch the account email,
@@ -221,11 +255,41 @@ pub async fn ensure_token_for(account: &str) -> Result<StoredToken> {
     let mut stored = load_token(account)?
         .ok_or_else(|| AppError::Auth(format!("no token for account {account}")))?;
     if stored.is_expired(now_secs(), 60) {
-        let oauth = GoogleOAuth::from_env()?;
+        let oauth = GoogleOAuth::resolve()?;
         let (access, expires_at) = oauth.refresh(&stored.refresh_token).await?;
         stored.access_token = access;
         stored.expires_at = expires_at;
         save_token(account, &stored)?;
     }
     Ok(stored)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_credentials;
+
+    fn p(a: &str, b: &str) -> Option<(String, String)> {
+        Some((a.to_string(), b.to_string()))
+    }
+
+    #[test]
+    fn picks_in_precedence_order_stored_env_baked() {
+        assert_eq!(
+            pick_credentials(p("sid", "ssec"), p("eid", "esec"), p("bid", "bsec")),
+            (p("sid", "ssec"), "stored")
+        );
+        assert_eq!(
+            pick_credentials(None, p("eid", "esec"), p("bid", "bsec")),
+            (p("eid", "esec"), "env")
+        );
+        assert_eq!(
+            pick_credentials(None, None, p("bid", "bsec")),
+            (p("bid", "bsec"), "baked")
+        );
+        assert_eq!(pick_credentials(None, None, None), (None, "none"));
+        assert_eq!(
+            pick_credentials(p("", ""), p("eid", "esec"), None),
+            (p("eid", "esec"), "env")
+        );
+    }
 }

@@ -102,6 +102,53 @@ pub fn delete_token(account: &str) -> Result<()> {
     }
 }
 
+// 🦀 The credentials are stored in the SAME Keychain service as the OAuth tokens, but
+//    under a RESERVED account key that can't collide with a real account email (emails
+//    contain '@'; this key does not).
+const CLIENT_CREDS_KEY: &str = "__google_client__";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct StoredCredentials {
+    client_id: String,
+    client_secret: String,
+}
+
+/// Save the user-supplied Google OAuth client id + secret to the Keychain.
+pub fn save_credentials(client_id: &str, client_secret: &str) -> Result<()> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, CLIENT_CREDS_KEY)?;
+    let creds = StoredCredentials {
+        client_id: client_id.to_string(),
+        client_secret: client_secret.to_string(),
+    };
+    let json = serde_json::to_string(&creds).map_err(|e| AppError::Other(e.to_string()))?;
+    entry.set_password(&json)?;
+    Ok(())
+}
+
+/// Load the stored client id + secret, if any. Missing entry → `Ok(None)`.
+pub fn load_credentials() -> Result<Option<(String, String)>> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, CLIENT_CREDS_KEY)?;
+    match entry.get_password() {
+        Ok(json) => {
+            let c: StoredCredentials =
+                serde_json::from_str(&json).map_err(|e| AppError::Other(e.to_string()))?;
+            Ok(Some((c.client_id, c.client_secret)))
+        }
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Remove the stored client credentials. Missing entry is success (idempotent).
+pub fn delete_credentials() -> Result<()> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, CLIENT_CREDS_KEY)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 // 🦀 `#[cfg(test)]` is a *conditional compilation* attribute.  The `mod tests`
 //    block and everything inside it is compiled ONLY when running `cargo test`.
 //    In a normal `cargo build`, this entire block is stripped out, so test helpers
