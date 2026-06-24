@@ -10,6 +10,7 @@ import {
   getDraft,
   getReplyContext,
   getSettings,
+  googleCredentialsStatus,
   restoreMessage,
   deleteMessageForever,
   batchRestoreMessages,
@@ -42,6 +43,7 @@ import { startOfWeek, addWeeks, weekRangeLabel } from "./lib/calendar";
 import { CalendarView } from "./components/CalendarView";
 import { ComposeModal, type ComposeInitial } from "./components/ComposeModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { CredentialsSetup } from "./components/CredentialsSetup";
 import { AccountSwitcher } from "./components/AccountSwitcher";
 import { IconRail } from "./components/IconRail";
 import { Sidebar } from "./components/Sidebar";
@@ -75,6 +77,7 @@ export default function App() {
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [credsConfigured, setCredsConfigured] = useState<boolean | null>(null); // null = still loading
   // Multi-account: the switcher popover + the account list it renders. `accountEpoch` bumps on
   // every successful switch/connect so account-scoped subtrees (CalendarView) remount and refetch.
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
@@ -172,6 +175,9 @@ export default function App() {
     getConnectedAccount()
       .then(setAccount)
       .catch(() => setAccount(null));
+    googleCredentialsStatus()
+      .then((s) => setCredsConfigured(s.configured))
+      .catch(() => setCredsConfigured(true)); // on error, don't block the normal connect flow
     fetchInboxPreview(50)
       .then((list) => {
         setMessages(list);
@@ -208,7 +214,14 @@ export default function App() {
       setAccounts(await listAccounts());
       setAccountEpoch((e) => e + 1);
     } catch (e) {
-      setError(String(e));
+      const msg = String(e);
+      // A missing-credentials error means the baked/stored key isn't present — send the
+      // user to the setup screen instead of showing a raw error.
+      if (msg.includes("no Google credentials configured")) {
+        setCredsConfigured(false);
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -848,6 +861,16 @@ export default function App() {
   };
 
   if (!account) {
+    if (credsConfigured === false) {
+      return (
+        <CredentialsSetup
+          onSaved={() => {
+            setCredsConfigured(true);
+            setError(null);
+          }}
+        />
+      );
+    }
     return (
       <div className="app">
         <div className="connect-screen">
