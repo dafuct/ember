@@ -63,10 +63,17 @@ type View = "mail" | "calendar";
 // M13 new-mail notifications.
 const POLL_MS = 60_000; // background sync cadence while the app is open
 const MAX_NOTIFY_PER_SYNC = 5; // cap banners per cycle so a backlog can't flood
+const INBOX_PAGE = 50; // infinite-scroll page size: each load grows the inbox window by this many
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessagePreview[]>([]);
+  // M-infinite-scroll: a single growing window drives how much inbox is loaded. The
+  // end-of-list sentinel calls handleLoadMore to grow it; `atEnd` stops it once a fetch
+  // returns fewer rows than requested. loadingMoreRef guards overlapping scroll events.
+  const [inboxLimit, setInboxLimit] = useState(50);
+  const [atEnd, setAtEnd] = useState(false);
+  const loadingMoreRef = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stream, setStream] = useState<Stream>("all");
   const [busy, setBusy] = useState(false);
@@ -178,9 +185,10 @@ export default function App() {
     googleCredentialsStatus()
       .then((s) => setCredsConfigured(s.configured))
       .catch(() => setCredsConfigured(true)); // on error, don't block the normal connect flow
-    fetchInboxPreview(50)
+    fetchInboxPreview(inboxLimit)
       .then((list) => {
         setMessages(list);
+        setAtEnd(list.length < inboxLimit);
         seedKnown(list); // baseline: mail already present at launch never notifies
       })
       .catch(() => {});
@@ -206,8 +214,9 @@ export default function App() {
       setStatus("Syncing your inbox…");
       const s = await syncInbox();
       setStatus(`${s.added} new, ${s.removed} removed`);
-      const list = await fetchInboxPreview(50);
+      const list = await fetchInboxPreview(inboxLimit);
       setMessages(list);
+      setAtEnd(list.length < inboxLimit);
       seedKnown(list);
       // Surface the newly added (now-active) account in the switcher and remount
       // account-scoped subtrees (CalendarView) so they refetch for the new account.
@@ -236,10 +245,14 @@ export default function App() {
       setSelectedId(null);
       setStream("all");
       setFolder("inbox");
+      // The switched-to account starts fresh at the top: reset the infinite-scroll window.
+      setInboxLimit(50);
+      setAtEnd(false);
       setAccountEpoch((e) => e + 1);
       const [accs, list, labs] = await Promise.all([listAccounts(), fetchInboxPreview(50), listLabels()]);
       setAccounts(accs);
       setMessages(list);
+      setAtEnd(list.length < 50);
       seedKnown(list);
       setLabels(labs);
     } catch (e) {
@@ -258,9 +271,13 @@ export default function App() {
         setSelectedId(null);
         setStream("all");
         setFolder("inbox");
+        // Like a switch: the remaining account starts fresh at the top.
+        setInboxLimit(50);
+        setAtEnd(false);
         setAccountEpoch((e) => e + 1);
         const [list, labs] = await Promise.all([fetchInboxPreview(50), listLabels()]);
         setMessages(list);
+        setAtEnd(list.length < 50);
         seedKnown(list);
         setLabels(labs);
       } else {
@@ -337,8 +354,9 @@ export default function App() {
     }
     try {
       const s = await syncInbox();
-      const list = await fetchInboxPreview(50);
+      const list = await fetchInboxPreview(inboxLimit);
       setMessages(list);
+      setAtEnd(list.length < inboxLimit);
       if (surfaceErrors) setStatus(`${s.added} new, ${s.removed} removed`);
 
       // New-mail notifications: one banner per fresh id (newest-first, capped) when the
@@ -361,6 +379,24 @@ export default function App() {
 
   const handleSync = () => runSync(true);
 
+  // Infinite scroll: grow the loaded inbox window by one page. Guarded against overlapping
+  // scroll events; stops when a fetch returns fewer rows than requested.
+  async function handleLoadMore() {
+    if (loadingMoreRef.current || atEnd) return;
+    loadingMoreRef.current = true;
+    try {
+      const next = inboxLimit + INBOX_PAGE;
+      const list = await fetchInboxPreview(next);
+      setInboxLimit(next);
+      setMessages(list);
+      setAtEnd(list.length < next);
+    } catch (e) {
+      console.warn("[ember] load more failed:", e);
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }
+
   // Background ALL-accounts sync (the poll timer). Syncs every connected account and posts
   // notifications per account using the backend's baseline/new_previews (so a newly-added
   // account's full backfill doesn't spam banners). The active account's visible list is
@@ -373,8 +409,9 @@ export default function App() {
       for (const s of summaries) {
         if (s.account === account) {
           // Refresh the visible inbox for the active account.
-          const list = await fetchInboxPreview(50);
+          const list = await fetchInboxPreview(inboxLimit);
           setMessages(list);
+          setAtEnd(list.length < inboxLimit);
           for (const m of list) knownIdsRef.current.add(m.id);
         }
         // Notify per account. baseline runs already carry empty new_previews (no backfill spam).
@@ -961,6 +998,8 @@ export default function App() {
                   onSync={handleSync}
                   busy={busy}
                   flat={inSearch || inFolder}
+                  onLoadMore={!inSearch && !inFolder ? handleLoadMore : undefined}
+                  canLoadMore={!inSearch && !inFolder && !atEnd}
                   title={
                     inSearch
                       ? "Results"
