@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { Label, MessagePreview } from "../lib/api";
 import { MessageItem } from "./MessageItem";
 import {
@@ -47,6 +48,8 @@ export function MessageList({
   searching,
   onSync,
   busy,
+  onLoadMore,
+  canLoadMore = false,
 }: {
   messages: MessagePreview[];
   stream: Stream;
@@ -83,6 +86,10 @@ export function MessageList({
   searching: boolean;
   onSync: () => void;
   busy: boolean;
+  /** Called when the bottom sentinel scrolls into view (inbox infinite scroll). */
+  onLoadMore?: () => void;
+  /** When true, the sentinel is active and may trigger onLoadMore. */
+  canLoadMore?: boolean;
 }) {
   // Flat mode (search): render the given messages as-is. Stream mode (inbox): filter, and
   // group by category only in the "All" view.
@@ -107,6 +114,22 @@ export function MessageList({
     if (value.trim() === "") onClearSearch();
     else onSearch(value);
   };
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !canLoadMore || !onLoadMore) return;
+    // 🦀-style note: observe the 1px sentinel against the scroll container; fire onLoadMore
+    //    when it scrolls into view (user reached near the bottom). rootMargin pre-loads a bit.
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMore();
+      },
+      { root: el.parentElement, rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [canLoadMore, onLoadMore]);
 
   return (
     <section className="msglist">
@@ -220,6 +243,9 @@ export function MessageList({
               showRecipient={showRecipient}
             />
           ))
+        )}
+        {canLoadMore && count > 0 && (
+          <div ref={sentinelRef} className="msglist-sentinel" aria-hidden />
         )}
       </div>
     </section>
