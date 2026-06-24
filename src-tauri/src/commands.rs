@@ -91,7 +91,7 @@ pub fn migrate_legacy_primary_account(conn: &rusqlite::Connection) -> Result<()>
 /// active. Returns the connected email address.
 #[tauri::command]
 pub async fn connect_gmail(state: tauri::State<'_, Db>) -> Result<String> {
-    let oauth = GoogleOAuth::from_env()?;
+    let oauth = GoogleOAuth::resolve()?;
     let stored = oauth.connect().await?; // already saves the token under stored.email
     // 🦀 Register + activate AFTER the await (the OAuth round-trip is the slow part); the
     //    DB lock is taken only for these two quick writes and dropped at the block's end.
