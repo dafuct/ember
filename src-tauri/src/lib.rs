@@ -47,10 +47,7 @@ pub mod ollama;
 // 🦀 Pure transcript helpers (WebVTT→text, summary-input builder) — no I/O, unit-tested (M22).
 pub mod transcript;
 
-// 🦀 Local Whisper STT client (M23) — the audio twin of `ollama`. `pub` so the wiremock
-//    integration test in tests/whisper_test.rs (a separate crate) can reach it.
-
-// 🦀 Pure audio helpers (downmix/resample/WAV) for live capture — no I/O, unit-tested (M24).
+// 🦀 Pure audio helpers (downmix + resample to 16 kHz mono) for live capture — no I/O, unit-tested (M24).
 pub mod audio;
 
 // 🦀 Live audio capture session + commands (M24). `pub` is not required (only the IPC bridge

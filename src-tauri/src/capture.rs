@@ -218,8 +218,8 @@ async fn worker_loop(
     let _ = on_event.send(CaptureEvent::Stopped);
 }
 
-// 🦀 One window: interleaved f32 → WAV → whisper → emit. Empty/silent windows are skipped;
-//    a transcription error is reported but does NOT end the session.
+// 🦀 One window: interleaved f32 → downmix + resample → whisper-rs → emit. Empty/silent windows
+//    are skipped; a transcription error is reported but does NOT end the session.
 // 🦀 Sync (no `.await`): downmix + resample to 16 kHz mono, then transcribe in-process via the
 //    shared whisper-rs context. whisper-rs is CPU-bound and blocking; one 10s window per call on
 //    a single capture stream is acceptable. The std Mutex guard is dropped before returning and
