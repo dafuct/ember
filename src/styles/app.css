@@ -535,6 +535,8 @@
 
 .creds-input { width: 320px; max-width: 80vw; padding: 9px 12px; border-radius: var(--radius-control); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 14px; }
 .creds-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.settings-creds-status { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+.settings-creds-actions { display: flex; gap: 8px; margin-top: 6px; }
 .creds-help-toggle { background: transparent; border: none; color: var(--accent-text); font-size: 13px; cursor: pointer; padding: 4px; }
 .creds-help { text-align: left; max-width: 360px; font-size: 13px; color: var(--text-muted); line-height: 1.5; padding-left: 18px; }
 .creds-help a { color: var(--accent-text); }

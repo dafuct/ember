@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { setSettings, type AccountInfo, type Settings } from "../lib/api";
+import {
+  setSettings,
+  googleCredentialsStatus,
+  setGoogleCredentials,
+  clearGoogleCredentials,
+  type AccountInfo,
+  type Settings,
+  type CredentialStatus,
+} from "../lib/api";
 import { ensureNotificationPermission } from "../lib/notify";
 import { isTauri } from "@tauri-apps/api/core";
 import { useTheme, type Theme } from "../theme";
@@ -28,6 +36,44 @@ export function SettingsModal({
   const [confirmingEmail, setConfirmingEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [credStatus, setCredStatus] = useState<CredentialStatus | null>(null);
+  const [credId, setCredId] = useState("");
+  const [credSecret, setCredSecret] = useState("");
+  const [credBusy, setCredBusy] = useState(false);
+  const [credError, setCredError] = useState<string | null>(null);
+
+  useEffect(() => {
+    googleCredentialsStatus().then(setCredStatus).catch(() => {});
+  }, []);
+
+  async function handleSaveCreds() {
+    setCredBusy(true);
+    setCredError(null);
+    try {
+      await setGoogleCredentials(credId.trim(), credSecret.trim());
+      setCredId("");
+      setCredSecret("");
+      setCredStatus(await googleCredentialsStatus());
+    } catch (e) {
+      setCredError(String(e));
+    } finally {
+      setCredBusy(false);
+    }
+  }
+
+  async function handleClearCreds() {
+    setCredBusy(true);
+    setCredError(null);
+    try {
+      await clearGoogleCredentials();
+      setCredStatus(await googleCredentialsStatus());
+    } catch (e) {
+      setCredError(String(e));
+    } finally {
+      setCredBusy(false);
+    }
+  }
 
   // Close on Esc from anywhere in the modal.
   useEffect(() => {
@@ -187,6 +233,47 @@ export function SettingsModal({
             onChange={(e) => setSignature(e.target.value)}
             rows={4}
           />
+        </div>
+
+        <div className="settings-field">
+          <span className="settings-label">Google API</span>
+          <div className="settings-creds-status">
+            {credStatus === null
+              ? "Checking…"
+              : credStatus.source === "stored"
+              ? "Using your saved key"
+              : credStatus.source === "none"
+              ? "Not configured"
+              : "Using built-in key"}
+          </div>
+          <input
+            className="creds-input"
+            placeholder="Client ID"
+            value={credId}
+            onChange={(e) => setCredId(e.target.value)}
+          />
+          <input
+            className="creds-input"
+            type="password"
+            placeholder="Client secret"
+            value={credSecret}
+            onChange={(e) => setCredSecret(e.target.value)}
+          />
+          <div className="settings-creds-actions">
+            <button
+              className="btn btn-accent"
+              disabled={credBusy || !credId.trim() || !credSecret.trim()}
+              onClick={handleSaveCreds}
+            >
+              Save key
+            </button>
+            {credStatus?.source === "stored" && (
+              <button className="btn btn-danger-outline" disabled={credBusy} onClick={handleClearCreds}>
+                Clear saved key
+              </button>
+            )}
+          </div>
+          {credError && <div className="compose-error">{credError}</div>}
         </div>
 
         {error && <div className="compose-error">{error}</div>}
