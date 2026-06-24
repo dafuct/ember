@@ -1,5 +1,5 @@
-# Derived/extracted design assets — regenerate with scripts/extract-ember.py
-docs/_ember_extracted/
+# Internal design docs, specs & plans — kept local, not shared in the repo
+docs/
 
 # macOS
 .DS_Store
@@ -34,10 +34,9 @@ wiki/
 raw/
 CLAUDE.md
 
-# Editor directories (allow extensions.json)
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Editor directories
+.vscode/
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
