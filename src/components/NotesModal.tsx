@@ -12,8 +12,10 @@ import {
   listInputDevices,
   startCapture,
   stopCapture,
+  transcriptionStatus,
+  prepareTranscription,
 } from "../lib/notes";
-import type { DeviceInfo } from "../lib/notes";
+import type { DeviceInfo, TranscriptionStatus } from "../lib/notes";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
@@ -49,6 +51,8 @@ export function NotesModal({
   const [selectedDevice, setSelectedDevice] = useState("");
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [prepMsg, setPrepMsg] = useState<string | null>(null); // transcription setup progress
+  const [transStatus, setTransStatus] = useState<TranscriptionStatus | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
   useEffect(() => {
@@ -65,6 +69,7 @@ export function NotesModal({
         setSelectedDevice((prev) => prev || ds[0]?.name || "");
       })
       .catch(() => {});
+    transcriptionStatus().then(setTransStatus).catch(() => {});
   }, []);
 
   // Track `recording` in a ref so the unmount cleanup sees the latest value without re-subscribing.
@@ -171,6 +176,27 @@ export function NotesModal({
     }
   }
 
+  // Ensure the in-process transcriber is ready (downloads the model on first use), surfacing
+  // progress. Returns true on success; on failure sets the error and returns false.
+  async function ensureReady(): Promise<boolean> {
+    setPrepMsg("Setting up transcription…");
+    try {
+      await prepareTranscription((p) => {
+        if (p.type === "Downloading") setPrepMsg(`Downloading speech model… ${p.percent}%`);
+        else if (p.type === "Loading") setPrepMsg("Loading model…");
+        else if (p.type === "Ready") setPrepMsg(null);
+        else if (p.type === "Error") setError(p.message);
+      });
+      setPrepMsg(null);
+      setTransStatus(await transcriptionStatus());
+      return true;
+    } catch (e) {
+      setPrepMsg(null);
+      setError(String(e));
+      return false;
+    }
+  }
+
   async function handleTranscribe() {
     setTranscribing(true);
     setError(null);
@@ -187,6 +213,7 @@ export function NotesModal({
         path = "/mock/recording.m4a"; // maket: skip the native dialog
       }
       if (!path) return; // cancelled
+      if (!(await ensureReady())) return; // download/load the model first
       const text = await transcribeRecording(path);
       setTranscript(text);
     } catch (e) {
@@ -198,6 +225,7 @@ export function NotesModal({
 
   async function handleRecord() {
     setError(null);
+    if (!(await ensureReady())) return; // download/load the model before capturing
     setRecording(true);
     try {
       await startCapture(selectedDevice, (e) => {
@@ -249,7 +277,7 @@ export function NotesModal({
     }
   }
 
-  const blocked = busy || summarizing || importing || transcribing || recording;
+  const blocked = busy || summarizing || importing || transcribing || recording || prepMsg !== null;
 
   return (
     <div className="compose-overlay">
@@ -316,7 +344,17 @@ export function NotesModal({
                 </button>
               )}
               {recording && <span className="note-capture-pulse">● listening…</span>}
+              {prepMsg && <span className="note-capture-pulse">{prepMsg}</span>}
             </div>
+            {transStatus && !transStatus.blackhole_present && (
+              <div className="note-blackhole-hint">
+                To capture the meeting's audio (not just your mic), install{" "}
+                <a href="https://github.com/ExistentialAudio/BlackHole#installation" target="_blank" rel="noreferrer">
+                  BlackHole
+                </a>{" "}
+                and pick it as the input device.
+              </div>
+            )}
             <div className="note-summary-section">
               <div className="note-summary-head">
                 <span>Summary</span>
