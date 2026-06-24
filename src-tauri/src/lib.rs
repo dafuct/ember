@@ -61,6 +61,9 @@ pub mod capture;
 // 🦀 In-process Whisper STT engine (whisper-rs). Replaces the external whisper-server.
 pub mod transcribe;
 
+// 🦀 Whisper model management: app-data path + first-use auto-download (with progress).
+pub mod model;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
