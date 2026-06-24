@@ -102,16 +102,23 @@ For a clean, no‑warning install you'd need an Apple Developer ID certificate +
 - Click any account to **switch** — the inbox, folders, and calendar follow it.
 - **Manage in Settings** → remove accounts individually.
 
+## Meeting transcription (zero‑setup)
+
+Transcription runs **in‑process** — Whisper is compiled into Ember (no separate server, no manual install). The first time you **Record** in a meeting note (or **Import** a recording), Ember downloads the speech model (`base.en`, ~142 MB, one time) to its app‑data folder and loads it; after that it's instant and fully offline.
+
+- To capture **the meeting's** audio (not just your mic), install [BlackHole](https://github.com/ExistentialAudio/BlackHole#installation), route the call's output to it (an Audio‑MIDI Multi‑Output Device lets you still hear it), and pick **BlackHole** as the input device in the note. Ember shows this hint when BlackHole isn't detected.
+- Grant Ember **Microphone** permission (System Settings → Privacy & Security → Microphone).
+
 ## Optional: local meeting‑note summaries
 
-Summarization runs entirely locally via Ollama:
+*Summaries* (distinct from transcription) run locally via Ollama:
 
 ```bash
 # install Ollama from https://ollama.com, then:
 ollama pull llama3.2
 ```
 
-With Ollama running, the **Summarize** button in a meeting note produces a summary from the note + any imported transcript. No data leaves your machine.
+With Ollama running, the **Summarize** button in a meeting note produces a summary from the note + transcript. No data leaves your machine.
 
 ## Known limitations
 

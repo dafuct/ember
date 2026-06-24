@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "Ember Dev"
+      "signingIdentity": "Ember Dev",
+      "minimumSystemVersion": "11.0"
     }
   }
 }
