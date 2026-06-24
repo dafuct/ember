@@ -56,7 +56,22 @@ pub async fn start_capture(
     device_name: String,
     on_event: tauri::ipc::Channel<CaptureEvent>,
     state: tauri::State<'_, CaptureState>,
+    transcriber: tauri::State<'_, crate::transcribe::TranscriberState>,
 ) -> Result<()> {
+    // 🦀 The in-process Whisper engine must be loaded first (the frontend calls
+    //    prepare_transcription before this). Clone the Arc to hand to the worker, and fail
+    //    early with a clear message if it isn't ready rather than erroring on every window.
+    let transcriber: crate::transcribe::TranscriberState = (*transcriber).clone();
+    {
+        let g = transcriber
+            .lock()
+            .map_err(|_| AppError::Other("transcriber lock poisoned".into()))?;
+        if g.is_none() {
+            return Err(AppError::Other(
+                "transcription engine not ready — call prepare_transcription first".into(),
+            ));
+        }
+    }
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     // 🦀 Refuse a second concurrent capture. Scope the lock so the guard drops before we spawn.
     {
@@ -135,7 +150,7 @@ pub async fn start_capture(
         Err(_) => return Err(AppError::Other("audio thread failed to start".into())),
     }
 
-    let worker = tokio::spawn(worker_loop(rx, on_event, in_rate, channels));
+    let worker = tokio::spawn(worker_loop(rx, on_event, in_rate, channels, transcriber));
 
     // 🦀 If storing the session fails (poisoned lock), don't leak the thread/worker we just
     //    spawned: signal stop (so the audio thread exits) and abort the worker before returning.
@@ -182,9 +197,9 @@ async fn worker_loop(
     on_event: tauri::ipc::Channel<CaptureEvent>,
     in_rate: u32,
     channels: u16,
+    transcriber: crate::transcribe::TranscriberState,
 ) {
     const WINDOW_SECS: usize = 10;
-    let whisper = crate::whisper::WhisperClient::new();
     let stride = channels.max(1) as usize;
     // 🦀 interleaved samples per window = frames-per-window * channels
     let window_samples = in_rate as usize * WINDOW_SECS * stride;
@@ -194,26 +209,46 @@ async fn worker_loop(
         // 🦀 Emit each full window as it accumulates; `drain(..n)` removes the first n samples.
         while buf.len() >= window_samples {
             let window: Vec<f32> = buf.drain(..window_samples).collect();
-            transcribe_and_emit(&whisper, &window, channels, in_rate, &on_event).await;
+            transcribe_and_emit(&transcriber, &window, channels, in_rate, &on_event);
         }
     }
     if !buf.is_empty() {
-        transcribe_and_emit(&whisper, &buf, channels, in_rate, &on_event).await;
+        transcribe_and_emit(&transcriber, &buf, channels, in_rate, &on_event);
     }
     let _ = on_event.send(CaptureEvent::Stopped);
 }
 
 // 🦀 One window: interleaved f32 → WAV → whisper → emit. Empty/silent windows are skipped;
 //    a transcription error is reported but does NOT end the session.
-async fn transcribe_and_emit(
-    whisper: &crate::whisper::WhisperClient,
+// 🦀 Sync (no `.await`): downmix + resample to 16 kHz mono, then transcribe in-process via the
+//    shared whisper-rs context. whisper-rs is CPU-bound and blocking; one 10s window per call on
+//    a single capture stream is acceptable. The std Mutex guard is dropped before returning and
+//    is never held across an await (there is none here).
+fn transcribe_and_emit(
+    transcriber: &crate::transcribe::TranscriberState,
     interleaved: &[f32],
     channels: u16,
     in_rate: u32,
     on_event: &tauri::ipc::Channel<CaptureEvent>,
 ) {
-    let wav = crate::audio::window_to_wav(interleaved, channels, in_rate);
-    match whisper.transcribe(wav, "chunk.wav", "audio/wav").await {
+    let mono = crate::audio::downmix_to_mono(interleaved, channels);
+    let samples = crate::audio::resample_to_16k(&mono, in_rate);
+    let text = {
+        let guard = match transcriber.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        match guard.as_ref() {
+            Some(t) => t.transcribe_samples(&samples),
+            None => {
+                let _ = on_event.send(CaptureEvent::Error {
+                    message: "transcriber not ready".into(),
+                });
+                return;
+            }
+        }
+    };
+    match text {
         Ok(text) if !text.trim().is_empty() => {
             let _ = on_event.send(CaptureEvent::Chunk { text });
         }

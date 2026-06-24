@@ -121,6 +121,10 @@ pub fn run() {
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(conn)));
             // 🦀 Live-capture session state (M24): starts empty; start/stop_capture fill/clear it.
             app.manage(crate::capture::CaptureState::default());
+            // 🦀 In-process Whisper engine: loaded lazily by prepare_transcription, then reused.
+            app.manage(std::sync::Arc::new(std::sync::Mutex::new(
+                None::<crate::transcribe::Transcriber>,
+            )) as crate::transcribe::TranscriberState);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -165,6 +169,8 @@ pub fn run() {
             commands::summarize_meeting_note,
             commands::read_transcript_file,
             commands::transcribe_recording,
+            commands::prepare_transcription,
+            commands::transcription_status,
             capture::list_input_devices,
             capture::start_capture,
             capture::stop_capture,

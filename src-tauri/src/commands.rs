@@ -1344,6 +1344,72 @@ pub async fn transcribe_recording(path: String) -> Result<String> {
     crate::whisper::WhisperClient::new().transcribe(bytes, filename, mime).await
 }
 
+/// Ensure the Whisper model is downloaded and the in-process context is loaded. Streams progress
+/// (download %, loading) over `on_progress`. Idempotent — a no-op once the context is loaded.
+#[tauri::command]
+pub async fn prepare_transcription(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::transcribe::TranscriberState>,
+    on_progress: tauri::ipc::Channel<crate::model::PrepProgress>,
+) -> Result<()> {
+    {
+        let guard = state
+            .lock()
+            .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
+        if guard.is_some() {
+            let _ = on_progress.send(crate::model::PrepProgress::Ready);
+            return Ok(());
+        }
+    }
+    let model = crate::model::ensure_model(&app, &on_progress).await?;
+    let _ = on_progress.send(crate::model::PrepProgress::Loading);
+    // 🦀 Loading the model is CPU-heavy; do it off the async runtime so the UI stays responsive.
+    let model_str = model.to_string_lossy().to_string();
+    let loaded = tokio::task::spawn_blocking(move || crate::transcribe::Transcriber::load(&model_str))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))??;
+    {
+        let mut guard = state
+            .lock()
+            .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
+        // 🦀 If another prepare loaded it while we were working, keep theirs (drop ours).
+        if guard.is_none() {
+            *guard = Some(loaded);
+        }
+    }
+    let _ = on_progress.send(crate::model::PrepProgress::Ready);
+    Ok(())
+}
+
+/// Whether transcription is set up + which capture device hint to show. No secret/heavy work.
+#[derive(serde::Serialize)]
+pub struct TranscriptionStatus {
+    pub model_present: bool,
+    pub ready: bool,
+    pub blackhole_present: bool,
+}
+
+#[tauri::command]
+pub async fn transcription_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::transcribe::TranscriberState>,
+) -> Result<TranscriptionStatus> {
+    let model_present = crate::model::model_present(&app);
+    let ready = {
+        let guard = state
+            .lock()
+            .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
+        guard.is_some()
+    };
+    // 🦀 BlackHole = a virtual audio device for capturing the meeting's output; guide the user
+    //    to install it when absent. Reuses the existing device enumeration.
+    let blackhole_present = crate::capture::list_input_devices()
+        .await
+        .map(|ds| ds.iter().any(|d| d.name.to_lowercase().contains("blackhole")))
+        .unwrap_or(false);
+    Ok(TranscriptionStatus { model_present, ready, blackhole_present })
+}
+
 // 🦀 Best-effort content type from the file extension. The whisper server decodes by content
 //    regardless, so this is just polite metadata on the multipart part. `&'static str` because
 //    every arm returns a string literal baked into the binary.
