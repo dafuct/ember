@@ -45,7 +45,13 @@ pub struct AccountSyncSummary {
 const PREVIEW_CONCURRENCY: usize = 8;
 const SEARCH_MAX: u32 = 50;
 const CALENDAR_CONCURRENCY: usize = 6;
-const SYNC_WINDOW_DAYS: i64 = 30;
+// 🦀 Inbox sync/cache window. Drives both the `newer_than:{N}d` Gmail query and the prune
+//    cutoff, so the local cache holds ~12 months of INBOX. The first sync after raising this
+//    pulls a year of mail (one-time, bounded); later syncs stay fast history deltas.
+const SYNC_WINDOW_DAYS: i64 = 365;
+// 🦀 Safety ceiling for the inbox preview page size. The frontend grows its fetch limit as
+//    you scroll; this bounds a single request so it can never ask for unbounded rows.
+const PREVIEW_MAX: u32 = 2000;
 
 /// Resolve the active account from the DB pointer, then load + refresh its token.
 /// This is the multi-account replacement for the old `ensure_access_token()`.
@@ -265,7 +271,7 @@ pub async fn fetch_inbox_preview(
     max: u32,
     state: tauri::State<'_, Db>,
 ) -> Result<Vec<MessagePreview>> {
-    let max = max.clamp(1, 50);
+    let max = max.clamp(1, PREVIEW_MAX);
     let conn = state
         .lock()
         .map_err(|_| AppError::Other("database lock was poisoned".into()))?;

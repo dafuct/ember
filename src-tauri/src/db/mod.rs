@@ -1440,4 +1440,18 @@ mod tests {
         assert_eq!(unread_count(&c, "a@x.com").unwrap(), 1);
         assert_eq!(unread_count(&c, "b@x.com").unwrap(), 1);
     }
+
+    #[test]
+    fn recent_previews_returns_up_to_max_above_50() {
+        let c = conn();
+        // 60 messages for one account, increasing internal_date so newest-first is well-defined.
+        for i in 0..60u32 {
+            let mut m = msg(&format!("m{i}"), 0);
+            m.internal_date = 1_000 + i as i64;
+            upsert_messages(&c, "me@x.com", std::slice::from_ref(&m)).unwrap();
+        }
+        let rows = recent_previews(&c, "me@x.com", 55).unwrap();
+        assert_eq!(rows.len(), 55); // returns up to max — NOT capped at 50
+        assert_eq!(rows[0].id, "m59"); // newest first (highest internal_date)
+    }
 }
