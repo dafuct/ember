@@ -67,15 +67,24 @@ pub struct GoogleOAuth {
 
 impl GoogleOAuth {
     pub fn from_env() -> Result<Self> {
-        // 🦀 `std::env::var("KEY")` returns `Result<String, VarError>` — `Ok(value)`
-        //    if the environment variable is set, or `Err(VarError::NotPresent)` if not.
-        //    `.map_err(|_| AppError::Config(...))` transforms the error type: the closure
-        //    receives the `VarError` (we ignore it with `_`) and returns a domain-specific
-        //    `AppError::Config`.  Then `?` propagates early if still `Err`.
-        let client_id = std::env::var("EMBER_GOOGLE_CLIENT_ID")
-            .map_err(|_| AppError::Config("EMBER_GOOGLE_CLIENT_ID not set".into()))?;
-        let client_secret = std::env::var("EMBER_GOOGLE_CLIENT_SECRET")
-            .map_err(|_| AppError::Config("EMBER_GOOGLE_CLIENT_SECRET not set".into()))?;
+        // 🦀 Resolve a credential from the RUNTIME env first (set by dotenvy in dev, or a real
+        //    shell env var), then fall back to the value BAKED in at build time by build.rs
+        //    via `option_env!` (a compile-time env lookup). The baked fallback is what lets a
+        //    packaged release run on another machine, where the dev `.env` path is absent.
+        //    `.filter(|s| !s.is_empty())` treats an empty value as "not set".
+        fn resolve(runtime_key: &str, baked: Option<&str>) -> Option<String> {
+            std::env::var(runtime_key)
+                .ok()
+                .or_else(|| baked.map(str::to_string))
+                .filter(|s| !s.is_empty())
+        }
+        let client_id = resolve("EMBER_GOOGLE_CLIENT_ID", option_env!("EMBER_GOOGLE_CLIENT_ID"))
+            .ok_or_else(|| AppError::Config("EMBER_GOOGLE_CLIENT_ID not set".into()))?;
+        let client_secret = resolve(
+            "EMBER_GOOGLE_CLIENT_SECRET",
+            option_env!("EMBER_GOOGLE_CLIENT_SECRET"),
+        )
+        .ok_or_else(|| AppError::Config("EMBER_GOOGLE_CLIENT_SECRET not set".into()))?;
         Ok(Self {
             client_id,
             client_secret,
