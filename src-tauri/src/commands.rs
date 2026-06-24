@@ -1020,6 +1020,35 @@ pub async fn set_settings(settings: db::Settings, state: tauri::State<'_, Db>) -
     db::save_settings(&conn, &settings)
 }
 
+/// Whether Google OAuth credentials are available, and from which source. Never returns
+/// the secret — only `configured` + a source label for the UI.
+#[derive(serde::Serialize)]
+pub struct CredentialStatus {
+    pub configured: bool,
+    pub source: String,
+}
+
+#[tauri::command]
+pub async fn google_credentials_status() -> Result<CredentialStatus> {
+    let source = GoogleOAuth::credentials_source()?;
+    Ok(CredentialStatus { configured: source != "none", source: source.to_string() })
+}
+
+#[tauri::command]
+pub async fn set_google_credentials(client_id: String, client_secret: String) -> Result<()> {
+    let id = client_id.trim();
+    let secret = client_secret.trim();
+    if id.is_empty() || secret.is_empty() {
+        return Err(AppError::Config("Client ID and secret are both required".into()));
+    }
+    crate::auth::tokens::save_credentials(id, secret)
+}
+
+#[tauri::command]
+pub async fn clear_google_credentials() -> Result<()> {
+    crate::auth::tokens::delete_credentials()
+}
+
 /// Remove one account everywhere: Keychain token, scoped cache, and the index; then
 /// re-point `active_account` ONLY if the removed account was the active one (removing a
 /// non-active account preserves the current active account — see db::remove_account_and_repoint).
