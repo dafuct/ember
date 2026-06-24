@@ -67,6 +67,8 @@ export function SettingsModal({
     setCredError(null);
     try {
       await clearGoogleCredentials();
+      setCredId("");
+      setCredSecret("");
       setCredStatus(await googleCredentialsStatus());
     } catch (e) {
       setCredError(String(e));
