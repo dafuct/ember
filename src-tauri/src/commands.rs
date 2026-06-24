@@ -1420,6 +1420,13 @@ pub async fn transcription_status(
     Ok(TranscriptionStatus { model_present, ready, blackhole_present })
 }
 
+/// Assisted setup: fetch the official BlackHole 2ch installer and open it in macOS Installer so
+/// the user can capture meeting audio. DB-free; the user still authenticates the driver install.
+#[tauri::command]
+pub async fn install_blackhole() -> Result<()> {
+    crate::blackhole::install_2ch().await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

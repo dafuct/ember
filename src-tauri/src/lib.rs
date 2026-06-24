@@ -63,6 +63,9 @@ pub mod model;
 // 🦀 Pure-Rust file decoding (symphonia) → 16 kHz mono f32 for the file-import path.
 pub mod decode;
 
+// 🦀 Assisted BlackHole install (fetch + open the official 2ch .pkg) for meeting-audio capture.
+pub mod blackhole;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -170,6 +173,7 @@ pub fn run() {
             commands::transcribe_recording,
             commands::prepare_transcription,
             commands::transcription_status,
+            commands::install_blackhole,
             capture::list_input_devices,
             capture::start_capture,
             capture::stop_capture,

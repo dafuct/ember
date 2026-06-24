@@ -133,3 +133,8 @@ export const prepareTranscription = (onProgress: (p: PrepProgress) => void): Pro
   ch.onmessage = onProgress;
   return invoke<void>("prepare_transcription", { onProgress: ch });
 };
+
+// Fetch the official BlackHole 2ch installer and open it in macOS Installer (assisted setup for
+// capturing meeting audio). Resolves once the installer is handed off; the user still authenticates.
+export const installBlackhole = (): Promise<void> =>
+  isTauri() ? invoke<void>("install_blackhole") : Promise.resolve();

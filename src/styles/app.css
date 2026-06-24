@@ -488,6 +488,15 @@
 .note-blackhole-hint a {
   color: var(--accent-text);
 }
+.note-blackhole-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.note-blackhole-msg {
+  margin-top: 6px;
+}
 
 /* ===== Redesign shell — icon rail + merged sidebar ===== */
 .shell { flex: 1; min-height: 0; display: flex; background: var(--bg); }

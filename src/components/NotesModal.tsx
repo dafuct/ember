@@ -14,6 +14,7 @@ import {
   stopCapture,
   transcriptionStatus,
   prepareTranscription,
+  installBlackhole,
 } from "../lib/notes";
 import type { DeviceInfo, TranscriptionStatus } from "../lib/notes";
 
@@ -53,6 +54,8 @@ export function NotesModal({
   const [error, setError] = useState<string | null>(null);
   const [prepMsg, setPrepMsg] = useState<string | null>(null); // transcription setup progress
   const [transStatus, setTransStatus] = useState<TranscriptionStatus | null>(null);
+  const [installingBh, setInstallingBh] = useState(false); // BlackHole assisted install in flight
+  const [bhMsg, setBhMsg] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
   useEffect(() => {
@@ -194,6 +197,22 @@ export function NotesModal({
       setPrepMsg(null);
       setError(String(e));
       return false;
+    }
+  }
+
+  // Fetch + open the official BlackHole installer. On success the GUI installer takes over (asks
+  // for the admin password); we re-check status so the hint clears once it's installed.
+  async function handleInstallBlackhole() {
+    setInstallingBh(true);
+    setBhMsg(null);
+    try {
+      await installBlackhole();
+      setBhMsg("Installer opened — follow the prompts (you'll be asked for your password), then re-select the device.");
+      setTransStatus(await transcriptionStatus());
+    } catch (e) {
+      setBhMsg(`Couldn't fetch the installer (${String(e)}). Use the manual download link instead.`);
+    } finally {
+      setInstallingBh(false);
     }
   }
 
@@ -348,11 +367,21 @@ export function NotesModal({
             </div>
             {transStatus && !transStatus.blackhole_present && (
               <div className="note-blackhole-hint">
-                To capture the meeting's audio (not just your mic), install{" "}
-                <a href="https://github.com/ExistentialAudio/BlackHole#installation" target="_blank" rel="noreferrer">
-                  BlackHole
-                </a>{" "}
-                and pick it as the input device.
+                To capture the meeting's audio (not just your mic), install BlackHole and pick it as
+                the input device.
+                <div className="note-blackhole-actions">
+                  <button className="btn" onClick={handleInstallBlackhole} disabled={installingBh}>
+                    {installingBh ? "Opening installer…" : "Install BlackHole"}
+                  </button>
+                  <a
+                    href="https://github.com/ExistentialAudio/BlackHole#installation"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    download manually
+                  </a>
+                </div>
+                {bhMsg && <div className="note-blackhole-msg">{bhMsg}</div>}
               </div>
             )}
             <div className="note-summary-section">

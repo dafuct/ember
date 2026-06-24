@@ -106,7 +106,7 @@ For a clean, no‑warning install you'd need an Apple Developer ID certificate +
 
 Transcription runs **in‑process** — Whisper is compiled into Ember (no separate server, no manual install). The first time you **Record** in a meeting note (or **Import** a recording), Ember downloads the speech model (`base.en`, ~142 MB, one time) to its app‑data folder and loads it; after that it's instant and fully offline.
 
-- To capture **the meeting's** audio (not just your mic), install [BlackHole](https://github.com/ExistentialAudio/BlackHole#installation), route the call's output to it (an Audio‑MIDI Multi‑Output Device lets you still hear it), and pick **BlackHole** as the input device in the note. Ember shows this hint when BlackHole isn't detected.
+- To capture **the meeting's** audio (not just your mic), you need [BlackHole](https://github.com/ExistentialAudio/BlackHole) (a virtual audio device). When it isn't detected the note shows an **Install BlackHole** button that fetches the official installer and opens it for you — you just click through and enter your password (a system audio driver can't install silently). Then route the call's output to BlackHole (an Audio‑MIDI Multi‑Output Device lets you still hear it) and pick **BlackHole** as the input device in the note.
 - Grant Ember **Microphone** permission (System Settings → Privacy & Security → Microphone).
 
 ## Optional: local meeting‑note summaries
