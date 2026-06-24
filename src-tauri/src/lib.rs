@@ -49,7 +49,6 @@ pub mod transcript;
 
 // 🦀 Local Whisper STT client (M23) — the audio twin of `ollama`. `pub` so the wiremock
 //    integration test in tests/whisper_test.rs (a separate crate) can reach it.
-pub mod whisper;
 
 // 🦀 Pure audio helpers (downmix/resample/WAV) for live capture — no I/O, unit-tested (M24).
 pub mod audio;
@@ -63,6 +62,9 @@ pub mod transcribe;
 
 // 🦀 Whisper model management: app-data path + first-use auto-download (with progress).
 pub mod model;
+
+// 🦀 Pure-Rust file decoding (symphonia) → 16 kHz mono f32 for the file-import path.
+pub mod decode;
 
 use tauri::Manager;
 
