@@ -58,6 +58,9 @@ pub mod audio;
 //    calls these), but mirrors the sibling modules.
 pub mod capture;
 
+// 🦀 In-process Whisper STT engine (whisper-rs). Replaces the external whisper-server.
+pub mod transcribe;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional

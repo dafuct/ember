@@ -30,6 +30,8 @@ ammonia = "4.1.2"
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 cpal = "0.18.1"
+# 🦀 In-process Whisper STT (compiles whisper.cpp with Metal at build time → no sidecar/server).
+whisper-rs = { version = "0.14", features = ["metal"] }
 
 [dev-dependencies]
 base64 = "0.22.1"
