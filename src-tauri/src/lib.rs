@@ -66,6 +66,10 @@ pub mod decode;
 // 🦀 Assisted BlackHole install (fetch + open the official 2ch .pkg) for meeting-audio capture.
 pub mod blackhole;
 
+// 🦀 Zero-setup live capture via ScreenCaptureKit (system audio + mic, no virtual devices). Backed
+//    by a native Objective-C helper (native/syscapture.m) compiled in build.rs.
+pub mod syscapture;
+
 use tauri::Manager;
 
 // 🦀 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is a *conditional
@@ -127,6 +131,10 @@ pub fn run() {
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(
                 None::<crate::transcribe::Transcriber>,
             )) as crate::transcribe::TranscriberState);
+            // 🦀 ScreenCaptureKit (zero-setup) live-capture session: starts empty.
+            app.manage(std::sync::Arc::new(std::sync::Mutex::new(
+                None::<crate::syscapture::SysSession>,
+            )) as crate::syscapture::SysCaptureState);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -174,6 +182,8 @@ pub fn run() {
             commands::prepare_transcription,
             commands::transcription_status,
             commands::install_blackhole,
+            syscapture::start_system_capture,
+            syscapture::stop_system_capture,
             capture::list_input_devices,
             capture::start_capture,
             capture::stop_capture,

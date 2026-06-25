@@ -32,5 +32,20 @@ fn main() {
         }
     }
 
+    // 🦀 Compile the native ScreenCaptureKit audio-capture helper (Objective-C) into the binary
+    //    and link the macOS frameworks it needs. ObjC (not Swift) → no Swift-runtime dylib to
+    //    bundle. Only on macOS; other targets skip it (the Rust side is cfg(target_os="macos")).
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:rerun-if-changed=native/syscapture.m");
+        cc::Build::new()
+            .file("native/syscapture.m")
+            .flag("-fobjc-arc")
+            .compile("ember_syscapture");
+        for fw in ["ScreenCaptureKit", "CoreMedia", "Foundation", "CoreGraphics"] {
+            println!("cargo:rustc-link-lib=framework={fw}");
+        }
+    }
+
     tauri_build::build()
 }

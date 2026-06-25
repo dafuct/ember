@@ -108,6 +108,21 @@ export const startCapture = (
 export const stopCapture = (): Promise<void> =>
   isTauri() ? invoke<void>("stop_capture") : mockStopCapture();
 
+// Zero-setup native capture (ScreenCaptureKit): grabs the system audio (the call) + optionally the
+// mic, no BlackHole/aggregate devices. Transcript chunks stream over the same CaptureEvent channel.
+export const startSystemCapture = (
+  captureMic: boolean,
+  onEvent: (e: CaptureEvent) => void,
+): Promise<void> => {
+  if (!isTauri()) return mockStartCapture("system", onEvent);
+  const ch = new Channel<CaptureEvent>();
+  ch.onmessage = onEvent;
+  return invoke<void>("start_system_capture", { captureMic, onEvent: ch });
+};
+
+export const stopSystemCapture = (): Promise<void> =>
+  isTauri() ? invoke<void>("stop_system_capture") : mockStopCapture();
+
 // M24+: zero-setup transcription. `transcription_status` tells the UI whether the model is
 // present/loaded and whether a BlackHole device exists; `prepare_transcription` downloads the
 // model (first run) + loads the in-process engine, streaming progress.

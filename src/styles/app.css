@@ -482,6 +482,20 @@
   flex: 1;
   min-width: 0;
 }
+.note-mic-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.note-capture-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
 .note-capture-pulse {
   font-size: 12px;
   color: var(--danger, #c0392b);
