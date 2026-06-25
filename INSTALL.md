@@ -58,14 +58,39 @@ This removes the download-quarantine flag and launches it. After that it opens n
 
 ## 5. (Optional) Meeting transcription
 
-- The **first time you Record or Import** in a meeting note, Ember downloads the speech model
-  (~142 MB, one time) automatically — no setup.
-- macOS prompts for **Microphone** permission → **Allow** (or System Settings → Privacy & Security →
-  Microphone → enable Ember).
-- To capture **the meeting's audio** (not just your mic), the note shows an **Install BlackHole**
-  button → click it → the official installer opens → enter your password. Then in **Audio MIDI Setup**
-  create a **Multi-Output Device** (speakers + BlackHole) so you still hear the call, set that as the
-  call's output, and pick **BlackHole** as the input device in the note.
+Transcription runs fully on‑device (Whisper is built into Ember; the model auto‑downloads ~142 MB
+on first use). Notes live in the **Calendar** view: click a meeting's event → **Notes** in the
+popover → the editor has the **Record** button + device picker.
+
+### One‑time setup
+
+1. **Grant Microphone permission.** System Settings → Privacy & Security → **Microphone** → turn
+   **Ember** on. (If it isn't listed, click **Record** once and macOS will prompt → Allow.) Without
+   this, capture records pure silence and the transcript fills with "you you you".
+2. **Install BlackHole 2ch** — the **Install BlackHole** button in a note (or
+   https://github.com/ExistentialAudio/BlackHole). It's a virtual audio device that carries the
+   call's audio to Ember. Needs your admin password (a system audio driver can't install silently).
+3. **Create a Multi‑Output Device** (so you *hear* the call AND BlackHole gets a copy). Open **Audio
+   MIDI Setup** → ＋ → **Create Multi‑Output Device** → tick **your speakers/headphones** + **BlackHole
+   2ch**; set the speakers as primary (top) and tick **Drift Correction** on BlackHole.
+4. **(Both sides) Create an Aggregate Device** — to also capture **your own voice**. ＋ → **Create
+   Aggregate Device** → tick **your mic** (e.g. the built‑in or USB mic) + **BlackHole 2ch**; clock
+   source = your mic, tick **Drift Correction** on BlackHole.
+
+### Before each meeting
+
+| What | Set to | Why |
+|---|---|---|
+| Mac **Output** (System Settings → Sound) | **Multi‑Output Device** | you hear the call + feed BlackHole |
+| **Ember** note input | **Aggregate Device** (both sides) or **BlackHole 2ch** (other person only) | what Ember transcribes |
+| **Google Meet/Zoom** microphone | **your real mic** (not the aggregate) | so the others still hear you |
+
+Then click **Record** in the note and wait ~10 seconds for the first chunk. **Stop** when done, then
+**Save** / **Summarize**.
+
+> Notes: a Multi‑Output Device disables the keyboard volume keys (adjust volume in the app instead).
+> BlackHole captures only audio your Mac *plays* (the other people) — your own voice needs the
+> Aggregate Device. To test quickly, just play a YouTube video while recording.
 
 ## 6. (Optional) Local summaries
 
@@ -82,4 +107,6 @@ Summaries (separate from transcription) use [Ollama](https://ollama.com): instal
 | "Developer cannot be verified" | Right-click → Open, or **Open Anyway** in Privacy & Security |
 | Won't launch at all, no dialog | It's Apple-Silicon-only — confirm it's not an Intel Mac |
 | Google sign-in blocked / "not a test user" | Sign in with the project owner's account, or add that account as a test user in Google Cloud |
-| Recording produces nothing | Grant Microphone permission; for the *other* participants you need BlackHole + a Multi-Output Device (Step 5) |
+| Transcript shows only "you you you" | Capture is getting silence. Grant **Microphone** permission (Step 5.1); make sure audio is actually reaching the input — output = **Multi‑Output Device**, and for a real test play a YouTube video |
+| Hear nothing during a call | Don't set output to **BlackHole** alone (it's silent) — use the **Multi‑Output Device** |
+| Other person transcribes but not me | That's expected with **BlackHole** as input — switch the note's input to the **Aggregate Device** to capture both sides |

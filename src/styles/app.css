@@ -133,13 +133,19 @@
 /* M8 — compose modal */
 .compose-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .compose-card { width: min(620px, 92vw); max-height: 88vh; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); }
-.compose-head { display: flex; align-items: center; justify-content: space-between; }
+.compose-head { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+/* 🦀 NotesModal: scrollable middle so the header + footer (Save/Cancel/Delete) stay pinned and
+   visible regardless of window height; the notes/transcript/summary content scrolls inside. */
+.note-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+/* 🦀 Inside the scroll region the notes/transcript boxes are compact + resizable (not flex-grow),
+   so the Summary section and capture row stay reachable instead of being pushed off-screen. */
+.note-scroll .compose-body { flex: 0 0 auto; min-height: 130px; }
 .compose-title { font-size: 14px; font-weight: 600; }
 .compose-field { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 13px; }
 .compose-cc-toggle { align-self: flex-start; background: transparent; border: none; color: var(--accent-text); font-size: 12px; cursor: pointer; padding: 2px 0; }
 .compose-body { flex: 1; min-height: 220px; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; font-family: inherit; }
 .compose-error { color: var(--danger); font-size: 13px; white-space: pre-wrap; }
-.compose-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.compose-actions { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .compose-cc-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* M9 — settings modal */

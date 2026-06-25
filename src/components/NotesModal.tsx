@@ -307,7 +307,8 @@ export function NotesModal({
             <X size={16} />
           </button>
         </div>
-        <div className="note-when">{new Date(target.eventStart).toLocaleString()}</div>
+        <div className="note-scroll">
+          <div className="note-when">{new Date(target.eventStart).toLocaleString()}</div>
         {loading ? (
           <div className="cal-loading">Loading…</div>
         ) : (
@@ -404,6 +405,7 @@ export function NotesModal({
             </div>
           </>
         )}
+        </div>
         {error && <div className="compose-error">{error}</div>}
         <div className="compose-actions">
           {exists && (
