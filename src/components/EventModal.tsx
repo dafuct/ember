@@ -4,6 +4,7 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  openExternal,
   type EventWrite,
   type CalendarSummary,
   type CalendarEvent,
@@ -46,7 +47,7 @@ export function EventModal({
   const [endTime, setEndTime] = useState(fmtTime(seedEnd));
   const [location, setLocation] = useState(editing?.location ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
-  const [guests, setGuests] = useState((editing?.attendees ?? []).join(", "));
+  const [guests, setGuests] = useState((editing?.attendees ?? []).map((a) => a.email).join(", "));
   const [calendarId, setCalendarId] = useState(
     editing?.calendar_id ?? writableCals.find((c) => c.primary)?.id ?? writableCals[0]?.id ?? "primary",
   );
@@ -152,7 +153,7 @@ export function EventModal({
           </select>
         </div>
         {editing ? (
-          editing.meet_link ? <a className="event-meet" href={editing.meet_link} target="_blank" rel="noreferrer">{editing.meet_link}</a> : null
+          editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>Join Google Meet</button> : null
         ) : (
           <label className="event-row">
             <input type="checkbox" checked={addMeet} onChange={(e) => setAddMeet(e.target.checked)} /> Add Google Meet
