@@ -354,7 +354,7 @@
 .rsvp-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .rsvp-btn:disabled { opacity: 0.6; cursor: default; }
 
-.event-meet-btn, .event-open-link { display: inline-block; margin-top: 6px; padding: 0; border: none; background: none; color: var(--accent); font-size: 13px; cursor: pointer; text-align: left; }
+.event-meet-btn, .event-open-link { display: block; margin-top: 6px; padding: 0; border: none; background: none; color: var(--accent); font-size: 13px; cursor: pointer; text-align: left; }
 .event-meet-btn:hover, .event-open-link:hover { text-decoration: underline; }
 .event-open-link { color: var(--text-muted); }
 
