@@ -120,12 +120,19 @@ export function CalendarView({
 
   const handleRespond = async (status: string) => {
     if (!detail) return;
+    const target = detail; // capture: the popover may close or switch events during the await
     setRsvpBusy(true);
     setRsvpError(null);
     try {
-      const updated = await respondToEvent(detail.calendar_id, detail.id, status);
-      // Merge only the fields that changed so the maket's stub event can't blank the popover.
-      setDetail({ ...detail, attendees: updated.attendees, my_response_status: updated.my_response_status });
+      const updated = await respondToEvent(target.calendar_id, target.id, status);
+      // Only update if the SAME event is still open — otherwise a slow PATCH could
+      // resurrect/overwrite a popover the user already closed or switched away from.
+      // Merge only the changed fields so the maket's stub event can't blank the popover.
+      setDetail((cur) =>
+        cur && cur.id === target.id && cur.calendar_id === target.calendar_id
+          ? { ...cur, attendees: updated.attendees, my_response_status: updated.my_response_status }
+          : cur,
+      );
       refetch(); // re-pull the week so tiles reflect the new status
     } catch (e) {
       setRsvpError(e instanceof Error ? e.message : String(e));
@@ -231,7 +238,7 @@ export function CalendarView({
                   const b = guestBadge(a.response_status);
                   return (
                     <div className="guest-row" key={a.email}>
-                      <span className={b.cls} title={b.label}>{b.symbol}</span>
+                      <span className={b.cls} title={b.label} role="img" aria-label={b.label}>{b.symbol}</span>
                       <span className="guest-email">{a.email}{a.self ? " (you)" : ""}</span>
                     </div>
                   );
