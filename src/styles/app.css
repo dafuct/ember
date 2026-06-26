@@ -357,6 +357,8 @@
 .event-meet-btn, .event-open-link { display: block; margin-top: 6px; padding: 0; border: none; background: none; color: var(--accent); font-size: 13px; cursor: pointer; text-align: left; }
 .event-meet-btn:hover, .event-open-link:hover { text-decoration: underline; }
 .event-open-link { color: var(--text-muted); }
+/* Push the Close/Notes/Edit action row down, away from the links above it. */
+.event-detail .compose-actions { margin-top: 14px; }
 
 /* M20 meeting notes */
 .cal-stage {
