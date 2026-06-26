@@ -494,6 +494,10 @@ export default function App() {
       return allSelected ? new Set() : new Set(ids);
     });
   }
+  function selectRange(ids: string[]) {
+    // Additive: Shift-range adds the span to the current selection, never deselects.
+    setSelectedIds((prev) => new Set([...prev, ...ids]));
+  }
   function clearUndo() {
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = null;
@@ -993,6 +997,7 @@ export default function App() {
                   selectedIds={selectedIds}
                   onToggleSelect={toggleSelect}
                   onSelectAllVisible={selectAllVisible}
+                  onSelectRange={selectRange}
                   onClearSelection={clearSelection}
                   onBatchArchive={batchArchive}
                   onBatchTrash={batchTrash}

@@ -34,7 +34,7 @@ export function MessageItem({
   selected: boolean;
   checked?: boolean;
   onSelect: (id: string) => void;
-  onToggleSelect?: (id: string) => void;
+  onToggleSelect?: (id: string, shiftKey?: boolean) => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   onSnooze?: (msg: MessagePreview, e: { clientX: number; clientY: number }) => void;
@@ -57,16 +57,25 @@ export function MessageItem({
   const hue = avatarHue(display);
 
   return (
-    <div className={cls} onClick={() => onSelect(msg.id)}>
+    <div
+      className={cls}
+      onClick={(e) => {
+        if (e.shiftKey) onToggleSelect?.(msg.id, true);
+        else onSelect(msg.id);
+      }}
+    >
       <div className="msg-lead">
+        {/* Selection is driven by `checked` + the onClick handler (which carries shiftKey for
+            range-select); the no-op onChange keeps this a valid controlled checkbox and lets
+            keyboard Space toggle it (Space dispatches a click). */}
         <input
           type="checkbox"
           className="msg-check"
           checked={checked}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
+          onChange={() => {}}
+          onClick={(e) => {
             e.stopPropagation();
-            onToggleSelect?.(msg.id);
+            onToggleSelect?.(msg.id, e.shiftKey);
           }}
           aria-label="Select message"
         />

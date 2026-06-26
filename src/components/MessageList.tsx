@@ -24,6 +24,7 @@ export function MessageList({
   selectedIds = new Set<string>(),
   onSelect,
   onToggleSelect,
+  onSelectRange,
   onSelectAllVisible,
   onClearSelection,
   onBatchArchive,
@@ -57,6 +58,7 @@ export function MessageList({
   selectedIds?: Set<string>;
   onSelect: (id: string) => void;
   onToggleSelect?: (id: string) => void;
+  onSelectRange?: (ids: string[]) => void;
   onSelectAllVisible?: (ids: string[]) => void;
   onClearSelection?: () => void;
   onBatchArchive?: () => void;
@@ -108,6 +110,23 @@ export function MessageList({
 
   const visibleIds = (groups ? groups.flatMap((g) => g.messages) : visible).map((m) => m.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+
+  const anchorRef = useRef<string | null>(null);
+  // Range selection: a plain checkbox/row click sets the anchor; Shift-click selects the
+  // contiguous range from the anchor to the clicked row over the visible order (additive).
+  const handleToggle = (id: string, shiftKey?: boolean) => {
+    if (shiftKey && anchorRef.current && onSelectRange) {
+      const a = visibleIds.indexOf(anchorRef.current);
+      const b = visibleIds.indexOf(id);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        onSelectRange(visibleIds.slice(lo, hi + 1));
+        return; // leave the anchor put — re-ranges from the same anchor
+      }
+    }
+    onToggleSelect?.(id);
+    anchorRef.current = id;
+  };
 
   // Typing drives search; emptying the box exits search mode (handleSearch ignores empties).
   const onSearchChange = (value: string) => {
@@ -216,7 +235,7 @@ export function MessageList({
                     selected={m.id === selectedId}
                     onSelect={onSelect}
                     checked={selectedIds.has(m.id)}
-                    onToggleSelect={onToggleSelect}
+                    onToggleSelect={handleToggle}
                     labelsById={labelsById}
                     onArchive={onArchive}
                     onStar={onStar}
@@ -235,7 +254,7 @@ export function MessageList({
               selected={m.id === selectedId}
               onSelect={onSelect}
               checked={selectedIds.has(m.id)}
-              onToggleSelect={onToggleSelect}
+              onToggleSelect={handleToggle}
               labelsById={labelsById}
               onArchive={onArchive}
               onStar={onStar}
