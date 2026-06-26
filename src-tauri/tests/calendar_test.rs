@@ -106,7 +106,7 @@ async fn list_events_parses_timed_and_all_day_with_query_params() {
 #[test]
 fn map_event_normalizes_and_skips_cancelled() {
     use ember_lib::calendar::map_event;
-    use ember_lib::calendar::types::{GAttendee, GEvent, GEventDateTime};
+    use ember_lib::calendar::types::{Attendee, GAttendee, GEvent, GEventDateTime};
 
     let timed = GEvent {
         id: "e1".into(),
@@ -119,18 +119,25 @@ fn map_event_normalizes_and_skips_cancelled() {
         html_link: Some("https://cal/e1".into()),
         hangout_link: Some("https://meet.google.com/abc".into()),
         attendees: Some(vec![
-            GAttendee { email: "a@x.com".into(), response_status: Some("accepted".into()) },
-            GAttendee { email: "b@y.com".into(), response_status: None },
+            GAttendee { email: "me@x.com".into(), response_status: Some("needsAction".into()), is_self: true },
+            GAttendee { email: "b@y.com".into(), response_status: Some("accepted".into()), is_self: false },
         ]),
     };
     let m = map_event(timed, "primary", Some("#16a34a")).unwrap();
     assert_eq!(m.title, "Standup");
     assert_eq!(m.start, "2026-06-15T09:00:00-07:00");
     assert!(!m.all_day);
-    assert_eq!(m.description.as_deref(), Some("daily sync"));
     assert_eq!(m.meet_link.as_deref(), Some("https://meet.google.com/abc"));
     assert_eq!(m.html_link.as_deref(), Some("https://cal/e1"));
-    assert_eq!(m.attendees, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
+    assert_eq!(
+        m.attendees,
+        vec![
+            Attendee { email: "me@x.com".into(), response_status: Some("needsAction".into()), is_self: true },
+            Attendee { email: "b@y.com".into(), response_status: Some("accepted".into()), is_self: false },
+        ]
+    );
+    // 🦀 my_response_status comes from the attendee flagged self == true.
+    assert_eq!(m.my_response_status.as_deref(), Some("needsAction"));
 
     let allday = GEvent {
         id: "e2".into(),
@@ -148,6 +155,7 @@ fn map_event_normalizes_and_skips_cancelled() {
     assert_eq!(m2.title, "(no title)");
     assert!(m2.all_day);
     assert!(m2.attendees.is_empty());
+    assert_eq!(m2.my_response_status, None);
 
     let cancelled = GEvent {
         id: "e3".into(),

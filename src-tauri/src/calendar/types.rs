@@ -50,13 +50,15 @@ pub struct GEvent {
     pub attendees: Option<Vec<GAttendee>>,
 }
 
-// 🦀 One guest on an event. We surface only the email to the frontend (responseStatus parsed
-//    for completeness / future RSVP UI).
+// 🦀 One guest on an event. `self` marks the signed-in user (Google sets it on GET);
+//    `rename = "self"` maps the JSON key to the Rust field `is_self` (`self` is reserved).
 #[derive(Debug, Deserialize)]
 pub struct GAttendee {
     pub email: String,
     #[serde(rename = "responseStatus", default)]
     pub response_status: Option<String>,
+    #[serde(rename = "self", default)]
+    pub is_self: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +86,16 @@ pub struct EventWrite {
     pub attendees: Vec<String>,
 }
 
+// 🦀 A guest as the frontend sees it: email + their RSVP status + whether it's you.
+//    `rename = "self"` so the JS reads `attendee.self`. `PartialEq` lets tests assert_eq!.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Attendee {
+    pub email: String,
+    pub response_status: Option<String>,
+    #[serde(rename = "self")]
+    pub is_self: bool,
+}
+
 // 🦀 The normalized event we send to the frontend. `Serialize` lets Tauri turn it into JSON.
 //    `PartialEq` lets unit tests compare values with assert_eq!.
 #[derive(Debug, Serialize, PartialEq)]
@@ -100,7 +112,9 @@ pub struct CalendarEvent {
     pub description: Option<String>,
     pub meet_link: Option<String>,
     pub html_link: Option<String>,
-    pub attendees: Vec<String>,
+    pub attendees: Vec<Attendee>,
+    // 🦀 The signed-in user's own RSVP status (None ⇒ not a guest ⇒ no RSVP control).
+    pub my_response_status: Option<String>,
 }
 
 /// A calendar the user can write to (for the create-event picker).

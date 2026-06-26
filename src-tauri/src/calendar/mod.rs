@@ -266,10 +266,24 @@ pub fn map_event(ev: GEvent, calendar_id: &str, color: Option<&str>) -> Option<C
     let all_day = start.date.is_some();
     let start_s = start.date_time.or(start.date)?;
     let end_s = end.date_time.or(end.date)?;
+    // 🦀 Map guests to the frontend Attendee shape; remember your own status for the RSVP control.
+    let attendees: Vec<types::Attendee> = ev
+        .attendees
+        .unwrap_or_default()
+        .into_iter()
+        .map(|g| types::Attendee {
+            email: g.email,
+            response_status: g.response_status,
+            is_self: g.is_self,
+        })
+        .collect();
+    let my_response_status = attendees
+        .iter()
+        .find(|a| a.is_self)
+        .and_then(|a| a.response_status.clone());
     Some(CalendarEvent {
         id: ev.id,
         calendar_id: calendar_id.to_string(),
-        // 🦀 filter() drops an empty summary so it falls through to the default title.
         title: ev.summary.filter(|s| !s.is_empty()).unwrap_or_else(|| "(no title)".to_string()),
         start: start_s,
         end: end_s,
@@ -279,12 +293,8 @@ pub fn map_event(ev: GEvent, calendar_id: &str, color: Option<&str>) -> Option<C
         description: ev.description,
         meet_link: ev.hangout_link,
         html_link: ev.html_link,
-        // 🦀 `map(...).unwrap_or_default()` turns Option<Vec<GAttendee>> into a Vec<String> of
-        //    emails (empty when no attendees). `into_iter()` consumes the Vec so we can move emails.
-        attendees: ev
-            .attendees
-            .map(|a| a.into_iter().map(|g| g.email).collect())
-            .unwrap_or_default(),
+        attendees,
+        my_response_status,
     })
 }
 
