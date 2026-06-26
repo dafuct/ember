@@ -102,8 +102,10 @@
 
 /* Body */
 .reading-body-area { display: flex; flex-direction: column; flex: 1; min-height: 280px; }
-.reading-frame { flex: 1; width: 100%; min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
-.reading-text { flex: 1; margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
+/* Email bodies render as a warm-paper "document" matted in the dark pane: centered,
+   max-width so the dark bg breathes on wide panes, full width when the pane is narrow. */
+.reading-frame { flex: 1; width: 100%; max-width: 720px; align-self: center; margin-top: 4px; min-height: 360px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); }
+.reading-text { flex: 1; width: 100%; max-width: 720px; align-self: center; margin: 4px 0 0; padding: 16px 18px; white-space: pre-wrap; font-size: 14px; line-height: 1.7; background: var(--paper); color: var(--paper-ink); border: 1px solid var(--border); border-radius: 10px; }
 .reading-status { color: var(--text-muted); font-size: 13px; }
 
 /* Inline reply affordance at the bottom of the message */
