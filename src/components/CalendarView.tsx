@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { type CalendarEvent, toTimeMinMax } from "../lib/calendar";
-import { fetchCalendarWeek, connectGmail, listCalendars, type CalendarSummary } from "../lib/api";
+import { fetchCalendarWeek, connectGmail, listCalendars, openExternal, respondToEvent, type CalendarSummary } from "../lib/api";
 import { listMeetingNotes, noteKey, type MeetingNote } from "../lib/notes";
 import { WeekGrid } from "./WeekGrid";
 import { EventModal, type EventInitial } from "./EventModal";
@@ -12,6 +12,23 @@ import { NotebookPen, ChevronLeft, ChevronRight } from "lucide-react";
 // precisely so an unrelated error that merely mentions "permission" isn't misrouted here.
 function isScopeError(msg: string): boolean {
   return /reconnect google|calendar access not granted/i.test(msg);
+}
+
+// RSVP buttons (Google status → label).
+const RSVP_CHOICES: { status: string; label: string }[] = [
+  { status: "accepted", label: "Yes" },
+  { status: "declined", label: "No" },
+  { status: "tentative", label: "Maybe" },
+];
+
+// A guest's responseStatus → a small badge symbol + class.
+function guestBadge(status?: string | null): { symbol: string; cls: string; label: string } {
+  switch (status) {
+    case "accepted": return { symbol: "✓", cls: "guest-status accepted", label: "accepted" };
+    case "declined": return { symbol: "✗", cls: "guest-status declined", label: "declined" };
+    case "tentative": return { symbol: "?", cls: "guest-status tentative", label: "maybe" };
+    default: return { symbol: "–", cls: "guest-status pending", label: "no reply" };
+  }
 }
 
 export function CalendarView({
@@ -35,6 +52,9 @@ export function CalendarView({
   const [calendars, setCalendars] = useState<CalendarSummary[]>([]);
   const [modal, setModal] = useState<EventInitial | null>(null);
   const [detail, setDetail] = useState<CalendarEvent | null>(null);
+  // RSVP state is popover-local: a failure must NOT trip the full-view `error` gate.
+  const [rsvpBusy, setRsvpBusy] = useState(false);
+  const [rsvpError, setRsvpError] = useState<string | null>(null);
 
   // Meeting notes (M20): local-only, separate from the live calendar fetch.
   const [notes, setNotes] = useState<MeetingNote[]>([]);
@@ -97,6 +117,22 @@ export function CalendarView({
   };
   const openNotesForNote = (n: MeetingNote) =>
     setNoteTarget({ calendarId: n.calendar_id, eventId: n.event_id, eventTitle: n.event_title, eventStart: n.event_start });
+
+  const handleRespond = async (status: string) => {
+    if (!detail) return;
+    setRsvpBusy(true);
+    setRsvpError(null);
+    try {
+      const updated = await respondToEvent(detail.calendar_id, detail.id, status);
+      // Merge only the fields that changed so the maket's stub event can't blank the popover.
+      setDetail({ ...detail, attendees: updated.attendees, my_response_status: updated.my_response_status });
+      refetch(); // re-pull the week so tiles reflect the new status
+    } catch (e) {
+      setRsvpError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRsvpBusy(false);
+    }
+  };
 
   if (error && isScopeError(error)) {
     return (
@@ -181,7 +217,7 @@ export function CalendarView({
       </div>
 
       {detail && (
-        <div className="event-detail-overlay" onClick={() => setDetail(null)}>
+        <div className="event-detail-overlay" onClick={() => { setDetail(null); setRsvpError(null); }}>
           <div className="event-detail" role="dialog" onClick={(e) => e.stopPropagation()}>
             <h3>{detail.title}</h3>
             <div className="event-detail-when">
@@ -190,13 +226,52 @@ export function CalendarView({
             {detail.location && <div>{detail.location}</div>}
             {detail.description && <p className="event-detail-desc">{detail.description}</p>}
             {detail.attendees && detail.attendees.length > 0 && (
-              <div className="event-detail-guests">Guests: {detail.attendees.join(", ")}</div>
+              <div className="event-detail-guests">
+                {detail.attendees.map((a) => {
+                  const b = guestBadge(a.response_status);
+                  return (
+                    <div className="guest-row" key={a.email}>
+                      <span className={b.cls} title={b.label}>{b.symbol}</span>
+                      <span className="guest-email">{a.email}{a.self ? " (you)" : ""}</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
+            {detail.my_response_status != null && (
+              <div className="event-rsvp">
+                <span className="event-rsvp-label">Going?</span>
+                {RSVP_CHOICES.map((c) => (
+                  <button
+                    key={c.status}
+                    className={`rsvp-btn${detail.my_response_status === c.status ? " active" : ""}`}
+                    disabled={rsvpBusy}
+                    onClick={() => handleRespond(c.status)}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {rsvpError && <div className="compose-error">{rsvpError}</div>}
             {detail.meet_link && (
-              <a className="event-meet" href={detail.meet_link} target="_blank" rel="noreferrer">{detail.meet_link}</a>
+              <button
+                className="event-meet event-meet-btn"
+                onClick={() => openExternal(detail.meet_link!)}
+              >
+                Join Google Meet
+              </button>
+            )}
+            {detail.html_link && (
+              <button
+                className="event-open-link"
+                onClick={() => openExternal(detail.html_link!)}
+              >
+                Open in Google Calendar
+              </button>
             )}
             <div className="compose-actions">
-              <button className="btn" onClick={() => setDetail(null)}>Close</button>
+              <button className="btn" onClick={() => { setDetail(null); setRsvpError(null); }}>Close</button>
               <button className="btn" onClick={() => openNotesForEvent(detail)}>
                 <NotebookPen size={15} /> Notes
               </button>
