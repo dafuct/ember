@@ -164,6 +164,8 @@ pub fn run() {
             commands::create_calendar_event,
             commands::update_calendar_event,
             commands::delete_calendar_event,
+            commands::open_external,
+            commands::respond_to_event,
             commands::get_meeting_note,
             commands::save_meeting_note,
             commands::delete_meeting_note,

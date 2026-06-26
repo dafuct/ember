@@ -386,3 +386,9 @@ fn google_error_message(body: &str) -> String {
             }
         })
 }
+
+// 🦀 Guard for `open_external`: only let the OS open web links, never file:/javascript:/etc.
+pub fn is_safe_url(url: &str) -> bool {
+    let u = url.trim().to_ascii_lowercase();
+    u.starts_with("https://") || u.starts_with("http://")
+}

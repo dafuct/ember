@@ -314,3 +314,15 @@ async fn respond_to_event_errors_when_not_a_guest() {
     let err = client.respond_to_event("primary", "e9", "accepted", "me@x.com").await.unwrap_err();
     assert!(err.to_string().to_lowercase().contains("not a guest"), "got: {err}");
 }
+
+#[test]
+fn is_safe_url_allows_only_web_schemes() {
+    use ember_lib::calendar::is_safe_url;
+    assert!(is_safe_url("https://meet.google.com/abc"));
+    assert!(is_safe_url("http://example.com"));
+    assert!(is_safe_url("  HTTPS://Cal.example/e1  ")); // trimmed + case-insensitive
+    assert!(!is_safe_url("file:///etc/passwd"));
+    assert!(!is_safe_url("javascript:alert(1)"));
+    assert!(!is_safe_url("mailto:a@b.com"));
+    assert!(!is_safe_url(""));
+}

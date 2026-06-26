@@ -1187,6 +1187,33 @@ pub async fn delete_calendar_event(
     client.delete_event(&calendar_id, &event_id).await
 }
 
+/// Open a web URL in the user's default browser (Meet link, "open in Google Calendar").
+/// Guarded to http(s) so a crafted URL can't launch a local handler. No DB, no state.
+#[tauri::command]
+pub async fn open_external(url: String) -> Result<()> {
+    // 🦀 `crate::calendar::is_safe_url` rejects non-web schemes before we hand off to the OS.
+    if !crate::calendar::is_safe_url(&url) {
+        return Err(AppError::Other("refusing to open a non-web URL".into()));
+    }
+    open::that(&url).map_err(|e| AppError::Other(format!("couldn't open link: {e}")))?;
+    Ok(())
+}
+
+/// RSVP to a calendar event (accepted | declined | tentative). DB-free apart from the token.
+#[tauri::command]
+pub async fn respond_to_event(
+    calendar_id: String,
+    event_id: String,
+    response_status: String,
+    state: tauri::State<'_, Db>,
+) -> Result<CalendarEvent> {
+    let stored = active_token(&state).await?;
+    let client = CalendarClient::new(stored.access_token);
+    client
+        .respond_to_event(&calendar_id, &event_id, &response_status, &stored.email)
+        .await
+}
+
 /// Read the meeting note for one event, if any (DB-only; no Google call).
 #[tauri::command]
 pub async fn get_meeting_note(
