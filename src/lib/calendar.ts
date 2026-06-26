@@ -1,6 +1,12 @@
 // src/lib/calendar.ts — pure date + layout helpers for the week view (no I/O, no React).
 // All math is in the browser's LOCAL timezone, which is correct for the user by definition.
 
+export interface Attendee {
+  email: string;
+  response_status?: string | null; // accepted | declined | tentative | needsAction
+  self?: boolean;
+}
+
 export interface CalendarEvent {
   id: string;
   calendar_id: string;
@@ -15,7 +21,9 @@ export interface CalendarEvent {
   description?: string | null;
   meet_link?: string | null;
   html_link?: string | null;
-  attendees?: string[];
+  attendees?: Attendee[];
+  /** Your own RSVP status; absent/null ⇒ you are not a guest ⇒ no RSVP control. */
+  my_response_status?: string | null;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

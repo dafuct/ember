@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials } from "./mock";
+import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials, mockRespondEvent } from "./mock";
 
 export type { CalendarEvent };
 
@@ -301,3 +301,19 @@ export const updateCalendarEvent = (
 
 export const deleteCalendarEvent = (calendarId: string, eventId: string): Promise<void> =>
   isTauri() ? invoke<void>("delete_calendar_event", { calendarId, eventId }) : Promise.resolve();
+
+/** Open a web URL in the system browser. Maket falls back to window.open. */
+export const openExternal = (url: string): Promise<void> =>
+  isTauri()
+    ? invoke<void>("open_external", { url })
+    : Promise.resolve(void window.open(url, "_blank", "noopener,noreferrer"));
+
+/** RSVP to an event (accepted | declined | tentative); returns the updated event. */
+export const respondToEvent = (
+  calendarId: string,
+  eventId: string,
+  responseStatus: string,
+): Promise<CalendarEvent> =>
+  isTauri()
+    ? invoke<CalendarEvent>("respond_to_event", { calendarId, eventId, responseStatus })
+    : Promise.resolve(mockRespondEvent(calendarId, eventId, responseStatus));

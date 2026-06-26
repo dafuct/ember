@@ -1,6 +1,6 @@
 // src/lib/mock.ts — DEV-ONLY data so the app renders in a plain browser (the "maket").
 // Never used in the Tauri build: every call site is guarded by !isTauri().
-import type { CalendarEvent } from "./calendar";
+import type { CalendarEvent, Attendee } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
 import type { MeetingNote, MeetingNoteWrite, DeviceInfo, CaptureEvent } from "./notes";
@@ -56,6 +56,20 @@ for (let i = 0; i < 64; i++) {
 
 export const MOCK_SYNC: SyncSummary = { added: 0, removed: 0 };
 
+// Shared attendee seeds for the two RSVP-capable demo events, so mockRespondEvent can
+// echo the same guest list with only "you" updated.
+const RSVP_GUESTS: Record<string, Attendee[]> = {
+  e1: [
+    { email: "you@example.com", response_status: "accepted", self: true },
+    { email: "dana@corp.io", response_status: "accepted", self: false },
+    { email: "sam@studio.co", response_status: "needsAction", self: false },
+  ],
+  e3: [
+    { email: "you@example.com", response_status: "needsAction", self: true },
+    { email: "dana@corp.io", response_status: "declined", self: false },
+  ],
+};
+
 /** Generate a plausible week of events anchored to the requested window's Monday. */
 export function mockCalendarWeek(timeMin: string, _timeMax: string): CalendarEvent[] {
   const mon = new Date(timeMin); // local Monday 00:00 from toTimeMinMax
@@ -73,9 +87,13 @@ export function mockCalendarWeek(timeMin: string, _timeMax: string): CalendarEve
   const ACCENT = "#16a34a";
   const AMBER = "#b9722a";
   return [
-    { id: "e1", calendar_id: "primary", title: "Standup", start: day(0, 9), end: day(0, 9, 30), all_day: false, location: null, color: ACCENT },
+    { id: "e1", calendar_id: "primary", title: "Standup", start: day(0, 9), end: day(0, 9, 30), all_day: false, location: null, color: ACCENT,
+      meet_link: "https://meet.google.com/lookup-standup", html_link: "https://calendar.google.com/calendar/event?eid=e1",
+      attendees: RSVP_GUESTS.e1, my_response_status: "accepted" },
     { id: "e2", calendar_id: "primary", title: "1:1 with Dana", start: day(0, 14), end: day(0, 15), all_day: false, location: "Zoom", color: ACCENT },
-    { id: "e3", calendar_id: "primary", title: "Design review", start: day(1, 11), end: day(1, 12, 30), all_day: false, location: null, color: ACCENT },
+    { id: "e3", calendar_id: "primary", title: "Design review", start: day(1, 11), end: day(1, 12, 30), all_day: false, location: null, color: ACCENT,
+      meet_link: "https://meet.google.com/lookup-design", html_link: "https://calendar.google.com/calendar/event?eid=e3",
+      attendees: RSVP_GUESTS.e3, my_response_status: "needsAction" },
     { id: "e4", calendar_id: "personal", title: "Dentist", start: day(2, 8, 30), end: day(2, 9, 30), all_day: false, location: null, color: AMBER },
     { id: "e5", calendar_id: "primary", title: "Team sync", start: day(2, 15), end: day(2, 16), all_day: false, location: null, color: ACCENT },
     { id: "e6", calendar_id: "primary", title: "Roadmap", start: day(3, 10), end: day(3, 11), all_day: false, location: null, color: ACCENT },
@@ -188,11 +206,21 @@ export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boo
     description: ev.description,
     meet_link: addMeet ? "https://meet.google.com/mock-abc" : null,
     html_link: null,
-    attendees: ev.attendees,
+    attendees: ev.attendees.map((e) => ({ email: e, response_status: "needsAction", self: false })),
+    my_response_status: null,
   };
 }
 export function mockUpdateEvent(calendarId: string, eventId: string, ev: EventWrite): CalendarEvent {
   return { ...mockCreateEvent(calendarId, ev, false), id: eventId };
+}
+/** Maket RSVP: echo the seed guest list with "you" set to the chosen status. */
+export function mockRespondEvent(calendarId: string, eventId: string, responseStatus: string): CalendarEvent {
+  const base = RSVP_GUESTS[eventId] ?? [{ email: "you@example.com", response_status: responseStatus, self: true }];
+  const attendees = base.map((a) => (a.self ? { ...a, response_status: responseStatus } : a));
+  return {
+    id: eventId, calendar_id: calendarId, title: "", start: "", end: "", all_day: false,
+    location: null, color: null, attendees, my_response_status: responseStatus,
+  };
 }
 export function mockListCalendars(): CalendarSummary[] {
   return [
