@@ -17,6 +17,7 @@ import {
   installBlackhole,
 } from "../lib/notes";
 import type { DeviceInfo, TranscriptionStatus } from "../lib/notes";
+import { openExternal } from "../lib/api";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
@@ -200,17 +201,18 @@ export function NotesModal({
     }
   }
 
-  // Fetch + open the official BlackHole installer. On success the GUI installer takes over (asks
-  // for the admin password); we re-check status so the hint clears once it's installed.
+  // Install BlackHole via Homebrew in Terminal (a kernel-extension driver can't install
+  // silently). On success Terminal runs the cask install; we re-check status so the hint clears
+  // once it's installed. Without Homebrew the backend opens the install page and reports why.
   async function handleInstallBlackhole() {
     setInstallingBh(true);
     setBhMsg(null);
     try {
       await installBlackhole();
-      setBhMsg("Installer opened — follow the prompts (you'll be asked for your password), then re-select the device.");
+      setBhMsg("Running the install in Terminal — follow the prompts (you'll be asked for your password), then re-select the device.");
       setTransStatus(await transcriptionStatus());
     } catch (e) {
-      setBhMsg(`Couldn't fetch the installer (${String(e)}). Use the manual download link instead.`);
+      setBhMsg(String(e));
     } finally {
       setInstallingBh(false);
     }
@@ -376,8 +378,10 @@ export function NotesModal({
                   </button>
                   <a
                     href="https://github.com/ExistentialAudio/BlackHole#installation"
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openExternal("https://github.com/ExistentialAudio/BlackHole#installation");
+                    }}
                   >
                     download manually
                   </a>
