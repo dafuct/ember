@@ -397,6 +397,18 @@ export default function App() {
     }
   }
 
+  // Auto-load the whole inbox (no 50-row cap): once the first page is in, keep growing the
+  // window until the backend returns fewer rows than requested (atEnd). Inbox only — not
+  // search/folder. Bounded by the backend's PREVIEW_MAX, so it always terminates. This makes
+  // "see all my mail" work without depending on a scroll gesture to reach the sentinel.
+  useEffect(() => {
+    if (inSearch || inFolder || atEnd) return;
+    if (messages.length === 0 || loadingMoreRef.current) return;
+    void handleLoadMore();
+    // handleLoadMore is intentionally omitted (re-created each render, guarded by refs).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inSearch, inFolder, atEnd, messages.length]);
+
   // Background ALL-accounts sync (the poll timer). Syncs every connected account and posts
   // notifications per account using the backend's baseline/new_previews (so a newly-added
   // account's full backfill doesn't spam banners). The active account's visible list is
