@@ -17,6 +17,7 @@
   --accent-contrast: #0e160f;
   --danger: #e06c5b;
   --star: #f5c451;
+  --unread-bg: #16203a;
   --radius-card: 14px;
   --radius-control: 10px;
   --radius-pill: 999px;
@@ -41,6 +42,7 @@
   --accent-contrast: #ffffff;
   --danger: #c0392b;
   --star: #e0a92e;
+  --unread-bg: #eaf1fd;
   --radius-card: 14px;
   --radius-control: 10px;
   --radius-pill: 999px;

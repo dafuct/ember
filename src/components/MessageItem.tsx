@@ -85,7 +85,6 @@ export function MessageItem({
         <div className="msg-top">
           <span className="name">{display}</span>
           <span className="when">{relativeTime(msg.internal_date)}</span>
-          {unread && <span className="unread-dot" title="Unread" aria-hidden />}
         </div>
         <div className="subject">{msg.subject || "(no subject)"}</div>
         {labelsById && <LabelChips labels={userLabelChips(msg, labelsById)} />}
