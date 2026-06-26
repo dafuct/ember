@@ -251,3 +251,66 @@ async fn delete_event_issues_delete() {
     let client = CalendarClient::with_base_url("tok".into(), server.uri());
     client.delete_event("primary", "e9").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn respond_to_event_flips_self_and_preserves_others() {
+    let server = MockServer::start().await;
+    // GET returns the event with you (self) + another guest who already accepted.
+    Mock::given(method("GET"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e9", "summary": "Sync",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end":   { "dateTime": "2026-06-21T11:00:00-07:00" },
+            "attendees": [
+                { "email": "me@x.com", "self": true, "responseStatus": "needsAction" },
+                { "email": "boss@x.com", "responseStatus": "accepted" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+    // PATCH must set me→accepted and KEEP boss→accepted (order preserved: me, boss).
+    Mock::given(method("PATCH"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .and(query_param("sendUpdates", "all"))
+        .and(body_partial_json(json!({
+            "attendees": [
+                { "email": "me@x.com", "responseStatus": "accepted" },
+                { "email": "boss@x.com", "responseStatus": "accepted" }
+            ]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e9", "summary": "Sync",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end":   { "dateTime": "2026-06-21T11:00:00-07:00" },
+            "attendees": [
+                { "email": "me@x.com", "self": true, "responseStatus": "accepted" },
+                { "email": "boss@x.com", "responseStatus": "accepted" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    // self_email deliberately mismatched → matching must succeed via the `self: true` flag.
+    let ev = client.respond_to_event("primary", "e9", "accepted", "unused@x.com").await.unwrap();
+    assert_eq!(ev.my_response_status.as_deref(), Some("accepted"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn respond_to_event_errors_when_not_a_guest() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/calendar/v3/calendars/primary/events/e9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e9", "summary": "Solo",
+            "start": { "dateTime": "2026-06-21T10:00:00-07:00" },
+            "end":   { "dateTime": "2026-06-21T11:00:00-07:00" },
+            "attendees": [ { "email": "boss@x.com", "responseStatus": "accepted" } ]
+        })))
+        .mount(&server)
+        .await;
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let err = client.respond_to_event("primary", "e9", "accepted", "me@x.com").await.unwrap_err();
+    assert!(err.to_string().to_lowercase().contains("not a guest"), "got: {err}");
+}

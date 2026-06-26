@@ -185,6 +185,60 @@ impl CalendarClient {
         self.check_auth_status(resp).await?;
         Ok(())
     }
+
+    /// Fetch one event (used by RSVP to read the current attendee list).
+    pub async fn get_event(&self, calendar_id: &str, event_id: &str) -> Result<GEvent> {
+        let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+        let url = format!(
+            "{}/calendar/v3/calendars/{}/events/{}",
+            self.base_url, enc(calendar_id), enc(event_id)
+        );
+        self.get_json(&url).await
+    }
+
+    /// RSVP to an event: set your own `responseStatus` (accepted/declined/tentative) while
+    /// preserving every other guest's status. GET-then-PATCH so a stale client can't clobber
+    /// statuses set by others since the last fetch. `sendUpdates=all` notifies the organizer.
+    pub async fn respond_to_event(
+        &self,
+        calendar_id: &str,
+        event_id: &str,
+        response_status: &str,
+        self_email: &str,
+    ) -> Result<CalendarEvent> {
+        let g = self.get_event(calendar_id, event_id).await?;
+        // 🦀 Own the attendees so the borrowed PATCH body stays valid until `send()`.
+        let attendees = g.attendees.unwrap_or_default();
+        let mut found = false;
+        let patch: Vec<AttendeeResponseBody> = attendees
+            .iter()
+            .map(|a| {
+                // You = Google's `self` flag, or an email match as a fallback.
+                let is_me = a.is_self || a.email.eq_ignore_ascii_case(self_email);
+                if is_me {
+                    found = true;
+                }
+                AttendeeResponseBody {
+                    email: &a.email,
+                    response_status: if is_me { Some(response_status) } else { a.response_status.as_deref() },
+                }
+            })
+            .collect();
+        if !found {
+            return Err(AppError::Other("you are not a guest on this event".into()));
+        }
+        let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+        let url = format!(
+            "{}/calendar/v3/calendars/{}/events/{}?sendUpdates=all",
+            self.base_url, enc(calendar_id), enc(event_id)
+        );
+        let body = AttendeesPatchBody { attendees: patch };
+        let resp = self.http.patch(&url).bearer_auth(&self.access_token).json(&body).send().await?;
+        let resp = self.check_auth_status(resp).await?;
+        let g: GEvent = resp.json().await?;
+        map_event(g, calendar_id, None)
+            .ok_or_else(|| AppError::Other("calendar returned an unusable event".into()))
+    }
 }
 
 // 🦀 Serialize-only shapes for the Google event-write body. Lifetimes (`'a`) let the body
@@ -217,6 +271,18 @@ struct CreateConferenceRequest {
 struct ConferenceDataBody {
     #[serde(rename = "createRequest")]
     create_request: CreateConferenceRequest,
+}
+// 🦀 Narrow RSVP PATCH body: just the attendee list with each one's responseStatus.
+//    Borrows (`'a`) the emails/statuses from the GET'd event — no clones.
+#[derive(serde::Serialize)]
+struct AttendeeResponseBody<'a> {
+    email: &'a str,
+    #[serde(rename = "responseStatus", skip_serializing_if = "Option::is_none")]
+    response_status: Option<&'a str>,
+}
+#[derive(serde::Serialize)]
+struct AttendeesPatchBody<'a> {
+    attendees: Vec<AttendeeResponseBody<'a>>,
 }
 #[derive(serde::Serialize)]
 struct EventBody<'a> {
