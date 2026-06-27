@@ -1418,42 +1418,6 @@ pub async fn prepare_transcription(
     Ok(())
 }
 
-/// Whether transcription is set up + which capture device hint to show. No secret/heavy work.
-#[derive(serde::Serialize)]
-pub struct TranscriptionStatus {
-    pub model_present: bool,
-    pub ready: bool,
-    pub blackhole_present: bool,
-}
-
-#[tauri::command]
-pub async fn transcription_status(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::transcribe::TranscriberState>,
-) -> Result<TranscriptionStatus> {
-    let model_present = crate::model::model_present(&app);
-    let ready = {
-        let guard = state
-            .lock()
-            .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
-        guard.is_some()
-    };
-    // 🦀 BlackHole = a virtual audio device for capturing the meeting's output; guide the user
-    //    to install it when absent. Reuses the existing device enumeration.
-    let blackhole_present = crate::capture::list_input_devices()
-        .await
-        .map(|ds| ds.iter().any(|d| d.name.to_lowercase().contains("blackhole")))
-        .unwrap_or(false);
-    Ok(TranscriptionStatus { model_present, ready, blackhole_present })
-}
-
-/// Assisted setup: fetch the official BlackHole 2ch installer and open it in macOS Installer so
-/// the user can capture meeting audio. DB-free; the user still authenticates the driver install.
-#[tauri::command]
-pub async fn install_blackhole() -> Result<()> {
-    crate::blackhole::install_2ch().await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

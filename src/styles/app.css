@@ -103,8 +103,10 @@
 
 /* Body */
 .reading-body-area { display: flex; flex-direction: column; flex: 1; min-height: 280px; }
-.reading-frame { flex: 1; width: 100%; min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; }
-.reading-text { flex: 1; margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); }
+/* Email bodies render as a warm-paper "document" matted in the dark pane: centered,
+   max-width so the dark bg breathes on wide panes, full width when the pane is narrow. */
+.reading-frame { flex: 1; width: 100%; max-width: 720px; align-self: center; margin-top: 4px; min-height: 360px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); }
+.reading-text { flex: 1; width: 100%; max-width: 720px; align-self: center; margin: 4px 0 0; padding: 16px 18px; white-space: pre-wrap; font-size: 14px; line-height: 1.7; background: var(--paper); color: var(--paper-ink); border: 1px solid var(--border); border-radius: 10px; }
 .reading-status { color: var(--text-muted); font-size: 13px; }
 
 /* Inline reply affordance at the bottom of the message */
@@ -500,26 +502,23 @@
   flex: 1;
   min-width: 0;
 }
-.note-capture-pulse {
-  font-size: 12px;
-  color: var(--danger, #c0392b);
+.note-mic-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
 }
-.note-blackhole-hint {
+.note-capture-help {
   font-size: 12px;
   color: var(--text-muted);
   margin: 0 0 8px;
 }
-.note-blackhole-hint a {
-  color: var(--accent-text);
-}
-.note-blackhole-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-.note-blackhole-msg {
-  margin-top: 6px;
+.note-capture-pulse {
+  font-size: 12px;
+  color: var(--danger, #c0392b);
 }
 
 /* ===== Redesign shell — icon rail + merged sidebar ===== */

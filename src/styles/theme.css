@@ -18,6 +18,10 @@
   --danger: #e06c5b;
   --star: #f5c451;
   --unread-bg: #16203a;
+  /* Warm "paper" surface for rendered email bodies — off-white tuned to the
+     cream --text, not clinical white, so emails sit harmoniously on the dark pane. */
+  --paper: #faf8f3;
+  --paper-ink: #2a2620;
   --radius-card: 14px;
   --radius-control: 10px;
   --radius-pill: 999px;
@@ -43,6 +47,9 @@
   --danger: #c0392b;
   --star: #e0a92e;
   --unread-bg: #eaf1fd;
+  /* Light theme is already harmonious — paper is plain white over the warm-light bg. */
+  --paper: #ffffff;
+  --paper-ink: var(--text);
   --radius-card: 14px;
   --radius-control: 10px;
   --radius-pill: 999px;

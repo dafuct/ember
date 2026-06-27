@@ -3,7 +3,7 @@
 import type { CalendarEvent, Attendee } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
-import type { MeetingNote, MeetingNoteWrite, DeviceInfo, CaptureEvent } from "./notes";
+import type { MeetingNote, MeetingNoteWrite, CaptureEvent } from "./notes";
 import type { SnoozedRow } from "./snooze";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
@@ -347,11 +347,6 @@ export function mockReadTranscriptFile(_path: string): string {
 // are visibly different in the maket.
 export function mockTranscribeRecording(_path: string): string {
   return "Dana: Thanks for joining the call.\nYou: Let's start with the budget review.\nDana: Action — send the revised figures by Wednesday.";
-}
-
-// M24: mock input devices for the maket device picker.
-export function mockListInputDevices(): DeviceInfo[] {
-  return [{ name: "MacBook Pro Microphone" }, { name: "BlackHole 2ch" }];
 }
 
 // M24: simulate live capture by emitting canned chunks on a timer until stopped.

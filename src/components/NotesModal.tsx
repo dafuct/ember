@@ -9,15 +9,10 @@ import {
   summarizeMeetingNote,
   readTranscriptFile,
   transcribeRecording,
-  listInputDevices,
-  startCapture,
-  stopCapture,
-  transcriptionStatus,
+  startSystemCapture,
+  stopSystemCapture,
   prepareTranscription,
-  installBlackhole,
 } from "../lib/notes";
-import type { DeviceInfo, TranscriptionStatus } from "../lib/notes";
-import { openExternal } from "../lib/api";
 
 // What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
@@ -49,14 +44,10 @@ export function NotesModal({
   const [summarizing, setSummarizing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState("");
   const [recording, setRecording] = useState(false);
+  const [captureMic, setCaptureMic] = useState(true); // also capture my own voice (not just the call)
   const [error, setError] = useState<string | null>(null);
   const [prepMsg, setPrepMsg] = useState<string | null>(null); // transcription setup progress
-  const [transStatus, setTransStatus] = useState<TranscriptionStatus | null>(null);
-  const [installingBh, setInstallingBh] = useState(false); // BlackHole assisted install in flight
-  const [bhMsg, setBhMsg] = useState<string | null>(null);
 
   // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
   useEffect(() => {
@@ -65,24 +56,13 @@ export function NotesModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Load audio input devices for the capture picker (best-effort; empty list if none).
-  useEffect(() => {
-    listInputDevices()
-      .then((ds) => {
-        setDevices(ds);
-        setSelectedDevice((prev) => prev || ds[0]?.name || "");
-      })
-      .catch(() => {});
-    transcriptionStatus().then(setTransStatus).catch(() => {});
-  }, []);
-
   // Track `recording` in a ref so the unmount cleanup sees the latest value without re-subscribing.
   const recordingRef = useRef(false);
   recordingRef.current = recording;
-  // Stop any in-flight capture if the modal unmounts mid-recording (avoids a leaked worker/timer).
+  // Stop any in-flight capture if the modal unmounts mid-recording (avoids a leaked worker).
   useEffect(() => {
     return () => {
-      if (recordingRef.current) void stopCapture();
+      if (recordingRef.current) void stopSystemCapture();
     };
   }, []);
 
@@ -192,29 +172,11 @@ export function NotesModal({
         else if (p.type === "Error") setError(p.message);
       });
       setPrepMsg(null);
-      setTransStatus(await transcriptionStatus());
       return true;
     } catch (e) {
       setPrepMsg(null);
       setError(String(e));
       return false;
-    }
-  }
-
-  // Install BlackHole via Homebrew in Terminal (a kernel-extension driver can't install
-  // silently). On success Terminal runs the cask install; we re-check status so the hint clears
-  // once it's installed. Without Homebrew the backend opens the install page and reports why.
-  async function handleInstallBlackhole() {
-    setInstallingBh(true);
-    setBhMsg(null);
-    try {
-      await installBlackhole();
-      setBhMsg("Running the install in Terminal — follow the prompts (you'll be asked for your password), then re-select the device.");
-      setTransStatus(await transcriptionStatus());
-    } catch (e) {
-      setBhMsg(String(e));
-    } finally {
-      setInstallingBh(false);
     }
   }
 
@@ -249,7 +211,7 @@ export function NotesModal({
     if (!(await ensureReady())) return; // download/load the model before capturing
     setRecording(true);
     try {
-      await startCapture(selectedDevice, (e) => {
+      await startSystemCapture(captureMic, (e) => {
         if (e.type === "Chunk") {
           // Append each transcribed chunk to the transcript, newline-separated.
           setTranscript((t) => (t ? t + "\n" : "") + e.text);
@@ -267,7 +229,7 @@ export function NotesModal({
 
   async function handleStop() {
     try {
-      await stopCapture();
+      await stopSystemCapture();
     } catch (err) {
       setError(String(err));
     }
@@ -342,53 +304,31 @@ export function NotesModal({
               rows={6}
             />
             <div className="note-capture-row">
-              <select
-                className="note-device-select"
-                aria-label="Audio input device"
-                value={selectedDevice}
-                onChange={(e) => setSelectedDevice(e.target.value)}
-                disabled={blocked}
-              >
-                {devices.length === 0 && <option value="">No input devices</option>}
-                {devices.map((d) => (
-                  <option key={d.name} value={d.name}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+              <label className="note-mic-toggle">
+                <input
+                  type="checkbox"
+                  checked={captureMic}
+                  onChange={(e) => setCaptureMic(e.target.checked)}
+                  disabled={blocked}
+                />
+                Also capture my voice
+              </label>
               {recording ? (
                 <button className="btn btn-danger-outline" onClick={handleStop}>
                   Stop
                 </button>
               ) : (
-                <button className="btn" onClick={handleRecord} disabled={blocked || !selectedDevice}>
+                <button className="btn" onClick={handleRecord} disabled={blocked}>
                   Record
                 </button>
               )}
               {recording && <span className="note-capture-pulse">● listening…</span>}
               {prepMsg && <span className="note-capture-pulse">{prepMsg}</span>}
             </div>
-            {transStatus && !transStatus.blackhole_present && (
-              <div className="note-blackhole-hint">
-                To capture the meeting's audio (not just your mic), install BlackHole and pick it as
-                the input device.
-                <div className="note-blackhole-actions">
-                  <button className="btn" onClick={handleInstallBlackhole} disabled={installingBh}>
-                    {installingBh ? "Opening installer…" : "Install BlackHole"}
-                  </button>
-                  <a
-                    href="https://github.com/ExistentialAudio/BlackHole#installation"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openExternal("https://github.com/ExistentialAudio/BlackHole#installation");
-                    }}
-                  >
-                    download manually
-                  </a>
-                </div>
-                {bhMsg && <div className="note-blackhole-msg">{bhMsg}</div>}
-              </div>
-            )}
+            <div className="note-capture-help">
+              Records the meeting's audio with no setup. macOS will ask for <b>Screen Recording</b>
+              {captureMic ? " and Microphone" : ""} permission the first time — click Allow.
+            </div>
             <div className="note-summary-section">
               <div className="note-summary-head">
                 <span>Summary</span>

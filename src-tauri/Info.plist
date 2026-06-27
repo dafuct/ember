@@ -4,5 +4,7 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Ember records meeting audio to transcribe it locally.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Ember captures the meeting's audio to transcribe it locally.</string>
 </dict>
 </plist>

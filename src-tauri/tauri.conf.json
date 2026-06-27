@@ -35,7 +35,7 @@
     ],
     "macOS": {
       "signingIdentity": "Ember Dev",
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "13.0",
       "entitlements": "Entitlements.plist"
     }
   }

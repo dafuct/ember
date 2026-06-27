@@ -9,7 +9,6 @@ import {
   mockSummarizeMeetingNote,
   mockReadTranscriptFile,
   mockTranscribeRecording,
-  mockListInputDevices,
   mockStartCapture,
   mockStopCapture,
 } from "./mock";
@@ -81,18 +80,11 @@ export const transcribeRecording = (path: string): Promise<string> =>
     ? invoke<string>("transcribe_recording", { path })
     : Promise.resolve(mockTranscribeRecording(path));
 
-export interface DeviceInfo {
-  name: string;
-}
-
 // M24: the streamed capture events (matches the Rust #[serde(tag = "type")] enum).
 export type CaptureEvent =
   | { type: "Chunk"; text: string }
   | { type: "Error"; message: string }
   | { type: "Stopped" };
-
-export const listInputDevices = (): Promise<DeviceInfo[]> =>
-  isTauri() ? invoke<DeviceInfo[]>("list_input_devices") : Promise.resolve(mockListInputDevices());
 
 export const startCapture = (
   deviceName: string,
@@ -108,24 +100,28 @@ export const startCapture = (
 export const stopCapture = (): Promise<void> =>
   isTauri() ? invoke<void>("stop_capture") : mockStopCapture();
 
-// M24+: zero-setup transcription. `transcription_status` tells the UI whether the model is
-// present/loaded and whether a BlackHole device exists; `prepare_transcription` downloads the
-// model (first run) + loads the in-process engine, streaming progress.
-export interface TranscriptionStatus {
-  model_present: boolean;
-  ready: boolean;
-  blackhole_present: boolean;
-}
+// Zero-setup native capture (ScreenCaptureKit): grabs the system audio (the call) + optionally the
+// mic, no BlackHole/aggregate devices. Transcript chunks stream over the same CaptureEvent channel.
+export const startSystemCapture = (
+  captureMic: boolean,
+  onEvent: (e: CaptureEvent) => void,
+): Promise<void> => {
+  if (!isTauri()) return mockStartCapture("system", onEvent);
+  const ch = new Channel<CaptureEvent>();
+  ch.onmessage = onEvent;
+  return invoke<void>("start_system_capture", { captureMic, onEvent: ch });
+};
+
+export const stopSystemCapture = (): Promise<void> =>
+  isTauri() ? invoke<void>("stop_system_capture") : mockStopCapture();
+
+// M24+: zero-setup transcription. `prepare_transcription` downloads the speech model (first run)
+// + loads the in-process Whisper engine, streaming progress over PrepProgress.
 export type PrepProgress =
   | { type: "Downloading"; percent: number }
   | { type: "Loading" }
   | { type: "Ready" }
   | { type: "Error"; message: string };
-
-export const transcriptionStatus = (): Promise<TranscriptionStatus> =>
-  isTauri()
-    ? invoke<TranscriptionStatus>("transcription_status")
-    : Promise.resolve({ model_present: true, ready: true, blackhole_present: true });
 
 export const prepareTranscription = (onProgress: (p: PrepProgress) => void): Promise<void> => {
   if (!isTauri()) return Promise.resolve();
@@ -133,8 +129,3 @@ export const prepareTranscription = (onProgress: (p: PrepProgress) => void): Pro
   ch.onmessage = onProgress;
   return invoke<void>("prepare_transcription", { onProgress: ch });
 };
-
-// Fetch the official BlackHole 2ch installer and open it in macOS Installer (assisted setup for
-// capturing meeting audio). Resolves once the installer is handed off; the user still authenticates.
-export const installBlackhole = (): Promise<void> =>
-  isTauri() ? invoke<void>("install_blackhole") : Promise.resolve();
