@@ -1,9 +1,7 @@
-// src/lib/calendar.ts — pure date + layout helpers for the week view (no I/O, no React).
-// All math is in the browser's LOCAL timezone, which is correct for the user by definition.
 
 export interface Attendee {
   email: string;
-  response_status?: string | null; // accepted | declined | tentative | needsAction
+  response_status?: string | null;
   self?: boolean;
 }
 
@@ -11,27 +9,23 @@ export interface CalendarEvent {
   id: string;
   calendar_id: string;
   title: string;
-  /** RFC3339 with offset (timed) or "YYYY-MM-DD" (all-day). */
   start: string;
   end: string;
   all_day: boolean;
   location: string | null;
-  /** The owning calendar's background color (hex), if any. */
   color: string | null;
   description?: string | null;
   meet_link?: string | null;
   html_link?: string | null;
   attendees?: Attendee[];
-  /** Your own RSVP status; absent/null ⇒ you are not a guest ⇒ no RSVP control. */
   my_response_status?: string | null;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** Local Monday 00:00 of the week containing `d`. */
 export function startOfWeek(d: Date): Date {
-  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); // local midnight
-  const dow = (x.getDay() + 6) % 7; // Mon=0 … Sun=6
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (x.getDay() + 6) % 7;
   x.setDate(x.getDate() - dow);
   return x;
 }
@@ -42,7 +36,6 @@ export function addWeeks(d: Date, n: number): Date {
   return x;
 }
 
-/** The 7 local day-dates Mon..Sun for the week starting at `weekStart`. */
 export function weekDays(weekStart: Date): Date[] {
   return Array.from({ length: 7 }, (_, i) => {
     const x = new Date(weekStart);
@@ -51,7 +44,6 @@ export function weekDays(weekStart: Date): Date[] {
   });
 }
 
-/** "Jun 15 – 21, 2026", or "Jun 29 – Jul 5, 2026" when the week crosses a month. */
 export function weekRangeLabel(weekStart: Date): string {
   const days = weekDays(weekStart);
   const first = days[0];
@@ -64,9 +56,8 @@ export function weekRangeLabel(weekStart: Date): string {
     : `${mFirst} ${first.getDate()} – ${mLast} ${last.getDate()}, ${y}`;
 }
 
-/** RFC3339 local-time string, e.g. 2026-06-15T00:00:00-07:00. */
 function toRfc3339Local(d: Date): string {
-  const off = -d.getTimezoneOffset(); // minutes east of UTC
+  const off = -d.getTimezoneOffset();
   const sign = off >= 0 ? "+" : "-";
   const oh = pad(Math.floor(Math.abs(off) / 60));
   const om = pad(Math.abs(off) % 60);
@@ -76,12 +67,10 @@ function toRfc3339Local(d: Date): string {
   );
 }
 
-/** RFC3339 bounds [Mon 00:00, next Mon 00:00) for the Google API. */
 export function toTimeMinMax(weekStart: Date): { timeMin: string; timeMax: string } {
   return { timeMin: toRfc3339Local(weekStart), timeMax: toRfc3339Local(addWeeks(weekStart, 1)) };
 }
 
-/** Local "YYYY-MM-DD" for a Date. */
 export function toYmd(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
@@ -101,26 +90,23 @@ function sameLocalDay(a: Date, day: Date): boolean {
   );
 }
 
-/** Whether an all-day event (start/end are "YYYY-MM-DD", end exclusive) covers local day `d`. */
 export function allDayOnDay(e: CalendarEvent, d: Date): boolean {
   const ymd = toYmd(d);
   return e.start <= ymd && ymd < e.end;
 }
 
-/** Timed events whose local start falls on `day` (v1 assumes events stay within one day). */
 export function eventsForDay(timed: CalendarEvent[], day: Date): CalendarEvent[] {
   return timed.filter((e) => sameLocalDay(new Date(e.start), day));
 }
 
 export interface PositionedEvent {
   ev: CalendarEvent;
-  topMin: number;    // minutes from local midnight
-  heightMin: number; // duration in minutes (min 15 enforced here)
-  lane: number;      // 0-based column within the overlap cluster
-  lanes: number;     // total columns in the cluster
+  topMin: number;
+  heightMin: number;
+  lane: number;
+  lanes: number;
 }
 
-/** Lay out one day's timed events into equal-width lanes so overlaps sit side-by-side. */
 export function layoutDay(timed: CalendarEvent[], day: Date): PositionedEvent[] {
   const midnight = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
   const items = eventsForDay(timed, day)
@@ -164,7 +150,6 @@ export function layoutDay(timed: CalendarEvent[], day: Date): PositionedEvent[] 
   return out;
 }
 
-/** RFC3339 local-time string from a "YYYY-MM-DD" date + "HH:MM" time (with the local offset). */
 export function rfc3339Local(ymd: string, hhmm: string): string {
   const [y, mo, d] = ymd.split("-").map(Number);
   const [h, mi] = hhmm.split(":").map(Number);
@@ -179,7 +164,6 @@ export function rfc3339Local(ymd: string, hhmm: string): string {
   );
 }
 
-/** Google all-day end is EXCLUSIVE: a YYYY-MM-DD one day after the user-picked end date. */
 export function allDayEndExclusive(ymd: string): string {
   const [y, mo, d] = ymd.split("-").map(Number);
   const dt = new Date(y, (mo || 1) - 1, (d || 1) + 1);

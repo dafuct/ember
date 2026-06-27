@@ -1,6 +1,5 @@
 import type { MessagePreview, Label } from "./api";
 
-// Gmail's system label ids that map to read/star state.
 export const UNREAD = "UNREAD";
 export const STARRED = "STARRED";
 
@@ -11,11 +10,6 @@ export const isUnread = (m: MessagePreview): boolean =>
 export const isStarred = (m: MessagePreview): boolean =>
   m.label_ids.includes(STARRED);
 
-/**
- * Return a copy of `m` with `label` present or absent. Pure — never mutates `m`,
- * so it is safe to use for React optimistic state. Returns the same reference
- * when nothing would change (lets callers skip a no-op render).
- */
 export function withLabel(
   m: MessagePreview,
   label: string,
@@ -29,7 +23,6 @@ export function withLabel(
   return { ...m, label_ids };
 }
 
-/** A message's user labels (its label_ids that match the user-label map), for chips. */
 export function userLabelChips(m: MessagePreview, labelsById: Map<string, Label>): Label[] {
   return m.label_ids
     .map((id) => labelsById.get(id))

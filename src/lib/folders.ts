@@ -1,4 +1,3 @@
-// src/lib/folders.ts — the mailbox folders shown in the left rail (M12; Drafts added M14).
 export type Folder = "inbox" | "sent" | "drafts" | "starred" | "archive" | "trash" | "spam";
 
 export interface FolderDef {

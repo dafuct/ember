@@ -1,5 +1,3 @@
-// src/lib/mock.ts — DEV-ONLY data so the app renders in a plain browser (the "maket").
-// Never used in the Tauri build: every call site is guarded by !isTauri().
 import type { CalendarEvent, Attendee } from "./calendar";
 import { toYmd } from "./calendar";
 import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
@@ -8,7 +6,6 @@ import type { SnoozedRow } from "./snooze";
 
 export const MOCK_ACCOUNT = "you@example.com (mock)";
 
-// Multi-account maket state. Mutable `mockActive` simulates the backend active-account pointer.
 export const MOCK_ACCOUNTS = [MOCK_ACCOUNT, "work@example.com (mock)"];
 let mockActive = MOCK_ACCOUNTS[0];
 export const mockGetActive = (): string => mockActive;
@@ -37,7 +34,6 @@ export const MOCK_MESSAGES: MessagePreview[] = [
   },
 ];
 
-// Bulk filler so the maket inbox exceeds one 50-row page and infinite scroll is demonstrable.
 const CATS = ["people", "notifications", "newsletters"] as const;
 for (let i = 0; i < 64; i++) {
   MOCK_MESSAGES.push({
@@ -47,7 +43,7 @@ for (let i = 0; i < 64; i++) {
     subject: `Older message #${i}`,
     date: "Mon, 02 Jun 2026 09:00:00 -0700",
     snippet: `This is older cached message number ${i}…`,
-    internal_date: 1_748_000_000_000 - i * 60_000, // descending, older than the curated set
+    internal_date: 1_748_000_000_000 - i * 60_000,
     category: CATS[i % 3],
     label_ids: i % 4 === 0 ? ["INBOX", "UNREAD"] : ["INBOX"],
     to_addr: "you@example.com",
@@ -56,8 +52,6 @@ for (let i = 0; i < 64; i++) {
 
 export const MOCK_SYNC: SyncSummary = { added: 0, removed: 0 };
 
-// Shared attendee seeds for the two RSVP-capable demo events, so mockRespondEvent can
-// echo the same guest list with only "you" updated.
 const RSVP_GUESTS: Record<string, Attendee[]> = {
   e1: [
     { email: "you@example.com", response_status: "accepted", self: true },
@@ -70,9 +64,8 @@ const RSVP_GUESTS: Record<string, Attendee[]> = {
   ],
 };
 
-/** Generate a plausible week of events anchored to the requested window's Monday. */
 export function mockCalendarWeek(timeMin: string, _timeMax: string): CalendarEvent[] {
-  const mon = new Date(timeMin); // local Monday 00:00 from toTimeMinMax
+  const mon = new Date(timeMin);
   const day = (offset: number, h: number, m = 0) => {
     const d = new Date(mon);
     d.setDate(d.getDate() + offset);
@@ -105,7 +98,6 @@ export function mockCalendarWeek(timeMin: string, _timeMax: string): CalendarEve
   ];
 }
 
-/** Browser-maket search: case-insensitive substring match over the mock messages. */
 export function mockSearch(query: string): MessagePreview[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -117,7 +109,6 @@ export function mockSearch(query: string): MessagePreview[] {
   );
 }
 
-/** Browser-maket folder contents: a small per-folder set so the rail is demoable offline. */
 export function mockFolder(folder: string): MessagePreview[] {
   const base = (id: string, from: string, to_addr: string, subject: string, snippet: string): MessagePreview => ({
     id, thread_id: id, from, subject, snippet, to_addr,
@@ -147,7 +138,6 @@ export function mockFolder(folder: string): MessagePreview[] {
   }
 }
 
-/** Browser-maket: return editable content for a mock draft. */
 export function mockGetDraft(draftId: string): DraftContent {
   if (draftId === "dr2") {
     return { draft_id: "dr2", to: "", cc: "", subject: "", body: "Half-written idea…", in_reply_to: null, references: null, thread_id: null };
@@ -155,7 +145,6 @@ export function mockGetDraft(draftId: string): DraftContent {
   return { draft_id: "dr1", to: "Maya <maya@studio.co>", cc: "", subject: "Re: Q3 roadmap", body: "Draft: I think we should…", in_reply_to: null, references: null, thread_id: null };
 }
 
-/** Browser-maket: pretend a save succeeded, returning a stable fake draft id. */
 export function mockSaveDraft(): string {
   return "dr-mock";
 }
@@ -165,12 +154,10 @@ export const MOCK_LABELS: Label[] = [
   { id: "Label_2", name: "Personal" },
 ];
 
-/** Browser-maket: messages "in" a label = the mock messages carrying that label id. */
 export function mockFetchLabel(labelId: string): MessagePreview[] {
   return MOCK_MESSAGES.filter((m) => m.label_ids.includes(labelId));
 }
 
-/** Browser-maket: a message body, with attachments on m1 so the strip is demoable. */
 export function mockMessageBody(id: string): MessageBody {
   const attachments: Attachment[] =
     id === "m1"
@@ -187,12 +174,10 @@ export function mockMessageBody(id: string): MessageBody {
   };
 }
 
-/** Browser-maket: pretend the user picked a file so the compose chips are demoable. */
 export function mockPickFiles(): string[] {
   return ["/Users/you/Documents/proposal.pdf"];
 }
 
-/** Browser-maket: echo a created event (fake id, a mock Meet link when requested). */
 export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boolean): CalendarEvent {
   return {
     id: `mock-${ev.title.replace(/\s+/g, "-")}`,
@@ -213,7 +198,6 @@ export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boo
 export function mockUpdateEvent(calendarId: string, eventId: string, ev: EventWrite): CalendarEvent {
   return { ...mockCreateEvent(calendarId, ev, false), id: eventId };
 }
-/** Maket RSVP: echo the seed guest list with "you" set to the chosen status. */
 export function mockRespondEvent(calendarId: string, eventId: string, responseStatus: string): CalendarEvent {
   const base = RSVP_GUESTS[eventId] ?? [{ email: "you@example.com", response_status: responseStatus, self: true }];
   const attendees = base.map((a) => (a.self ? { ...a, response_status: responseStatus } : a));
@@ -229,7 +213,6 @@ export function mockListCalendars(): CalendarSummary[] {
   ];
 }
 
-/** Browser-maket reply/forward context: gives m1 a Cc (for reply-all) + attachments (for forward). */
 export function mockReplyContext(id: string): ReplyContext {
   const attachments: Attachment[] =
     id === "m1"
@@ -248,12 +231,6 @@ export function mockReplyContext(id: string): ReplyContext {
   };
 }
 
-// --- Meeting notes (M20) -----------------------------------------------------
-// In-memory note store for the browser maket. Keyed by `${calendar_id}|${event_id}`
-// inline (NOT importing notes.ts's noteKey, to keep this module's import of notes.ts
-// type-only — mirrors how mock.ts imports api.ts). Seeded with two notes on events that
-// mockCalendarWeek always produces (e2 "1:1 with Dana", e6 "Roadmap"), so the panel + dots
-// are demoable on any visible week.
 const mockNoteKey = (calendarId: string, eventId: string) => `${calendarId}|${eventId}`;
 
 const MOCK_NOTES = new Map<string, MeetingNote>([
@@ -282,7 +259,7 @@ const MOCK_NOTES = new Map<string, MeetingNote>([
   ],
 ]);
 
-let mockNoteId = 100; // fresh ids for newly-created mock notes
+let mockNoteId = 100;
 
 export function mockGetMeetingNote(calendarId: string, eventId: string): MeetingNote | null {
   return MOCK_NOTES.get(mockNoteKey(calendarId, eventId)) ?? null;
@@ -290,7 +267,7 @@ export function mockGetMeetingNote(calendarId: string, eventId: string): Meeting
 
 export function mockSaveMeetingNote(w: MeetingNoteWrite): MeetingNote {
   const key = mockNoteKey(w.calendar_id, w.event_id);
-  const now = 1_750_000_500_000; // fixed clock (no Date.now in maket data, keeps it deterministic)
+  const now = 1_750_000_500_000;
   const existing = MOCK_NOTES.get(key);
   const note: MeetingNote = {
     id: existing?.id ?? mockNoteId++,
@@ -317,8 +294,6 @@ export function mockListMeetingNotes(): MeetingNote[] {
   return [...MOCK_NOTES.values()].sort((a, b) => b.updated_at - a.updated_at);
 }
 
-// Browser-maket: set a canned structured summary on the stored note. summary_updated_at is
-// >= the note's updated_at, so the result reads as FRESH (no staleness hint right after).
 export function mockSummarizeMeetingNote(calendarId: string, eventId: string): MeetingNote {
   const key = mockNoteKey(calendarId, eventId);
   const existing = MOCK_NOTES.get(key);
@@ -338,18 +313,14 @@ export function mockSummarizeMeetingNote(calendarId: string, eventId: string): M
   return note;
 }
 
-// Browser-maket: pretend a .vtt was picked + parsed to plain text.
 export function mockReadTranscriptFile(_path: string): string {
   return "Dana: Welcome everyone.\nYou: Let's review the Q3 priorities.\nDana: Action — share the roadmap doc by Friday.";
 }
 
-// M23: a canned Whisper transcription, distinct from mockReadTranscriptFile so the two buttons
-// are visibly different in the maket.
 export function mockTranscribeRecording(_path: string): string {
   return "Dana: Thanks for joining the call.\nYou: Let's start with the budget review.\nDana: Action — send the revised figures by Wednesday.";
 }
 
-// M24: simulate live capture by emitting canned chunks on a timer until stopped.
 let mockCaptureTimer: ReturnType<typeof setInterval> | null = null;
 let mockOnEvent: ((e: CaptureEvent) => void) | null = null;
 
@@ -388,8 +359,6 @@ export function mockStopCapture(): Promise<void> {
   return Promise.resolve();
 }
 
-// --- Snooze (M25) -----------------------------------------------------
-// In-memory snooze store for the browser maket.
 
 const _snoozed: SnoozedRow[] = [];
 
@@ -418,7 +387,6 @@ export function mockListSnoozed(): Promise<SnoozedRow[]> {
   return Promise.resolve([..._snoozed].sort((a, b) => a.wake_at - b.wake_at));
 }
 
-// A small distinct inbox for the 2nd mock account so switching is visibly different in the maket.
 const MOCK_MESSAGES_WORK: MessagePreview[] = [
   {
     id: "w1", thread_id: "tw1", from: "Payroll <payroll@work.example>", subject: "Payslip for June",
@@ -430,9 +398,6 @@ const MOCK_MESSAGES_WORK: MessagePreview[] = [
 export const mockInboxForActive = (): MessagePreview[] =>
   mockActive === MOCK_ACCOUNTS[0] ? MOCK_MESSAGES : MOCK_MESSAGES_WORK;
 
-// --- Google credentials (BYO) -----------------------------------------------
-// The maket assumes the app is already configured, so report credentials as configured
-// and skip the BYO onboarding. set/clear are no-ops in the maket (toggle the flag).
 let mockConfigured = true;
 export const mockCredentialStatus = () => ({ configured: mockConfigured, source: mockConfigured ? "stored" : "none" });
 export const mockSetCredentials = () => { mockConfigured = true; };

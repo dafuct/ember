@@ -1,25 +1,13 @@
-// 🦀 Files in `tests/` are *integration tests* — each file is compiled as its
-//    own separate crate.  Because of this, the library is accessed as an
-//    external dependency: `ember_lib::gmail::GmailClient`, not `crate::gmail`.
-//    This mirrors how a real downstream user would consume the library.
 use ember_lib::gmail::GmailClient;
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-// 🦀 Helper: base64url-encode a string so tests can produce mock payloads without
-//    depending on a separate fixture file.  Uses the same engine the production
-//    code decodes with, so round-trips are guaranteed to match.
 fn b64url(s: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(s)
 }
 
-// 🦀 `#[tokio::test]` is an attribute macro from the `tokio` crate.  It wraps
-//    the async test function in a Tokio runtime so you can `.await` futures
-//    inside a test without starting the runtime manually.
-//    `flavor = "multi_thread"` spins up a full multi-threaded runtime, which
-//    wiremock needs to serve HTTP requests concurrently with the client calls.
 #[tokio::test(flavor = "multi_thread")]
 async fn get_profile_parses_email() {
     let server = MockServer::start().await;
@@ -195,7 +183,7 @@ async fn get_message_previews_fetches_all_ids() {
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     let ids = vec!["a1".to_string(), "a2".to_string(), "a3".to_string()];
     let mut previews = client.get_message_previews(&ids, 4).await.unwrap();
-    previews.sort_by(|a, b| a.id.cmp(&b.id)); // buffer_unordered → sort for a stable assert
+    previews.sort_by(|a, b| a.id.cmp(&b.id));
     let got: Vec<&str> = previews.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(got, vec!["a1", "a2", "a3"]);
 }
@@ -396,7 +384,7 @@ async fn get_reply_context_returns_empty_references_when_absent() {
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     let rc = client.get_reply_context("r2").await.unwrap();
     assert_eq!(rc.message_id, "<only-id@mail>");
-    assert_eq!(rc.references, ""); // absent header → empty string (frontend maps "" → null)
+    assert_eq!(rc.references, "");
     assert_eq!(rc.quoted_text, "Body text");
 }
 
@@ -415,7 +403,6 @@ async fn send_message_posts_base64url_raw_with_thread_id() {
         .await
         .unwrap();
 
-    // 🦀 Inspect the request the mock server actually received.
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(reqs.len(), 1);
     let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
@@ -521,16 +508,11 @@ async fn untrash_message_posts_to_untrash() {
     client.untrash_message("m1").await.unwrap();
 }
 
-// 🦀 Trashing MUST hit the dedicated endpoint. Adding the TRASH label via
-//    batchModify returns 204 but Gmail silently ignores it (the message stays in
-//    INBOX) — the regression that made "trash" appear to work then reappear.
 #[tokio::test(flavor = "multi_thread")]
 async fn trash_message_posts_to_trash() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/gmail/v1/users/me/messages/m1/trash"))
-        // 🦀 Gmail's bodyless POST still requires Content-Length: 0 (else 411). reqwest
-        //    only sends it when we give an explicit empty body — guard that here.
         .and(header("content-length", "0"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "m1" })))
         .mount(&server)
@@ -675,7 +657,6 @@ async fn batch_modify_posts_ids_and_labels() {
         .mount(&server)
         .await;
     let client = GmailClient::with_base_url("tok".into(), server.uri());
-    // NOTE: TRASH deliberately does NOT ride batchModify — see trash_message_posts_to_trash.
     client
         .batch_modify(&["a".to_string(), "b".to_string()], &["STARRED"], &["INBOX"])
         .await
@@ -715,7 +696,7 @@ async fn list_labels_returns_user_labels_only_with_color() {
         .await;
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     let labels = client.list_labels().await.unwrap();
-    assert_eq!(labels.len(), 2); // system INBOX excluded
+    assert_eq!(labels.len(), 2);
     assert_eq!(labels[0].id, "Label_1");
     assert_eq!(labels[0].name, "Work");
     assert_eq!(labels[0].color.as_ref().unwrap().background, "#16a34a");
@@ -770,7 +751,6 @@ async fn get_message_body_enumerates_attachments() {
         .await;
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     let body = client.get_message_body("m3").await.unwrap();
-    // text body still extracted, and the attachment part is enumerated (text part is not)
     assert_eq!(body.text.as_deref(), Some(text));
     assert_eq!(body.attachments.len(), 1);
     let a = &body.attachments[0];
@@ -790,10 +770,7 @@ async fn get_message_body_skips_filename_parts_without_attachment_id() {
             "payload": {
                 "mimeType": "multipart/mixed",
                 "parts": [
-                    // 🦀 An inline small "attachment": has a filename but Gmail put the
-                    //    content in `data` with NO attachmentId — must be skipped.
                     { "mimeType": "image/png", "filename": "inline.png", "body": { "data": b64url("notreal") } },
-                    // A real attachment (filename + attachmentId) — must be enumerated.
                     { "mimeType": "application/pdf", "filename": "real.pdf", "body": { "attachmentId": "att9", "size": 42 } }
                 ]
             }
@@ -802,7 +779,6 @@ async fn get_message_body_skips_filename_parts_without_attachment_id() {
         .await;
     let client = GmailClient::with_base_url("tok".into(), server.uri());
     let body = client.get_message_body("m4").await.unwrap();
-    // Only the part WITH an attachmentId is enumerated.
     assert_eq!(body.attachments.len(), 1);
     assert_eq!(body.attachments[0].filename, "real.pdf");
     assert_eq!(body.attachments[0].attachment_id, "att9");

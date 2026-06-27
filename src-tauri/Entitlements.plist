@@ -2,9 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Required for microphone / audio-input capture under macOS Hardened Runtime.
-         Without this, the OS silently feeds the app zero samples (live transcription
-         records only silence) — see the BlackHole/aggregate "you you you" symptom. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
 </dict>

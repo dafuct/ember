@@ -12,11 +12,8 @@ export interface MessagePreview {
   date: string;
   snippet: string;
   internal_date: number;
-  /** Smart-inbox stream from the backend scorer: "people" | "notifications" | "newsletters". */
   category: string;
-  /** Raw Gmail label ids (e.g. "INBOX", "UNREAD", "STARRED"). Drives read/star state. */
   label_ids: string[];
-  /** Recipient (To header). Shown instead of `from` in the Sent folder. */
   to_addr: string;
   draft_id?: string;
 }
@@ -111,7 +108,6 @@ export const batchModifyMessages = (
 ): Promise<void> =>
   isTauri() ? invoke<void>("batch_modify_messages", { ids, add, remove }) : Promise.resolve();
 
-// Trash-folder batch actions. Restore = untrash many; delete = permanent batchDelete.
 export const batchRestoreMessages = (ids: string[]): Promise<void> =>
   isTauri() ? invoke<void>("batch_restore_messages", { ids }) : Promise.resolve();
 export const batchDeleteMessages = (ids: string[]): Promise<void> =>
@@ -177,7 +173,6 @@ export interface DraftContent {
 export const getDraft = (id: string): Promise<DraftContent> =>
   isTauri() ? invoke<DraftContent>("get_draft", { draftId: id }) : Promise.resolve(mockGetDraft(id));
 
-// A save payload is a send payload plus the draft id (null when creating a new draft).
 export const saveDraft = (p: SendEmailPayload & { draft_id: string | null }): Promise<string> =>
   isTauri()
     ? invoke<string>("save_draft", {
@@ -302,13 +297,11 @@ export const updateCalendarEvent = (
 export const deleteCalendarEvent = (calendarId: string, eventId: string): Promise<void> =>
   isTauri() ? invoke<void>("delete_calendar_event", { calendarId, eventId }) : Promise.resolve();
 
-/** Open a web URL in the system browser. Maket falls back to window.open. */
 export const openExternal = (url: string): Promise<void> =>
   isTauri()
     ? invoke<void>("open_external", { url })
     : Promise.resolve(void window.open(url, "_blank", "noopener,noreferrer"));
 
-/** RSVP to an event (accepted | declined | tentative); returns the updated event. */
 export const respondToEvent = (
   calendarId: string,
   eventId: string,

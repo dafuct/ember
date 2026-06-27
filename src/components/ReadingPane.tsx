@@ -15,20 +15,10 @@ import { CATEGORY_LABEL } from "../lib/streams";
 import { LabelChips } from "./LabelChips";
 import type { Label } from "../lib/api";
 
-// Warm-paper defaults injected into an HTML email before it's handed to the sandboxed
-// iframe. Literal hex (the iframe can't read the host's --paper/--paper-ink vars) — keep
-// in sync with the dark --paper/--paper-ink tokens in styles/theme.css. These are
-// non-!important and inserted as the FIRST node inside <head>, so the email's own styles —
-// later in source order, or inline — win on ties: branded mail keeps its exact look,
-// while plain emails inherit the warm surface + comfortable padding.
 const PAPER_DEFAULTS =
   '<style>html,body{background:#faf8f3;color:#2a2620;}' +
   'body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.6;}</style>';
 
-// Insert the defaults inside <head> (after any <!doctype>, so we don't trip quirks mode);
-// fall back to just-inside <html>, else prepend for a bare fragment. The <head>/<html>
-// match only counts as structural when it precedes <body> — a proper document always
-// orders them that way — so a stray "<head>" in visible body text can't capture the splice.
 function withPaperDefaults(html: string): string {
   const bodyAt = html.search(/<body[^>]*>/i);
   const at = html.match(/<head[^>]*>/i) ?? html.match(/<html[^>]*>/i);
@@ -75,7 +65,6 @@ export function ReadingPane({
   const [body, setBody] = useState<MessageBody | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Two-step confirm for the irreversible permanent delete.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -105,13 +94,9 @@ export function ReadingPane({
 
   const [dlStatus, setDlStatus] = useState<Record<string, string>>({});
 
-  // Reset the delete confirmation whenever the open message changes.
   useEffect(() => setConfirmDelete(false), [msg?.id]);
   useEffect(() => setDlStatus({}), [msg?.id]);
 
-  // Frame the email once per body, not on every render — unrelated re-renders (e.g. the
-  // dlStatus "Saving…"/"Saved ✓" ticks) would otherwise rebuild the srcDoc string and
-  // reload the iframe document, flashing the email.
   const framedHtml = useMemo(
     () => (body?.is_html ? withPaperDefaults(body.html) : null),
     [body?.is_html, body?.html],
@@ -137,7 +122,6 @@ export function ReadingPane({
 
   const inTrash = folder === "trash";
 
-  // Split a "Name <email>" From header into a display name + bare address.
   const rawFrom = msg.from || "(unknown sender)";
   const angle = rawFrom.match(/^(.*?)<([^>]+)>\s*$/);
   const fromName = angle ? angle[1].trim().replace(/^"|"$/g, "") || angle[2].trim() : rawFrom;

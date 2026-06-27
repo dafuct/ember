@@ -16,8 +16,6 @@ function initialWidth(): number {
   return saved >= MIN && saved <= MAX ? saved : DEFAULT;
 }
 
-// Two side-by-side panes with a draggable divider. The left pane's width is
-// clamped to [MIN, MAX] and persisted across launches.
 export function SplitView({ left, right }: { left: ReactNode; right: ReactNode }) {
   const [width, setWidth] = useState(initialWidth);
   const widthRef = useRef(width);

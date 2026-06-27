@@ -14,7 +14,6 @@ import {
   prepareTranscription,
 } from "../lib/notes";
 
-// What the editor needs to open: the event identity + a title/start snapshot to store.
 export interface NoteTarget {
   calendarId: string;
   eventId: string;
@@ -29,44 +28,40 @@ export function NotesModal({
 }: {
   target: NoteTarget;
   onClose: () => void;
-  onSaved: () => void; // reload the panel + dots
+  onSaved: () => void;
 }) {
   const [body, setBody] = useState("");
-  const [savedBody, setSavedBody] = useState(""); // the body currently persisted
+  const [savedBody, setSavedBody] = useState("");
   const [transcript, setTranscript] = useState("");
-  const [savedTranscript, setSavedTranscript] = useState(""); // the transcript currently persisted
-  const [exists, setExists] = useState(false); // a note already stored → show Delete
+  const [savedTranscript, setSavedTranscript] = useState("");
+  const [exists, setExists] = useState(false);
   const [summary, setSummary] = useState("");
   const [summaryUpdatedAt, setSummaryUpdatedAt] = useState(0);
   const [noteUpdatedAt, setNoteUpdatedAt] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false); // save/delete in flight
+  const [busy, setBusy] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [captureMic, setCaptureMic] = useState(true); // also capture my own voice (not just the call)
+  const [captureMic, setCaptureMic] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [prepMsg, setPrepMsg] = useState<string | null>(null); // transcription setup progress
+  const [prepMsg, setPrepMsg] = useState<string | null>(null);
 
-  // Esc closes (matches EventModal/ComposeModal — window listener, no backdrop close).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Track `recording` in a ref so the unmount cleanup sees the latest value without re-subscribing.
   const recordingRef = useRef(false);
   recordingRef.current = recording;
-  // Stop any in-flight capture if the modal unmounts mid-recording (avoids a leaked worker).
   useEffect(() => {
     return () => {
       if (recordingRef.current) void stopSystemCapture();
     };
   }, []);
 
-  // Load any existing note for this event on open.
   useEffect(() => {
     let cancelled = false;
     getMeetingNote(target.calendarId, target.eventId)
@@ -93,9 +88,7 @@ export function NotesModal({
     };
   }, [target.calendarId, target.eventId]);
 
-  // Enough to save/summarize: any notes OR any transcript.
   const hasContent = body.trim() !== "" || transcript.trim() !== "";
-  // A stored summary is stale if the note has been edited since it was generated.
   const stale = summary !== "" && noteUpdatedAt > summaryUpdatedAt;
 
   function writePayload() {
@@ -110,7 +103,7 @@ export function NotesModal({
   }
 
   async function handleSave() {
-    if (!hasContent) return; // Save is disabled when empty; guard regardless
+    if (!hasContent) return;
     setBusy(true);
     setError(null);
     try {
@@ -146,11 +139,11 @@ export function NotesModal({
       let path: string | null;
       if (isTauri()) {
         const sel = await open({ filters: [{ name: "Transcript", extensions: ["txt", "vtt"] }] });
-        path = typeof sel === "string" ? sel : null; // null if cancelled (or a multi-array)
+        path = typeof sel === "string" ? sel : null;
       } else {
-        path = "/mock/transcript.vtt"; // maket: skip the native dialog
+        path = "/mock/transcript.vtt";
       }
-      if (!path) return; // cancelled
+      if (!path) return;
       const text = await readTranscriptFile(path);
       setTranscript(text);
     } catch (e) {
@@ -160,8 +153,6 @@ export function NotesModal({
     }
   }
 
-  // Ensure the in-process transcriber is ready (downloads the model on first use), surfacing
-  // progress. Returns true on success; on failure sets the error and returns false.
   async function ensureReady(): Promise<boolean> {
     setPrepMsg("Setting up transcription…");
     try {
@@ -191,12 +182,12 @@ export function NotesModal({
             { name: "Recording", extensions: ["wav", "mp3", "m4a", "mp4", "mov", "webm", "ogg", "flac", "aac"] },
           ],
         });
-        path = typeof sel === "string" ? sel : null; // null if cancelled (or a multi-array)
+        path = typeof sel === "string" ? sel : null;
       } else {
-        path = "/mock/recording.m4a"; // maket: skip the native dialog
+        path = "/mock/recording.m4a";
       }
-      if (!path) return; // cancelled
-      if (!(await ensureReady())) return; // download/load the model first
+      if (!path) return;
+      if (!(await ensureReady())) return;
       const text = await transcribeRecording(path);
       setTranscript(text);
     } catch (e) {
@@ -208,12 +199,11 @@ export function NotesModal({
 
   async function handleRecord() {
     setError(null);
-    if (!(await ensureReady())) return; // download/load the model before capturing
+    if (!(await ensureReady())) return;
     setRecording(true);
     try {
       await startSystemCapture(captureMic, (e) => {
         if (e.type === "Chunk") {
-          // Append each transcribed chunk to the transcript, newline-separated.
           setTranscript((t) => (t ? t + "\n" : "") + e.text);
         } else if (e.type === "Error") {
           setError(e.message);
@@ -241,7 +231,6 @@ export function NotesModal({
     setSummarizing(true);
     setError(null);
     try {
-      // Persist the current notes/transcript first so the summary reflects the latest text.
       if (body !== savedBody || transcript !== savedTranscript) {
         await saveMeetingNote(writePayload());
         setSavedBody(body);

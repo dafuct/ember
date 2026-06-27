@@ -20,7 +20,6 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function initialTheme(): Theme {
-  // Dark is the default for the redesigned UI; a saved preference still wins.
   const saved = localStorage.getItem(STORAGE_KEY);
   return saved === "light" || saved === "dark" ? saved : "dark";
 }

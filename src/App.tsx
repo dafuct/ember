@@ -57,54 +57,39 @@ import { SnoozedList } from "./components/SnoozedList";
 import { snoozeMessage, listSnoozed, unsnoozeMessage, wakeDueSnoozes, type SnoozedRow } from "./lib/snooze";
 import { FOLDERS } from "./lib/folders";
 
-// Top-level Mail/Calendar view (was imported from the now-retired Header).
 type View = "mail" | "calendar";
 
-// M13 new-mail notifications.
-const POLL_MS = 60_000; // background sync cadence while the app is open
-const MAX_NOTIFY_PER_SYNC = 5; // cap banners per cycle so a backlog can't flood
-const INBOX_PAGE = 50; // infinite-scroll page size: each load grows the inbox window by this many
+const POLL_MS = 60_000;
+const MAX_NOTIFY_PER_SYNC = 5;
+const INBOX_PAGE = 50;
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessagePreview[]>([]);
-  // M-infinite-scroll: a single growing window drives how much inbox is loaded. The
-  // end-of-list sentinel calls handleLoadMore to grow it; `atEnd` stops it once a fetch
-  // returns fewer rows than requested. loadingMoreRef guards overlapping scroll events.
   const [inboxLimit, setInboxLimit] = useState(50);
   const [atEnd, setAtEnd] = useState(false);
   const loadingMoreRef = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stream, setStream] = useState<Stream>("all");
   const [busy, setBusy] = useState(false);
-  // `status` (last-sync result string) is currently produced but not surfaced in the UI;
-  // keep the setter so runSync stays intact, drop the unused value binding for noUnusedLocals.
   const [, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInitial | null>(null);
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [credsConfigured, setCredsConfigured] = useState<boolean | null>(null); // null = still loading
-  // Multi-account: the switcher popover + the account list it renders. `accountEpoch` bumps on
-  // every successful switch/connect so account-scoped subtrees (CalendarView) remount and refetch.
+  const [credsConfigured, setCredsConfigured] = useState<boolean | null>(null);
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [accountEpoch, setAccountEpoch] = useState(0);
-  // M10: top-level Mail/Calendar view. Default to Calendar in browser mock mode so the
-  // maket shows immediately; the Tauri app opens on Mail.
   const [view, setView] = useState<View>(isTauri() ? "mail" : "calendar");
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
 
-  // M11 search. `inSearch` (a boolean, not array-nullability) marks search mode so both lists stay
-  // the same non-null MessagePreview[] type and their setters unify in the `setActiveList` ternary.
   const [inSearch, setInSearch] = useState(false);
   const [searchResults, setSearchResults] = useState<MessagePreview[]>([]);
   const [searchSelectedId, setSearchSelectedId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // M12 folders. `folder === "inbox"` means the cached smart inbox; any other value is a live-
-  // fetched mailbox. `folderReloadKey` lets re-clicking a folder (or the same one) refetch.
   const [folder, setFolder] = useState<string>("inbox");
   const [folderResults, setFolderResults] = useState<MessagePreview[]>([]);
   const [folderSelectedId, setFolderSelectedId] = useState<string | null>(null);
@@ -112,27 +97,22 @@ export default function App() {
   const [folderReloadKey, setFolderReloadKey] = useState(0);
   const inFolder = folder !== "inbox";
 
-  // M13: track inbox ids we've already seen so only genuinely-new mail notifies.
-  const syncingRef = useRef(false); // guards against overlapping syncs
+  const syncingRef = useRef(false);
   const knownIdsRef = useRef<Set<string>>(new Set());
-  const notifyAllowedRef = useRef(false); // OS permission granted AND feature enabled
-  const lastNotifiedIdRef = useRef<string | null>(null); // newest notified id (opened on banner click, next task)
+  const notifyAllowedRef = useRef(false);
+  const lastNotifiedIdRef = useRef<string | null>(null);
   function seedKnown(list: MessagePreview[]) {
     for (const m of list) knownIdsRef.current.add(m.id);
   }
 
-  // M15 batch selection (over the active list) + a single-level undo for archive/trash.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [undo, setUndo] = useState<{ verb: string; count: number; onUndo: () => void } | null>(null);
   const undoTimer = useRef<number | null>(null);
 
-  // M16 labels.
   const [labels, setLabels] = useState<Label[]>([]);
   const labelsById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const [labelPicker, setLabelPicker] = useState<MessagePreview[] | null>(null);
 
-  // Snooze: anchor the menu at the click point; picking a wake time optimistically removes
-  // the row from the active list (reusing removeWithAction) and persists via snoozeMessage.
   const [snoozeTarget, setSnoozeTarget] = useState<{ msg: MessagePreview; x: number; y: number } | null>(null);
   const [snoozedRows, setSnoozedRows] = useState<SnoozedRow[]>([]);
   const openSnoozeMenu = (msg: MessagePreview, e: { clientX: number; clientY: number }) =>
@@ -148,7 +128,6 @@ export default function App() {
     unsnoozeMessage(id).catch((e) => setError(String(e)));
   };
 
-  // Live-fetch the selected folder (non-inbox). Re-runs when the folder or reload key changes.
   useEffect(() => {
     if (folder === "inbox") return;
     if (folder === "snoozed") {
@@ -184,23 +163,23 @@ export default function App() {
       .catch(() => setAccount(null));
     googleCredentialsStatus()
       .then((s) => setCredsConfigured(s.configured))
-      .catch(() => setCredsConfigured(true)); // on error, don't block the normal connect flow
+      .catch(() => setCredsConfigured(true));
     fetchInboxPreview(inboxLimit)
       .then((list) => {
         setMessages(list);
         setAtEnd(list.length < inboxLimit);
-        seedKnown(list); // baseline: mail already present at launch never notifies
+        seedKnown(list);
       })
       .catch(() => {});
     getSettings()
       .then(setSettings)
-      .catch(() => {}); // keep defaults on error
+      .catch(() => {});
     listLabels()
       .then(setLabels)
-      .catch(() => {}); // labels are non-critical; keep [] on error
+      .catch(() => {});
     listAccounts()
       .then(setAccounts)
-      .catch(() => {}); // accounts are non-critical; keep [] on error
+      .catch(() => {});
   }, []);
 
   async function handleConnect() {
@@ -210,7 +189,6 @@ export default function App() {
     try {
       const acct = await connectGmail();
       setAccount(acct);
-      // Onboarding: pull the inbox right away so the user doesn't land on an empty list.
       setStatus("Syncing your inbox…");
       const s = await syncInbox();
       setStatus(`${s.added} new, ${s.removed} removed`);
@@ -218,14 +196,10 @@ export default function App() {
       setMessages(list);
       setAtEnd(list.length < inboxLimit);
       seedKnown(list);
-      // Surface the newly added (now-active) account in the switcher and remount
-      // account-scoped subtrees (CalendarView) so they refetch for the new account.
       setAccounts(await listAccounts());
       setAccountEpoch((e) => e + 1);
     } catch (e) {
       const msg = String(e);
-      // A missing-credentials error means the baked/stored key isn't present — send the
-      // user to the setup screen instead of showing a raw error.
       if (msg.includes("no Google credentials configured")) {
         setCredsConfigured(false);
       } else {
@@ -236,8 +210,6 @@ export default function App() {
     }
   }
 
-  // Switch the active account: flip the backend pointer, reset mail view state to a clean
-  // inbox, bump the epoch (remounts CalendarView), then refetch accounts + inbox + labels.
   async function handleSwitchAccount(email: string) {
     try {
       await setActiveAccount(email);
@@ -245,7 +217,6 @@ export default function App() {
       setSelectedId(null);
       setStream("all");
       setFolder("inbox");
-      // The switched-to account starts fresh at the top: reset the infinite-scroll window.
       setInboxLimit(50);
       setAtEnd(false);
       setAccountEpoch((e) => e + 1);
@@ -266,12 +237,10 @@ export default function App() {
       const accs = await listAccounts();
       setAccounts(accs);
       if (next) {
-        // Switched to a remaining account — reload its view.
         setAccount(next);
         setSelectedId(null);
         setStream("all");
         setFolder("inbox");
-        // Like a switch: the remaining account starts fresh at the top.
         setInboxLimit(50);
         setAtEnd(false);
         setAccountEpoch((e) => e + 1);
@@ -281,7 +250,6 @@ export default function App() {
         seedKnown(list);
         setLabels(labs);
       } else {
-        // Removed the last account → back to the connect screen.
         handleDisconnected();
       }
     } catch (e) {
@@ -289,8 +257,6 @@ export default function App() {
     }
   }
 
-  // Resolve OS notification permission once per session and whenever notifications are
-  // switched on. Stored in a ref so runSync can read it without re-rendering.
   useEffect(() => {
     if (!account || !settings.notifications) {
       notifyAllowedRef.current = false;
@@ -301,20 +267,14 @@ export default function App() {
     });
   }, [account, settings.notifications]);
 
-  // Background poll: sync every POLL_MS while connected with notifications on. Tearing
-  // down on dep change means disconnect / toggle-off / unmount all stop the timer.
-  // Syncs ALL connected accounts (not just the active one) and notifies per account.
   useEffect(() => {
     if (!account || !settings.notifications) return;
     const id = setInterval(() => void runBackgroundSyncRef.current(), POLL_MS);
     return () => clearInterval(id);
   }, [account, settings.notifications]);
 
-  // M13: when the user clicks a banner, foreground Ember and open the most-recently
-  // notified message. onAction fires for a notification tap/action on desktop.
   useEffect(() => {
     if (!isTauri()) return;
-    // onAction resolves to a PluginListener; clean up via its unregister() method.
     let listener: Awaited<ReturnType<typeof onAction>> | undefined;
     onAction(() => {
       void getCurrentWindow().setFocus();
@@ -329,7 +289,6 @@ export default function App() {
   }, []);
 
   function handleDisconnected() {
-    // Called by SettingsModal after the disconnect command succeeds.
     setSettingsOpen(false);
     setAccount(null);
     setMessages([]);
@@ -340,10 +299,6 @@ export default function App() {
     setError(null);
   }
 
-  // Shared sync path. surfaceErrors=true (manual Sync button): drive busy/status and
-  // show failures in the error bar. surfaceErrors=false (background timer): stay silent
-  // — a transient failure must NOT flash the error bar every POLL_MS. Guarded so a slow
-  // sync is never overlapped by the next tick.
   async function runSync(surfaceErrors: boolean) {
     if (syncingRef.current) return;
     syncingRef.current = true;
@@ -359,13 +314,10 @@ export default function App() {
       setAtEnd(list.length < inboxLimit);
       if (surfaceErrors) setStatus(`${s.added} new, ${s.removed} removed`);
 
-      // New-mail notifications: one banner per fresh id (newest-first, capped) when the
-      // window is unfocused. Always fold the current ids into `known` afterward so a
-      // message never notifies twice. Manual syncs are naturally silent (window focused).
       const fresh = pickNewMail(knownIdsRef.current, list, MAX_NOTIFY_PER_SYNC);
       for (const m of list) knownIdsRef.current.add(m.id);
       if (fresh.length && notifyAllowedRef.current && !document.hasFocus()) {
-        lastNotifiedIdRef.current = fresh[0].id; // newest — opened on banner click (next task)
+        lastNotifiedIdRef.current = fresh[0].id;
         for (const m of fresh) void notifyNewMail(m);
       }
     } catch (e) {
@@ -379,8 +331,6 @@ export default function App() {
 
   const handleSync = () => runSync(true);
 
-  // Infinite scroll: grow the loaded inbox window by one page. Guarded against overlapping
-  // scroll events; stops when a fetch returns fewer rows than requested.
   async function handleLoadMore() {
     if (loadingMoreRef.current || atEnd) return;
     loadingMoreRef.current = true;
@@ -397,22 +347,13 @@ export default function App() {
     }
   }
 
-  // Auto-load the whole inbox (no 50-row cap): once the first page is in, keep growing the
-  // window until the backend returns fewer rows than requested (atEnd). Inbox only — not
-  // search/folder. Bounded by the backend's PREVIEW_MAX, so it always terminates. This makes
-  // "see all my mail" work without depending on a scroll gesture to reach the sentinel.
   useEffect(() => {
     if (inSearch || inFolder || atEnd) return;
     if (messages.length === 0 || loadingMoreRef.current) return;
     void handleLoadMore();
-    // handleLoadMore is intentionally omitted (re-created each render, guarded by refs).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inSearch, inFolder, atEnd, messages.length]);
 
-  // Background ALL-accounts sync (the poll timer). Syncs every connected account and posts
-  // notifications per account using the backend's baseline/new_previews (so a newly-added
-  // account's full backfill doesn't spam banners). The active account's visible list is
-  // refreshed too. Distinct from runSync (the manual, active-account Sync button).
   async function runBackgroundSync() {
     if (syncingRef.current) return;
     syncingRef.current = true;
@@ -420,13 +361,11 @@ export default function App() {
       const summaries: AccountSyncSummary[] = await syncAllAccounts();
       for (const s of summaries) {
         if (s.account === account) {
-          // Refresh the visible inbox for the active account.
           const list = await fetchInboxPreview(inboxLimit);
           setMessages(list);
           setAtEnd(list.length < inboxLimit);
           for (const m of list) knownIdsRef.current.add(m.id);
         }
-        // Notify per account. baseline runs already carry empty new_previews (no backfill spam).
         if (!s.baseline && s.new_previews.length && notifyAllowedRef.current && !document.hasFocus()) {
           const fresh = s.new_previews
             .filter((m) => !knownIdsRef.current.has(m.id))
@@ -442,27 +381,20 @@ export default function App() {
     }
   }
 
-  // Live ref to runSync so the interval always calls the latest closure without
-  // re-subscribing the timer on every render.
   const runSyncRef = useRef(runSync);
   runSyncRef.current = runSync;
 
-  // Live ref to runBackgroundSync (the all-accounts poll path), same rationale as runSyncRef.
   const runBackgroundSyncRef = useRef(runBackgroundSync);
   runBackgroundSyncRef.current = runBackgroundSync;
 
-  // Wake loop: independent of the notifications poller (snoozes wake even with notifications
-  // off). Every 60s, wake any due snoozes server-side; if anything woke, refresh the inbox.
   useEffect(() => {
     if (!account) return;
     const tick = () => wakeDueSnoozes().then((woken) => { if (woken.length > 0) void runSyncRef.current(false); }).catch(() => {});
-    tick(); // launch check
+    tick();
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
   }, [account]);
 
-  // Active list: search results > a live folder > the cached inbox. All selection + action
-  // handlers operate on it, so they work identically across inbox, search, and folders.
   const activeList = inSearch ? searchResults : inFolder ? folderResults : messages;
   const setActiveList = inSearch ? setSearchResults : inFolder ? setFolderResults : setMessages;
   const activeSelectedId = inSearch ? searchSelectedId : inFolder ? folderSelectedId : selectedId;
@@ -495,7 +427,6 @@ export default function App() {
     });
   }
   function selectRange(ids: string[]) {
-    // Additive: Shift-range adds the span to the current selection, never deselects.
     setSelectedIds((prev) => new Set([...prev, ...ids]));
   }
   function clearUndo() {
@@ -518,16 +449,12 @@ export default function App() {
         merged.sort((a, b) => b.internal_date - a.internal_date);
         return merged;
       });
-      // Best-effort inverse: the rows are already restored client-side; if the server call
-      // fails we surface the error and let the next sync reconcile (no re-removal here).
       batchModifyMessages(ids, inverse.add, inverse.remove).catch((e) => setError(String(e)));
     };
     setUndo({ verb, count: ids.length, onUndo });
     undoTimer.current = window.setTimeout(() => setUndo(null), 6000);
   }
 
-  // Pick the row to select after the current one is removed (archive/trash): next visible, else
-  // previous, else nothing. Inbox uses the stream ordering; search results are already a flat list.
   function nextSelectedId(removedId: string): string | null {
     const visible = inSearch || inFolder ? activeList : orderedForStream(messages, stream);
     const idx = visible.findIndex((m) => m.id === removedId);
@@ -536,7 +463,6 @@ export default function App() {
     return next ? next.id : null;
   }
 
-  // Roll back to `snapshot` on the ACTIVE list and surface the error if the backend call rejects.
   async function withActiveRollback(
     snapshot: MessagePreview[],
     call: () => Promise<void>,
@@ -580,8 +506,6 @@ export default function App() {
     });
   }
 
-  // Optimistically remove `msgs` from the active list, batch-modify on the server, and
-  // register an Undo (inverse labels). Powers single (reading-pane) AND batch archive/trash.
   function removeMessages(
     msgs: MessagePreview[],
     op: { add: string[]; remove: string[]; verb: string },
@@ -600,8 +524,6 @@ export default function App() {
     batchModifyMessages(ids, op.add, op.remove)
       .then(() => registerUndo(op.verb, msgs, ids, { add: op.remove, remove: op.add }))
       .catch((e) => {
-        // On failure the rows + reading-pane cursor roll back, but the multi-select set
-        // stays cleared (a transient error is rare; re-select to retry). Deliberate v1.
         setActiveList(listSnap);
         setActiveSelectedId(selSnap);
         setError(String(e));
@@ -618,7 +540,6 @@ export default function App() {
   const batchTrash = () =>
     removeMessages(selectedMsgs, { add: ["TRASH"], remove: [], verb: "Trashed" });
 
-  // Read/star: in-place label toggle, no undo toast (reversible via the row controls).
   function batchMarkRead() {
     const msgs = selectedMsgs;
     if (msgs.length === 0) return;
@@ -648,9 +569,6 @@ export default function App() {
     });
   }
 
-  // Apply or remove a user label on `targets` (1 message from the reading pane, or the
-  // selection). Optimistic withLabel on the active list, then persist via the M15 batch
-  // command; roll back on error.
   function applyLabel(targets: MessagePreview[], labelId: string, add: boolean) {
     if (targets.length === 0) return;
     const ids = targets.map((m) => m.id);
@@ -670,9 +588,6 @@ export default function App() {
       const created = await createLabel(name);
       const next = await listLabels();
       setLabels(next);
-      // applyLabel snapshots the current activeList; after the awaits above that snapshot is
-      // captured fresh here, so a created label applies to the (still-open) targets. Benign if
-      // the list shifted during the awaits — the next fetch reconciles.
       applyLabel(targets, created.id, true);
     } catch (e) {
       setError(String(e));
@@ -751,7 +666,7 @@ export default function App() {
         ),
         inReplyTo: null,
         references: null,
-        threadId: null, // forward starts a fresh conversation
+        threadId: null,
         draftId: null,
         mode: "forward",
         forwardedAttachments: ctx.attachments.map((a) => ({
@@ -766,15 +681,12 @@ export default function App() {
     }
   }
 
-  // Selecting a message opens it and (if unread) marks it read — like every mail client.
   function handleSelect(id: string) {
     setActiveSelectedId(id);
     const m = activeList.find((x) => x.id === id);
     if (m && isUnread(m)) toggleRead(m, true);
   }
 
-  // Drafts open the compose editor (not the reading pane). Fetch the draft's content and
-  // seed ComposeModal with its draftId so Save/Send target the existing draft.
   async function handleOpenDraft(m: MessagePreview) {
     if (!m.draft_id) return;
     setError(null);
@@ -795,7 +707,6 @@ export default function App() {
     }
   }
 
-  // Row click: in the Drafts folder (and not searching), open the editor; otherwise normal select.
   function handleRowSelect(id: string) {
     if (!inSearch && folder === "drafts") {
       const m = activeList.find((x) => x.id === id);
@@ -805,10 +716,6 @@ export default function App() {
     }
   }
 
-  // Open a specific inbox message (used when a notification banner is clicked): leave
-  // search/folder, return to the smart inbox, select it, and mark it read — mirroring
-  // handleSelect. It's normally already in `messages` because the sync that notified just
-  // refreshed the list.
   function openMessageFromNotification(id: string) {
     setView("mail");
     setInSearch(false);
@@ -819,9 +726,6 @@ export default function App() {
     setFolderSelectedId(null);
     setStream("all");
     setSelectedId(id);
-    // Mark read optimistically against `messages` directly: the view resets above are
-    // batched and haven't flushed, so the derived activeList still points at the previous
-    // mode. Roll back on failure, like toggleRead/withActiveRollback.
     const m = messages.find((x) => x.id === id);
     if (m && isUnread(m)) {
       setMessages((prev) => prev.map((x) => (x.id === id ? withLabel(x, UNREAD, false) : x)));
@@ -864,7 +768,6 @@ export default function App() {
   function handleSelectFolder(f: string) {
     clearSelection();
     clearUndo();
-    // Switching mailbox leaves any active search; bumping the key refetches even on re-click.
     setInSearch(false);
     setSearchResults([]);
     setSearchSelectedId(null);
@@ -879,10 +782,6 @@ export default function App() {
   const handleDeleteForever = (m: MessagePreview) =>
     removeWithAction(m, () => deleteMessageForever(m.id));
 
-  // Trash-folder batch actions. Optimistically drop the rows from the active list, run the
-  // server call, and roll back on failure. No undo: restore is itself the inverse, and a
-  // permanent delete can't be undone. The Trash folder is live-fetched, so the next folder
-  // load reconciles against Gmail either way.
   function removeBatch(msgs: MessagePreview[], call: (ids: string[]) => Promise<void>) {
     if (msgs.length === 0) return;
     const ids = msgs.map((m) => m.id);
@@ -906,7 +805,6 @@ export default function App() {
   const batchDeleteForever = () => {
     const n = selectedMsgs.length;
     if (n === 0) return;
-    // Permanent + irreversible → explicit confirm before the destructive call.
     if (!window.confirm(`Permanently delete ${n} message${n === 1 ? "" : "s"}? This can't be undone.`)) {
       return;
     }
@@ -1079,7 +977,6 @@ export default function App() {
           onSent={() => {
             setCompose(null);
             setStatus("Sent ✓");
-            // A sent draft disappears from Drafts — refresh if we're viewing them.
             if (folder === "drafts") setFolderReloadKey((k) => k + 1);
           }}
           onDraftsChanged={() => {

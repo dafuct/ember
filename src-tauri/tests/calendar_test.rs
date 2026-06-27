@@ -1,4 +1,3 @@
-// 🦀 Integration tests: a separate crate, so the client is reached as `ember_lib::calendar`.
 use ember_lib::calendar::CalendarClient;
 use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path, query_param};
@@ -7,7 +6,6 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 #[tokio::test(flavor = "multi_thread")]
 async fn list_calendars_parses_and_paginates() {
     let server = MockServer::start().await;
-    // Page 1 → has nextPageToken; Page 2 → no token.
     Mock::given(method("GET"))
         .and(path("/calendar/v3/users/me/calendarList"))
         .and(query_param("pageToken", "p2"))
@@ -47,15 +45,12 @@ async fn insufficient_scope_403_maps_to_reconnect_error() {
 
     let client = CalendarClient::with_base_url("tok".into(), server.uri());
     let err = client.list_calendars().await.unwrap_err();
-    // 🦀 We don't name the (private) AppError type — Display gives us the message string.
     assert!(err.to_string().to_lowercase().contains("reconnect"), "got: {err}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn api_disabled_403_surfaces_google_message_not_reconnect() {
     let server = MockServer::start().await;
-    // The Calendar API not being enabled for the project returns a 403 that reconnecting can't
-    // fix — its actual message must surface (with the enable URL), NOT a "reconnect" prompt.
     Mock::given(method("GET"))
         .and(path("/calendar/v3/users/me/calendarList"))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
@@ -136,7 +131,6 @@ fn map_event_normalizes_and_skips_cancelled() {
             Attendee { email: "b@y.com".into(), response_status: Some("accepted".into()), is_self: false },
         ]
     );
-    // 🦀 my_response_status comes from the attendee flagged self == true.
     assert_eq!(m.my_response_status.as_deref(), Some("needsAction"));
 
     let allday = GEvent {
@@ -255,7 +249,6 @@ async fn delete_event_issues_delete() {
 #[tokio::test(flavor = "multi_thread")]
 async fn respond_to_event_flips_self_and_preserves_others() {
     let server = MockServer::start().await;
-    // GET returns the event with you (self) + another guest who already accepted.
     Mock::given(method("GET"))
         .and(path("/calendar/v3/calendars/primary/events/e9"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -269,7 +262,6 @@ async fn respond_to_event_flips_self_and_preserves_others() {
         })))
         .mount(&server)
         .await;
-    // PATCH must set me→accepted and KEEP boss→accepted (order preserved: me, boss).
     Mock::given(method("PATCH"))
         .and(path("/calendar/v3/calendars/primary/events/e9"))
         .and(query_param("sendUpdates", "all"))
@@ -292,7 +284,6 @@ async fn respond_to_event_flips_self_and_preserves_others() {
         .await;
 
     let client = CalendarClient::with_base_url("tok".into(), server.uri());
-    // self_email deliberately mismatched → matching must succeed via the `self: true` flag.
     let ev = client.respond_to_event("primary", "e9", "accepted", "unused@x.com").await.unwrap();
     assert_eq!(ev.my_response_status.as_deref(), Some("accepted"));
 }
@@ -320,7 +311,7 @@ fn is_safe_url_allows_only_web_schemes() {
     use ember_lib::calendar::is_safe_url;
     assert!(is_safe_url("https://meet.google.com/abc"));
     assert!(is_safe_url("http://example.com"));
-    assert!(is_safe_url("  HTTPS://Cal.example/e1  ")); // trimmed + case-insensitive
+    assert!(is_safe_url("  HTTPS://Cal.example/e1  "));
     assert!(!is_safe_url("file:///etc/passwd"));
     assert!(!is_safe_url("javascript:alert(1)"));
     assert!(!is_safe_url("mailto:a@b.com"));

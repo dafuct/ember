@@ -12,12 +12,10 @@ import {
 import { rfc3339Local, allDayEndExclusive } from "../lib/calendar";
 import { parseRecipients, isPlausibleEmail } from "../lib/compose";
 
-// Seed values for the form. For a new event the caller passes a start Date (e.g. a clicked slot);
-// for an edit it passes the existing CalendarEvent.
 export interface EventInitial {
   calendars: CalendarSummary[];
-  event?: CalendarEvent; // present → edit mode
-  startAt?: Date; // present → new-event default start (end = +1h)
+  event?: CalendarEvent;
+  startAt?: Date;
 }
 
 const fmtDate = (d: Date) =>
@@ -32,7 +30,7 @@ export function EventModal({
 }: {
   initial: EventInitial;
   onClose: () => void;
-  onSaved: () => void; // refetch the week
+  onSaved: () => void;
 }) {
   const editing = initial.event;
   const seedStart = editing ? new Date(editing.start) : (initial.startAt ?? new Date());
@@ -96,7 +94,6 @@ export function EventModal({
     setBusy(true);
     setError(null);
     try {
-      // Editing can't move an event between calendars (v1) — always use its own calendar id.
       if (editing) await updateCalendarEvent(editing.calendar_id, editing.id, w);
       else await createCalendarEvent(calendarId, w, addMeet);
       onSaved();

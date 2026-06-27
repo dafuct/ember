@@ -12,8 +12,6 @@ export function SnoozeMenu({
   const presets = snoozePresets();
   const fmt = (ms: number) =>
     new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-  // Min for the custom picker = local "now" as YYYY-MM-DDTHH:mm, so a past wake (which would
-  // archive then immediately un-snooze on the next wake tick) can't be picked.
   const localNow = (() => {
     const d = new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());

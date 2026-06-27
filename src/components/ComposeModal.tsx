@@ -8,16 +8,16 @@ import { basename } from "../lib/attachments";
 import { mockPickFiles } from "../lib/mock";
 
 export interface ComposeInitial {
-  to: string; // comma-separated text (prefilled for reply)
+  to: string;
   cc: string;
   subject: string;
   body: string;
   inReplyTo: string | null;
   references: string | null;
   threadId: string | null;
-  draftId?: string | null; // set when editing an existing Gmail draft
-  mode?: "new" | "reply" | "replyAll" | "forward" | "draft"; // drives the title
-  forwardedAttachments?: ForwardedAttachmentRef[]; // original's attachments, for forward
+  draftId?: string | null;
+  mode?: "new" | "reply" | "replyAll" | "forward" | "draft";
+  forwardedAttachments?: ForwardedAttachmentRef[];
 }
 
 export function ComposeModal({
@@ -29,7 +29,7 @@ export function ComposeModal({
   initial: ComposeInitial;
   onClose: () => void;
   onSent: () => void;
-  onDraftsChanged?: () => void; // called after a save/discard so the parent can refresh Drafts
+  onDraftsChanged?: () => void;
 }) {
   const [to, setTo] = useState(initial.to);
   const [cc, setCc] = useState(initial.cc);
@@ -38,14 +38,12 @@ export function ComposeModal({
   const [body, setBody] = useState(initial.body);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false); // save/discard in flight
+  const [busy, setBusy] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(initial.draftId ?? null);
   const [attachPaths, setAttachPaths] = useState<string[]>([]);
   const [forwardedAtts, setForwardedAtts] = useState<ForwardedAttachmentRef[]>(initial.forwardedAttachments ?? []);
 
-  // "Dirty" = worth offering to save. A brand-new compose holding only its seeded body
-  // (signature) is not dirty; editing a draft is dirty as soon as the body changes.
   const dirty =
     to.trim() !== "" || cc.trim() !== "" || subject.trim() !== "" || body !== initial.body ||
     attachPaths.length > 0 || forwardedAtts.length > 0;
@@ -55,7 +53,6 @@ export function ComposeModal({
     else onClose();
   }
 
-  // Close on Esc from anywhere in the modal, not only when a field is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") attemptClose();
@@ -102,7 +99,6 @@ export function ComposeModal({
       else await sendEmail(f);
       onSent();
     } catch (e) {
-      // Minimal outbox: a failed send becomes a saved draft so nothing is lost.
       try {
         const id = await saveDraft({ ...f, draft_id: draftId });
         setDraftId(id);
@@ -120,7 +116,6 @@ export function ComposeModal({
     }
   }
 
-  // Save without sending. No recipient validation — a draft can be incomplete.
   async function handleSaveDraft() {
     setBusy(true);
     setError(null);
@@ -136,7 +131,6 @@ export function ComposeModal({
     }
   }
 
-  // Discard (permanently delete) the draft being edited.
   async function handleDeleteDraft() {
     if (!draftId) return;
     setBusy(true);
@@ -154,7 +148,6 @@ export function ComposeModal({
 
   async function handleAttach() {
     if (!isTauri()) {
-      // Browser maket: stub a picked file so the chips render.
       setAttachPaths((p) => [...p, ...mockPickFiles()]);
       return;
     }

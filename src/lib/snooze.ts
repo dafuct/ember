@@ -8,19 +8,17 @@ export interface SnoozedRow {
   from_addr: string; subject: string; snippet: string; internal_date: number;
 }
 
-// Preset wake times, anchored to 09:00 local. "This weekend" = the coming Saturday
-// (next Saturday if today is already Saturday). "Next week" = next Monday.
 export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
-  const day = now.getDay(); // 0 Sun .. 6 Sat
+  const day = now.getDay();
   const at9 = (addDays: number): number => {
     const x = new Date(now);
     x.setDate(x.getDate() + addDays);
     x.setHours(9, 0, 0, 0);
     return x.getTime();
   };
-  let weekendDays = (6 - day + 7) % 7; // 0 on Sat
-  if (day === 6) weekendDays = 7;      // already Saturday → next Saturday
-  let mondayDays = (1 - day + 7) % 7;  // 0 on Mon
+  let weekendDays = (6 - day + 7) % 7;
+  if (day === 6) weekendDays = 7;
+  let mondayDays = (1 - day + 7) % 7;
   if (mondayDays === 0) mondayDays = 7;
   return [
     { label: "Later today", wakeAt: now.getTime() + 3 * 60 * 60 * 1000 },

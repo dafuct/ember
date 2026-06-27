@@ -1,4 +1,3 @@
-// Format a Gmail internalDate (ms since epoch) as a compact relative label.
 export function relativeTime(internalDateMs: number, now: Date = new Date()): string {
   if (!internalDateMs) return "";
   const d = new Date(internalDateMs);

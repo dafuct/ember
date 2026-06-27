@@ -7,21 +7,16 @@ import { EventModal, type EventInitial } from "./EventModal";
 import { NotesModal, type NoteTarget } from "./NotesModal";
 import { NotebookPen, ChevronLeft, ChevronRight } from "lucide-react";
 
-// The backend maps a missing calendar scope to the specific message
-// "Calendar access not granted — reconnect Google to enable it." Match that phrasing
-// precisely so an unrelated error that merely mentions "permission" isn't misrouted here.
 function isScopeError(msg: string): boolean {
   return /reconnect google|calendar access not granted/i.test(msg);
 }
 
-// RSVP buttons (Google status → label).
 const RSVP_CHOICES: { status: string; label: string }[] = [
   { status: "accepted", label: "Yes" },
   { status: "declined", label: "No" },
   { status: "tentative", label: "Maybe" },
 ];
 
-// A guest's responseStatus → a small badge symbol + class.
 function guestBadge(status?: string | null): { symbol: string; cls: string; label: string } {
   switch (status) {
     case "accepted": return { symbol: "✓", cls: "guest-status accepted", label: "accepted" };
@@ -52,11 +47,9 @@ export function CalendarView({
   const [calendars, setCalendars] = useState<CalendarSummary[]>([]);
   const [modal, setModal] = useState<EventInitial | null>(null);
   const [detail, setDetail] = useState<CalendarEvent | null>(null);
-  // RSVP state is popover-local: a failure must NOT trip the full-view `error` gate.
   const [rsvpBusy, setRsvpBusy] = useState(false);
   const [rsvpError, setRsvpError] = useState<string | null>(null);
 
-  // Meeting notes (M20): local-only, separate from the live calendar fetch.
   const [notes, setNotes] = useState<MeetingNote[]>([]);
   const [notesReloadKey, setNotesReloadKey] = useState(0);
   const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
@@ -67,8 +60,6 @@ export function CalendarView({
     return () => clearInterval(id);
   }, []);
 
-  // Load the writable calendars for the create form's picker (on mount + after each
-  // save/reconnect via reloadKey). Silent on failure — the form falls back to "primary".
   useEffect(() => {
     listCalendars().then(setCalendars).catch(() => setCalendars([]));
   }, [reloadKey]);
@@ -84,12 +75,10 @@ export function CalendarView({
     return () => { cancelled = true; };
   }, [weekStart, reloadKey]);
 
-  // Load all notes (on mount + after any save/delete). Silent on failure.
   useEffect(() => {
     listMeetingNotes().then(setNotes).catch(() => setNotes([]));
   }, [notesReloadKey]);
 
-  // Set of `${calendar_id}|${event_id}` keys for the week grid's has-notes dot.
   const notesByKey = useMemo(
     () => new Set(notes.map((n) => noteKey(n.calendar_id, n.event_id))),
     [notes],
@@ -120,20 +109,17 @@ export function CalendarView({
 
   const handleRespond = async (status: string) => {
     if (!detail) return;
-    const target = detail; // capture: the popover may close or switch events during the await
+    const target = detail;
     setRsvpBusy(true);
     setRsvpError(null);
     try {
       const updated = await respondToEvent(target.calendar_id, target.id, status);
-      // Only update if the SAME event is still open — otherwise a slow PATCH could
-      // resurrect/overwrite a popover the user already closed or switched away from.
-      // Merge only the changed fields so the maket's stub event can't blank the popover.
       setDetail((cur) =>
         cur && cur.id === target.id && cur.calendar_id === target.calendar_id
           ? { ...cur, attendees: updated.attendees, my_response_status: updated.my_response_status }
           : cur,
       );
-      refetch(); // re-pull the week so tiles reflect the new status
+      refetch();
     } catch (e) {
       setRsvpError(e instanceof Error ? e.message : String(e));
     } finally {

@@ -1,6 +1,3 @@
-// Decode a user-picked audio/video recording to 16 kHz mono f32 for in-process whisper-rs
-// (the file-import path). Pure-Rust via symphonia — handles wav/mp3/aac/alac/flac/ogg and
-// demuxes audio from mp4/mov containers.
 use std::fs::File;
 
 use symphonia::core::audio::SampleBuffer;
@@ -13,7 +10,6 @@ use symphonia::core::probe::Hint;
 
 use crate::error::{AppError, Result};
 
-/// Decode `path` to mono f32 at 16 kHz (downmix + resample). Errors on unsupported/empty audio.
 pub fn decode_to_16k_mono(path: &str) -> Result<Vec<f32>> {
     let file = File::open(path).map_err(|e| AppError::Other(format!("open failed: {e}")))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -43,7 +39,6 @@ pub fn decode_to_16k_mono(path: &str) -> Result<Vec<f32>> {
     loop {
         let packet = match format.next_packet() {
             Ok(p) => p,
-            // 🦀 next_packet returns an error at end-of-stream — treat any read error as "done".
             Err(_) => break,
         };
         if packet.track_id() != track_id {
@@ -56,7 +51,6 @@ pub fn decode_to_16k_mono(path: &str) -> Result<Vec<f32>> {
                 buf.copy_interleaved_ref(decoded);
                 interleaved.extend_from_slice(buf.samples());
             }
-            // 🦀 A single corrupt packet shouldn't abort the whole file; skip it.
             Err(SymphoniaError::DecodeError(_)) => continue,
             Err(e) => return Err(AppError::Other(format!("decode error: {e}"))),
         }

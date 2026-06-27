@@ -77,7 +77,6 @@ export function SettingsModal({
     }
   }
 
-  // Close on Esc from anywhere in the modal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -105,7 +104,6 @@ export function SettingsModal({
     setError(null);
     try {
       await onRemove(email);
-      // On success App reloads/closes; only reset the confirm row if we're still mounted.
       setConfirmingEmail(null);
     } catch (e) {
       setError(String(e));
@@ -212,9 +210,6 @@ export function SettingsModal({
                 const on = e.target.checked;
                 setNotifications(on);
                 if (on) {
-                  // Request OS permission immediately. A `false` result inside Tauri means
-                  // the user denied it at the OS level; reflect that in the toggle. Outside
-                  // Tauri (browser maket) the helper always returns false — not a denial.
                   const ok = await ensureNotificationPermission();
                   setPermBlocked(isTauri() && !ok);
                 } else {

@@ -1,7 +1,2 @@
-# Force the macOS deployment target for the whole build, including the whisper-rs-sys cmake
-# compile of whisper.cpp. ggml uses std::filesystem::directory_iterator, which is only available
-# on macOS 10.15+ — `tauri build` otherwise injects a lower default (~10.13) and the C++ build
-# fails with "directory_iterator is unavailable". `force = true` wins over any value tauri/cargo
-# sets in the process env. The app is Apple-Silicon-only (macOS 11+), so 11.0 is the floor anyway.
 [env]
 MACOSX_DEPLOYMENT_TARGET = { value = "11.0", force = true }

@@ -8,8 +8,8 @@ import {
 } from "../lib/calendar";
 import { noteKey } from "../lib/notes";
 
-const PX_PER_MIN = 0.8;                       // 48px / hour
-const GRID_HEIGHT = 24 * 60 * PX_PER_MIN;     // 1152px
+const PX_PER_MIN = 0.8;
+const GRID_HEIGHT = 24 * 60 * PX_PER_MIN;
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 function hourLabel(h: number): string {
@@ -26,7 +26,6 @@ function sameLocalDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-/** Use the calendar's color for the left border only; the faint fill comes from CSS. */
 function tint(e: CalendarEvent): React.CSSProperties {
   return e.color ? { borderLeftColor: e.color } : {};
 }
@@ -51,7 +50,6 @@ export function WeekGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasNote = (e: CalendarEvent) => !!notesByKey?.has(noteKey(e.calendar_id, e.id));
 
-  // Scroll so ~7 AM is at the top on mount / week change.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 7 * 60 * PX_PER_MIN;
   }, [weekStart]);

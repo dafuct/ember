@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Label, MessagePreview } from "../lib/api";
 
-// A small overlay popover for applying/removing user labels on `targets` (one message from
-// the reading pane, or the multi-selection from the batch bar) + creating a new label.
-// A label is "checked" only when EVERY target already has it (exact for one target).
 export function LabelPicker({
   labels,
   targets,

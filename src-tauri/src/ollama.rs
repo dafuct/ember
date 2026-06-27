@@ -1,5 +1,3 @@
-// src-tauri/src/ollama.rs — local Ollama client (meeting-note summarization, M21).
-// Mirrors GmailClient/CalendarClient: a swappable base_url + a reusable reqwest::Client.
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +12,6 @@ pub struct OllamaClient {
     http: reqwest::Client,
 }
 
-// 🦀 `new()` takes no args, so clippy wants a matching `Default` impl — provide one that delegates.
 impl Default for OllamaClient {
     fn default() -> Self {
         Self::new()
@@ -26,19 +23,13 @@ impl OllamaClient {
         Self { base_url: DEFAULT_BASE.to_string(), http: build_http() }
     }
 
-    /// Point the client at a mock server in tests.
     pub fn with_base_url(base_url: String) -> Self {
         Self { base_url, http: build_http() }
     }
 
-    /// Summarize meeting notes via Ollama's blocking /api/generate. Maps the two common
-    /// local-setup failures (Ollama not running, model not pulled) to actionable messages.
     pub async fn summarize(&self, notes: &str) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
         let req = GenerateRequest { model: MODEL, prompt: build_prompt(notes), stream: false };
-        // 🦀 `.send()` can fail before any HTTP status — e.g. connection refused. `is_connect()`
-        //    tells "couldn't even reach the server" apart from other errors, so we can show a
-        //    friendly setup hint instead of a raw reqwest message.
         let resp = self.http.post(&url).json(&req).send().await.map_err(|e| {
             if e.is_connect() {
                 AppError::Other(format!(
@@ -49,7 +40,6 @@ impl OllamaClient {
                 AppError::Http(e)
             }
         })?;
-        // 🦀 Ollama returns 404 when the requested model hasn't been pulled.
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Err(AppError::Other(format!(
                 "Ollama model '{MODEL}' not found. Run: ollama pull {MODEL}"
@@ -65,8 +55,6 @@ impl OllamaClient {
     }
 }
 
-// 🦀 One place to build the HTTP client: a generous 120s timeout (local CPU generation is slow);
-//    `.build()` returns a Result, and `.expect` mirrors what `reqwest::Client::new()` does internally.
 fn build_http() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -74,7 +62,6 @@ fn build_http() -> reqwest::Client {
         .expect("failed to build reqwest client")
 }
 
-// 🦀 The /api/generate request body. `<'a>` lets `model` borrow the &'static str; `prompt` is owned.
 #[derive(Serialize)]
 struct GenerateRequest<'a> {
     model: &'a str,
@@ -82,14 +69,11 @@ struct GenerateRequest<'a> {
     stream: bool,
 }
 
-// 🦀 We only need `response` from Ollama's JSON; serde ignores the other fields (done, etc.).
 #[derive(Deserialize)]
 struct GenerateResponse {
     response: String,
 }
 
-// 🦀 Pure prompt builder (no I/O), kept private — the wiremock happy-path test asserts its output
-//    via the captured request body. Asks for a compact, factual markdown summary + action items.
 fn build_prompt(notes: &str) -> String {
     format!(
         "You are a meeting-notes assistant. Summarize the meeting notes below into concise \

@@ -10,7 +10,6 @@ import {
 import { Bell, Newspaper, RefreshCw, Search, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-// Colored stream icon for the grouped "All" view section headers.
 const GROUP_ICON: Record<string, { Icon: LucideIcon; hue: number }> = {
   people: { Icon: Users, hue: 200 },
   notifications: { Icon: Bell, hue: 38 },
@@ -67,37 +66,27 @@ export function MessageList({
   onBatchStar?: () => void;
   labelsById?: Map<string, Label>;
   onBatchLabel?: () => void;
-  /** Active folder key. In "trash" the batch bar swaps to Restore / Delete forever. */
   folder?: string;
   onBatchRestore?: () => void;
   onBatchDeleteForever?: () => void;
   onArchive: (msg: MessagePreview) => void;
   onStar: (msg: MessagePreview) => void;
   onSnooze?: (msg: MessagePreview, e: { clientX: number; clientY: number }) => void;
-  /** When true, render `messages` as a flat list (no stream filter/grouping) — used for search. */
   flat?: boolean;
-  /** Header title override (used in flat/search mode). */
   title?: string;
-  /** Empty-state text override (used in flat/search mode). */
   emptyText?: string;
   showRecipient?: boolean;
-  /** Search input change — empty value clears, anything else runs a search. */
   onSearch: (q: string) => void;
   onClearSearch: () => void;
   searchQuery: string;
   searching: boolean;
   onSync: () => void;
   busy: boolean;
-  /** Called when the bottom sentinel scrolls into view (inbox infinite scroll). */
   onLoadMore?: () => void;
-  /** When true, the sentinel is active and may trigger onLoadMore. */
   canLoadMore?: boolean;
 }) {
-  // Flat mode (search): render the given messages as-is. Stream mode (inbox): filter, and
-  // group by category only in the "All" view.
   const visible = flat ? messages : filterByStream(messages, stream);
   const groups = !flat && stream === "all" ? groupByStream(visible) : null;
-  // List-column title: the override (search/folder), else the stream label, else Smart Inbox.
   const headerTitle = flat
     ? title ?? "Results"
     : stream === "all"
@@ -112,8 +101,6 @@ export function MessageList({
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
   const anchorRef = useRef<string | null>(null);
-  // Range selection: a plain checkbox/row click sets the anchor; Shift-click selects the
-  // contiguous range from the anchor to the clicked row over the visible order (additive).
   const handleToggle = (id: string, shiftKey?: boolean) => {
     if (shiftKey && anchorRef.current && onSelectRange) {
       const a = visibleIds.indexOf(anchorRef.current);
@@ -121,14 +108,13 @@ export function MessageList({
       if (a !== -1 && b !== -1) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
         onSelectRange(visibleIds.slice(lo, hi + 1));
-        return; // leave the anchor put — re-ranges from the same anchor
+        return;
       }
     }
     onToggleSelect?.(id);
     anchorRef.current = id;
   };
 
-  // Typing drives search; emptying the box exits search mode (handleSearch ignores empties).
   const onSearchChange = (value: string) => {
     if (value.trim() === "") onClearSearch();
     else onSearch(value);
@@ -138,8 +124,6 @@ export function MessageList({
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !canLoadMore || !onLoadMore) return;
-    // 🦀-style note: observe the 1px sentinel against the scroll container; fire onLoadMore
-    //    when it scrolls into view (user reached near the bottom). rootMargin pre-loads a bit.
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) onLoadMore();
@@ -180,8 +164,6 @@ export function MessageList({
           <span className="batch-count">{selectedIds.size} selected</span>
           <div className="batch-actions">
             {folder === "trash" ? (
-              // In Trash, "Archive"/"Trash" are no-ops (the message is already trashed); the
-              // real actions are untrash (Restore) and permanent delete (Delete forever).
               <>
                 <button className="batch-btn" onClick={() => onBatchRestore?.()}>Restore</button>
                 <button className="batch-btn batch-btn-danger" onClick={() => onBatchDeleteForever?.()}>

@@ -1,5 +1,3 @@
-// A transient bottom-center toast offering to undo the last archive/trash. Auto-dismiss
-// is managed by the parent (App) timer; this is a pure presentational component.
 export function UndoToast({
   verb,
   count,

@@ -1,14 +1,4 @@
-// src-tauri/src/transcript.rs — pure transcript helpers (no I/O, fully unit-testable, M22).
 
-/// Convert a WebVTT caption file to plain spoken text: drop the WEBVTT header, NOTE/STYLE/REGION
-/// blocks, metadata lines, "-->" timestamp lines, and numeric cue ids; strip inline `<…>` tags;
-/// collapse consecutive duplicate lines (rolling captions repeat). Plain `.txt` passes through.
-// 🦀 Best-effort, line-based heuristics (not a full WebVTT parser): a spoken line that is all
-//    digits or that contains "-->" is treated as a cue id/timestamp and dropped, only the FIRST
-//    line of a multi-line NOTE/STYLE block is skipped, and a stray "<" swallows the rest of its
-//    line. These are rare in real caption exports and the output is editable in the UI before
-//    summarizing, so imperfect stripping just yields slightly noisier summarizer input — never an
-//    error. Tighten here if/when richer transcript sources land (M23+).
 pub fn vtt_to_text(raw: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     for line in raw.lines() {
@@ -16,7 +6,6 @@ pub fn vtt_to_text(raw: &str) -> String {
         if t.is_empty() {
             continue;
         }
-        // 🦀 Skip the WebVTT header + block markers + metadata.
         if t.starts_with("WEBVTT")
             || t.starts_with("NOTE")
             || t.starts_with("STYLE")
@@ -26,11 +15,9 @@ pub fn vtt_to_text(raw: &str) -> String {
         {
             continue;
         }
-        // 🦀 Timestamp cue lines contain the "-->" arrow.
         if t.contains("-->") {
             continue;
         }
-        // 🦀 Numeric-only lines are cue identifiers (e.g. "1", "2").
         if t.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
@@ -39,7 +26,6 @@ pub fn vtt_to_text(raw: &str) -> String {
         if cleaned.is_empty() {
             continue;
         }
-        // 🦀 Collapse a line identical to the previous kept line (rolling captions repeat).
         if out.last().map(|p| p == cleaned).unwrap_or(false) {
             continue;
         }
@@ -48,8 +34,6 @@ pub fn vtt_to_text(raw: &str) -> String {
     out.join("\n")
 }
 
-// 🦀 Remove `<…>` segments (e.g. `<v Dana>`, `</v>`, `<00:00:00.000>`). A depth counter handles
-//    a stray '>' gracefully and avoids pulling in a regex dependency.
 fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut depth: u32 = 0;
@@ -67,8 +51,6 @@ fn strip_tags(s: &str) -> String {
     out
 }
 
-/// Build the text fed to the summarizer from the user's notes + the transcript. Both present →
-/// labeled sections; only one → that one; neither → "" (the caller guards empty).
 pub fn build_summary_input(body: &str, transcript: &str) -> String {
     let b = body.trim();
     let t = transcript.trim();
@@ -102,8 +84,8 @@ mod tests {
     #[test]
     fn build_summary_input_combines_or_falls_back() {
         assert_eq!(build_summary_input("notes", "tr"), "Meeting notes:\nnotes\n\nTranscript:\ntr");
-        assert_eq!(build_summary_input("notes", "   "), "notes"); // transcript blank → body only
-        assert_eq!(build_summary_input("", "tr"), "tr"); // body blank → transcript only
-        assert_eq!(build_summary_input("  ", ""), ""); // both blank → empty
+        assert_eq!(build_summary_input("notes", "   "), "notes");
+        assert_eq!(build_summary_input("", "tr"), "tr");
+        assert_eq!(build_summary_input("  ", ""), "");
     }
 }

@@ -1,6 +1,3 @@
-// Whisper model management: where the model lives, whether it's present, and a streamed
-// auto-download (with progress) on first use. The model is ggml-base.en.bin (~142 MB),
-// stored under the app-data dir so it's downloaded once and reused.
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -11,14 +8,12 @@ use crate::error::{AppError, Result};
 
 pub const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-// 🦀 ~142 MB; a file smaller than this is treated as a truncated/failed download and re-fetched.
 const MODEL_MIN_BYTES: u64 = 140_000_000;
 
 pub fn model_filename() -> &'static str {
     "ggml-base.en.bin"
 }
 
-/// `<app_data_dir>/models/ggml-base.en.bin`.
 pub fn model_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app
         .path()
@@ -28,7 +23,6 @@ pub fn model_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(dir.join(model_filename()))
 }
 
-/// True if the model exists and is at least the expected size.
 pub fn model_present(app: &AppHandle) -> bool {
     model_path(app)
         .ok()
@@ -37,7 +31,6 @@ pub fn model_present(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Progress events for the prepare flow (streamed to the frontend over a Channel).
 #[derive(Serialize, Clone)]
 #[serde(tag = "type")]
 pub enum PrepProgress {
@@ -47,7 +40,6 @@ pub enum PrepProgress {
     Error { message: String },
 }
 
-/// Ensure the model is on disk; download (streamed, with progress) if missing. Returns its path.
 pub async fn ensure_model(app: &AppHandle, on: &tauri::ipc::Channel<PrepProgress>) -> Result<PathBuf> {
     let path = model_path(app)?;
     if model_present(app) {
