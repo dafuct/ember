@@ -2,7 +2,9 @@
 
 A step-by-step guide to installing Ember from the `.dmg` on a second Mac.
 
-**Requires an Apple-Silicon Mac** (M1/M2/M3…). The build is `aarch64` — it will not run on Intel.
+**Requires an Apple-Silicon Mac** (M1/M2/M3…) running **macOS 13 (Ventura) or later**. The build is
+`aarch64` — it will not run on Intel, and the minimum is macOS 13.0 (meeting-transcription capture uses
+ScreenCaptureKit, which needs 13+).
 
 The one step that trips people up is **Gatekeeper** (Step 3): Ember is self-signed ("Ember Dev"),
 not notarized by Apple, so macOS blocks the first launch by design. The fix is below.
@@ -58,39 +60,30 @@ This removes the download-quarantine flag and launches it. After that it opens n
 
 ## 5. (Optional) Meeting transcription
 
-Transcription runs fully on‑device (Whisper is built into Ember; the model auto‑downloads ~142 MB
-on first use). Notes live in the **Calendar** view: click a meeting's event → **Notes** in the
-popover → the editor has the **Record** button + device picker.
+Transcription runs fully on‑device (Whisper is built into Ember; the speech model auto‑downloads
+~142 MB on first use) and capture is **zero‑setup** — no virtual audio device, no BlackHole, no Audio
+MIDI routing. Ember records the call's audio straight from the system output via ScreenCaptureKit.
+Notes live in the **Calendar** view: click a meeting's event → **Notes** in the popover → the editor
+has a **Record** button.
 
-### One‑time setup
+### How to record
 
-1. **Grant Microphone permission.** System Settings → Privacy & Security → **Microphone** → turn
-   **Ember** on. (If it isn't listed, click **Record** once and macOS will prompt → Allow.) Without
-   this, capture records pure silence and the transcript fills with "you you you".
-2. **Install BlackHole 2ch** — the **Install BlackHole** button in a note (or
-   https://github.com/ExistentialAudio/BlackHole). It's a virtual audio device that carries the
-   call's audio to Ember. Needs your admin password (a system audio driver can't install silently).
-3. **Create a Multi‑Output Device** (so you *hear* the call AND BlackHole gets a copy). Open **Audio
-   MIDI Setup** → ＋ → **Create Multi‑Output Device** → tick **your speakers/headphones** + **BlackHole
-   2ch**; set the speakers as primary (top) and tick **Drift Correction** on BlackHole.
-4. **(Both sides) Create an Aggregate Device** — to also capture **your own voice**. ＋ → **Create
-   Aggregate Device** → tick **your mic** (e.g. the built‑in or USB mic) + **BlackHole 2ch**; clock
-   source = your mic, tick **Drift Correction** on BlackHole.
+1. Open a meeting's note. If you also want **your own voice** in the transcript (not just the other
+   participants), tick **"Also capture my voice"** first.
+2. Click **Record**. The **first time**, macOS asks for **Screen Recording** permission (and
+   **Microphone**, if the voice toggle is on) → click **Allow**.
+3. Wait ~10 seconds for the first transcript chunk. **Stop** when done, then **Save** / **Summarize**.
+   To test quickly, just play a YouTube video while recording.
 
-### Before each meeting
+> If no prompt appears, or you denied it: System Settings → Privacy & Security → **Screen Recording**
+> (and **Microphone**) → turn **Ember** on, then **relaunch** Ember (Screen Recording only takes effect
+> after a restart).
 
-| What | Set to | Why |
-|---|---|---|
-| Mac **Output** (System Settings → Sound) | **Multi‑Output Device** | you hear the call + feed BlackHole |
-| **Ember** note input | **Aggregate Device** (both sides) or **BlackHole 2ch** (other person only) | what Ember transcribes |
-| **Google Meet/Zoom** microphone | **your real mic** (not the aggregate) | so the others still hear you |
+### macOS version note
 
-Then click **Record** in the note and wait ~10 seconds for the first chunk. **Stop** when done, then
-**Save** / **Summarize**.
-
-> Notes: a Multi‑Output Device disables the keyboard volume keys (adjust volume in the app instead).
-> BlackHole captures only audio your Mac *plays* (the other people) — your own voice needs the
-> Aggregate Device. To test quickly, just play a YouTube video while recording.
+- Capturing the call / other participants (system audio) needs **macOS 13+** — Ember's minimum.
+- Mixing in **your own mic** ("Also capture my voice") needs **macOS 15+**. On macOS 13–14 the call
+  still transcribes fine, but your own voice won't be included.
 
 ## 6. (Optional) Local summaries
 
@@ -107,6 +100,6 @@ Summaries (separate from transcription) use [Ollama](https://ollama.com): instal
 | "Developer cannot be verified" | Right-click → Open, or **Open Anyway** in Privacy & Security |
 | Won't launch at all, no dialog | It's Apple-Silicon-only — confirm it's not an Intel Mac |
 | Google sign-in blocked / "not a test user" | Sign in with the project owner's account, or add that account as a test user in Google Cloud |
-| Transcript shows only "you you you" | Capture is getting silence. Grant **Microphone** permission (Step 5.1); make sure audio is actually reaching the input — output = **Multi‑Output Device**, and for a real test play a YouTube video |
-| Hear nothing during a call | Don't set output to **BlackHole** alone (it's silent) — use the **Multi‑Output Device** |
-| Other person transcribes but not me | That's expected with **BlackHole** as input — switch the note's input to the **Aggregate Device** to capture both sides |
+| Recording produces an empty / silent transcript | Grant **Screen Recording**: System Settings → Privacy & Security → **Screen Recording** → turn **Ember** on, then **relaunch** Ember (it only takes effect after a restart) |
+| Your own voice isn't in the transcript | Tick **"Also capture my voice"** before Record (and grant **Microphone**). This needs **macOS 15+** — on macOS 13–14 only the call/other participants are captured |
+| "Ember requires macOS 13" / won't install | Ember needs **macOS 13 (Ventura) or later** (ScreenCaptureKit). Older macOS isn't supported |
