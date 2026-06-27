@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchMessageBody,
   downloadAttachment,
+  openExternal,
   type MessageBody,
   type MessagePreview,
   type Attachment,
@@ -19,14 +20,22 @@ const PAPER_DEFAULTS =
   '<style>html,body{background:#faf8f3;color:#2a2620;}' +
   'body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.6;}</style>';
 
+const LINK_INTERCEPTOR =
+  '<script>document.addEventListener("click",function(e){' +
+  'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
+  'var u=a.href;if(u.indexOf("https://")===0||u.indexOf("http://")===0){' +
+  'e.preventDefault();parent.postMessage({__ember:"open-url",url:u},"*");}},true);</script>';
+
+const HEAD_INJECT = PAPER_DEFAULTS + LINK_INTERCEPTOR;
+
 function withPaperDefaults(html: string): string {
   const bodyAt = html.search(/<body[^>]*>/i);
   const at = html.match(/<head[^>]*>/i) ?? html.match(/<html[^>]*>/i);
   if (at?.index != null && (bodyAt === -1 || at.index < bodyAt)) {
     const cut = at.index + at[0].length;
-    return html.slice(0, cut) + PAPER_DEFAULTS + html.slice(cut);
+    return html.slice(0, cut) + HEAD_INJECT + html.slice(cut);
   }
-  return PAPER_DEFAULTS + html;
+  return HEAD_INJECT + html;
 }
 
 export function ReadingPane({
@@ -93,9 +102,22 @@ export function ReadingPane({
   }, [msg?.id, loadImages]);
 
   const [dlStatus, setDlStatus] = useState<Record<string, string>>({});
+  const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => setConfirmDelete(false), [msg?.id]);
   useEffect(() => setDlStatus({}), [msg?.id]);
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.source !== frameRef.current?.contentWindow) return;
+      const d = e.data as { __ember?: string; url?: unknown };
+      if (!d || d.__ember !== "open-url" || typeof d.url !== "string") return;
+      if (d.url.indexOf("https://") !== 0 && d.url.indexOf("http://") !== 0) return;
+      void openExternal(d.url);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   const framedHtml = useMemo(
     () => (body?.is_html ? withPaperDefaults(body.html) : null),
@@ -260,8 +282,9 @@ export function ReadingPane({
           <pre className="error-text">{error}</pre>
         ) : body?.is_html ? (
           <iframe
+            ref={frameRef}
             className="reading-frame"
-            sandbox=""
+            sandbox="allow-scripts"
             srcDoc={framedHtml ?? undefined}
             title="Message body"
           />
