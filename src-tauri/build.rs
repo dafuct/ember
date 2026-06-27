@@ -41,6 +41,10 @@ fn main() {
         cc::Build::new()
             .file("native/syscapture.m")
             .flag("-fobjc-arc")
+            // Match the bundle's minimumSystemVersion (13.0) so ScreenCaptureKit's macOS 13 audio
+            //    APIs are seen as available — silences the -Wunguarded-availability-new noise. The
+            //    mic path (SCStreamOutputTypeMicrophone, macOS 15) stays runtime-guarded with @available.
+            .flag("-mmacosx-version-min=13.0")
             .compile("ember_syscapture");
         for fw in ["ScreenCaptureKit", "CoreMedia", "Foundation", "CoreGraphics"] {
             println!("cargo:rustc-link-lib=framework={fw}");

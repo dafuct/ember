@@ -50,8 +50,7 @@ pub mod transcript;
 // 🦀 Pure audio helpers (downmix + resample to 16 kHz mono) for live capture — no I/O, unit-tested (M24).
 pub mod audio;
 
-// 🦀 Live audio capture session + commands (M24). `pub` is not required (only the IPC bridge
-//    calls these), but mirrors the sibling modules.
+// 🦀 Shared streamed-capture event type (M24). Live capture itself is native — see `syscapture`.
 pub mod capture;
 
 // 🦀 In-process Whisper STT engine (whisper-rs). Replaces the external whisper-server.
@@ -122,8 +121,6 @@ pub fn run() {
             // 🦀 `app.manage(...)` stores a value in Tauri's typed state registry;
             //    commands receive it later via `tauri::State<'_, Db>`.
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(conn)));
-            // 🦀 Live-capture session state (M24): starts empty; start/stop_capture fill/clear it.
-            app.manage(crate::capture::CaptureState::default());
             // 🦀 In-process Whisper engine: loaded lazily by prepare_transcription, then reused.
             app.manage(std::sync::Arc::new(std::sync::Mutex::new(
                 None::<crate::transcribe::Transcriber>,
@@ -181,8 +178,6 @@ pub fn run() {
             commands::prepare_transcription,
             syscapture::start_system_capture,
             syscapture::stop_system_capture,
-            capture::start_capture,
-            capture::stop_capture,
             commands::get_settings,
             commands::set_settings,
             commands::google_credentials_status,

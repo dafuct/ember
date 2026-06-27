@@ -86,22 +86,8 @@ export type CaptureEvent =
   | { type: "Error"; message: string }
   | { type: "Stopped" };
 
-export const startCapture = (
-  deviceName: string,
-  onEvent: (e: CaptureEvent) => void,
-): Promise<void> => {
-  if (!isTauri()) return mockStartCapture(deviceName, onEvent);
-  // The Tauri Channel streams CaptureEvent objects from the Rust worker to onEvent.
-  const ch = new Channel<CaptureEvent>();
-  ch.onmessage = onEvent;
-  return invoke<void>("start_capture", { deviceName, onEvent: ch });
-};
-
-export const stopCapture = (): Promise<void> =>
-  isTauri() ? invoke<void>("stop_capture") : mockStopCapture();
-
 // Zero-setup native capture (ScreenCaptureKit): grabs the system audio (the call) + optionally the
-// mic, no BlackHole/aggregate devices. Transcript chunks stream over the same CaptureEvent channel.
+// mic, no virtual devices. Transcript chunks stream over the CaptureEvent channel.
 export const startSystemCapture = (
   captureMic: boolean,
   onEvent: (e: CaptureEvent) => void,
