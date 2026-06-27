@@ -21,7 +21,7 @@ A **local-first macOS Gmail client** built with Tauri 2 (Rust) and React + TypeS
 
 ## Prerequisites
 
-- **macOS** (Apple Silicon or Intel)
+- **macOS 13 (Ventura) or later** — the app's minimum (meeting‑transcription capture uses ScreenCaptureKit, which needs macOS 13+); the prebuilt `.dmg` is Apple‑Silicon (`aarch64`)
 - **Node.js** 18+ and npm
 - **Rust** toolchain — install via [rustup](https://rustup.rs)
 - **Xcode Command Line Tools** — `xcode-select --install`
@@ -106,8 +106,11 @@ For a clean, no‑warning install you'd need an Apple Developer ID certificate +
 
 Transcription runs **in‑process** — Whisper is compiled into Ember (no separate server, no manual install). The first time you **Record** in a meeting note (or **Import** a recording), Ember downloads the speech model (`base.en`, ~142 MB, one time) to its app‑data folder and loads it; after that it's instant and fully offline.
 
-- To capture **the meeting's** audio (not just your mic), you need [BlackHole](https://github.com/ExistentialAudio/BlackHole) (a virtual audio device). When it isn't detected the note shows an **Install BlackHole** button that fetches the official installer and opens it for you — you just click through and enter your password (a system audio driver can't install silently). Then route the call's output to BlackHole (an Audio‑MIDI Multi‑Output Device lets you still hear it) and pick **BlackHole** as the input device in the note.
-- Grant Ember **Microphone** permission (System Settings → Privacy & Security → Microphone).
+Capture is **native and zero‑setup** — no virtual audio device, no BlackHole. Ember records the call's audio straight from the system output via **ScreenCaptureKit**:
+
+- Click **Record** in a meeting note. The first time, macOS asks for **Screen Recording** permission → **Allow** (you may need to relaunch Ember for it to take effect).
+- To also include **your own voice**, tick **"Also capture my voice"** before recording — macOS will additionally ask for **Microphone** permission.
+- **macOS version:** system‑audio capture needs **macOS 13+**; mixing in your own mic needs **macOS 15+** (on macOS 13–14 only the call / other participants are captured).
 
 ## Optional: local meeting‑note summaries
 
