@@ -18,6 +18,7 @@ function initial(name: string): string {
 export function MessageItem({
   msg,
   selected,
+  lead = false,
   checked = false,
   onSelect,
   onToggleSelect,
@@ -29,6 +30,7 @@ export function MessageItem({
 }: {
   msg: MessagePreview;
   selected: boolean;
+  lead?: boolean;
   checked?: boolean;
   onSelect: (id: string) => void;
   onToggleSelect?: (id: string, shiftKey?: boolean) => void;
@@ -42,7 +44,7 @@ export function MessageItem({
 
   const unread = isUnread(msg);
   const starred = isStarred(msg);
-  const cls = ["msg-card", selected && "selected", checked && "checked", unread && "unread"]
+  const cls = ["msg-card", selected && "selected", lead && "lead", checked && "checked", unread && "unread"]
     .filter(Boolean)
     .join(" ");
 
@@ -54,6 +56,7 @@ export function MessageItem({
   return (
     <div
       className={cls}
+      data-id={msg.id}
       onClick={(e) => {
         if (e.shiftKey) onToggleSelect?.(msg.id, true);
         else onSelect(msg.id);

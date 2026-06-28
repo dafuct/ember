@@ -54,6 +54,7 @@
 .msg-card.unread { background: var(--unread-bg); }
 .msg-card:hover { background: var(--surface-2); }
 .msg-card.selected { background: var(--accent-weak); border-left-color: var(--accent); }
+.msg-card.lead { box-shadow: inset 0 0 0 1px var(--accent); }
 .msg-lead { display: flex; align-items: center; gap: 8px; flex: none; }
 .msg-avatar { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; font-size: 14px; font-weight: 600; flex: none; }
 .msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
