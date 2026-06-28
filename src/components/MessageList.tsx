@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { nextId, rangeBetween } from "../lib/listnav";
 import type { Label, MessagePreview } from "../lib/api";
 import { MessageItem } from "./MessageItem";
 import {
@@ -22,6 +23,7 @@ export function MessageList({
   selectedId,
   selectedIds = new Set<string>(),
   onSelect,
+  onActivate,
   onToggleSelect,
   onSelectRange,
   onSelectAllVisible,
@@ -50,12 +52,14 @@ export function MessageList({
   busy,
   onLoadMore,
   canLoadMore = false,
+  keyboardEnabled = true,
 }: {
   messages: MessagePreview[];
   stream: Stream;
   selectedId: string | null;
   selectedIds?: Set<string>;
   onSelect: (id: string) => void;
+  onActivate?: (id: string) => void;
   onToggleSelect?: (id: string) => void;
   onSelectRange?: (ids: string[]) => void;
   onSelectAllVisible?: (ids: string[]) => void;
@@ -84,6 +88,7 @@ export function MessageList({
   busy: boolean;
   onLoadMore?: () => void;
   canLoadMore?: boolean;
+  keyboardEnabled?: boolean;
 }) {
   const visible = flat ? messages : filterByStream(messages, stream);
   const groups = !flat && stream === "all" ? groupByStream(visible) : null;
@@ -101,6 +106,72 @@ export function MessageList({
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
   const anchorRef = useRef<string | null>(null);
+  const [leadId, setLeadId] = useState<string | null>(selectedId);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setLeadId(selectedId);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!keyboardEnabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const lead = leadId ?? selectedId;
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const dir = e.key === "ArrowDown" ? 1 : -1;
+        const next = nextId(visibleIds, lead, dir);
+        if (!next) return;
+        if (e.shiftKey) {
+          if (!anchorRef.current) anchorRef.current = lead ?? next;
+          setLeadId(next);
+          onSelectRange?.(rangeBetween(visibleIds, anchorRef.current, next));
+        } else {
+          setLeadId(next);
+          anchorRef.current = next;
+          onActivate?.(next);
+        }
+        const el = scrollRef.current?.querySelector(`[data-id="${CSS.escape(next)}"]`);
+        el?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        if (lead) {
+          e.preventDefault();
+          onSelect(lead);
+        }
+      } else if (e.key === "Escape") {
+        if (selectedIds.size > 0) {
+          e.preventDefault();
+          onClearSelection?.();
+          anchorRef.current = null;
+        }
+      } else if (e.key === "x" || e.key === "X") {
+        if (lead) {
+          e.preventDefault();
+          onToggleSelect?.(lead);
+          anchorRef.current = lead;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    keyboardEnabled,
+    leadId,
+    selectedId,
+    visibleIds,
+    selectedIds,
+    onActivate,
+    onSelect,
+    onSelectRange,
+    onClearSelection,
+    onToggleSelect,
+  ]);
+
   const handleToggle = (id: string, shiftKey?: boolean) => {
     if (shiftKey && anchorRef.current && onSelectRange) {
       const a = visibleIds.indexOf(anchorRef.current);
@@ -186,7 +257,7 @@ export function MessageList({
         </div>
       )}
 
-      <div className="msglist-scroll">
+      <div className="msglist-scroll" ref={scrollRef}>
         {count === 0 ? (
           <div className="empty">{empty}</div>
         ) : groups ? (
@@ -215,6 +286,7 @@ export function MessageList({
                     key={m.id}
                     msg={m}
                     selected={m.id === selectedId}
+                    lead={m.id === leadId}
                     onSelect={onSelect}
                     checked={selectedIds.has(m.id)}
                     onToggleSelect={handleToggle}
@@ -234,6 +306,7 @@ export function MessageList({
               key={m.id}
               msg={m}
               selected={m.id === selectedId}
+              lead={m.id === leadId}
               onSelect={onSelect}
               checked={selectedIds.has(m.id)}
               onToggleSelect={handleToggle}
