@@ -63,8 +63,6 @@ export function MessageItem({
       }}
     >
       <div className="msg-lead">
-        {
-}
         <input
           type="checkbox"
           className="msg-check"
