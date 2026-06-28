@@ -117,7 +117,7 @@ export function MessageList({
     if (!keyboardEnabled) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t?.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
+      if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const lead = leadId ?? selectedId;
@@ -139,6 +139,7 @@ export function MessageList({
         const el = scrollRef.current?.querySelector(`[data-id="${CSS.escape(next)}"]`);
         el?.scrollIntoView({ block: "nearest" });
       } else if (e.key === "Enter") {
+        if (t?.closest("button, a")) return;
         if (lead) {
           e.preventDefault();
           onSelect(lead);
