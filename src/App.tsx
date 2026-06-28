@@ -427,7 +427,7 @@ export default function App() {
     });
   }
   function selectRange(ids: string[]) {
-    setSelectedIds((prev) => new Set([...prev, ...ids]));
+    setSelectedIds(new Set(ids));
   }
   function clearUndo() {
     if (undoTimer.current) clearTimeout(undoTimer.current);
@@ -844,6 +844,9 @@ export default function App() {
     );
   }
 
+  const keyboardEnabled =
+    !compose && !settingsOpen && !labelPicker && !snoozeTarget && !switcherOpen;
+
   return (
     <div className="app">
       <div className="shell">
@@ -889,6 +892,7 @@ export default function App() {
                   stream={stream}
                   selectedId={activeSelectedId}
                   onSelect={handleRowSelect}
+                  onActivate={handleSelect}
                   onArchive={handleArchive}
                   onStar={toggleStar}
                   onSnooze={(msg, e) => openSnoozeMenu(msg, e)}
@@ -915,6 +919,7 @@ export default function App() {
                   flat={inSearch || inFolder}
                   onLoadMore={!inSearch && !inFolder ? handleLoadMore : undefined}
                   canLoadMore={!inSearch && !inFolder && !atEnd}
+                  keyboardEnabled={keyboardEnabled}
                   title={
                     inSearch
                       ? "Results"
