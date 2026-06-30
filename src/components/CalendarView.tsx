@@ -6,6 +6,7 @@ import { WeekGrid } from "./WeekGrid";
 import { EventModal, type EventInitial } from "./EventModal";
 import { NotesModal, type NoteTarget } from "./NotesModal";
 import { NotebookPen, ChevronLeft, ChevronRight } from "lucide-react";
+import { RichText } from "./RichText";
 
 function isScopeError(msg: string): boolean {
   return /reconnect google|calendar access not granted/i.test(msg);
@@ -217,7 +218,9 @@ export function CalendarView({
               {new Date(detail.start).toLocaleString()} – {new Date(detail.end).toLocaleString()}
             </div>
             {detail.location && <div>{detail.location}</div>}
-            {detail.description && <p className="event-detail-desc">{detail.description}</p>}
+            {detail.description && (
+              <div className="event-detail-desc"><RichText html={detail.description} /></div>
+            )}
             {detail.attendees && detail.attendees.length > 0 && (
               <div className="event-detail-guests">
                 {detail.attendees.map((a) => {
