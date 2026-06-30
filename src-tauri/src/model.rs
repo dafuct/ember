@@ -7,11 +7,11 @@ use tauri::{AppHandle, Manager};
 use crate::error::{AppError, Result};
 
 pub const MODEL_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-const MODEL_MIN_BYTES: u64 = 140_000_000;
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin";
+const MODEL_MIN_BYTES: u64 = 1_400_000_000;
 
 pub fn model_filename() -> &'static str {
-    "ggml-base.en.bin"
+    "ggml-medium.bin"
 }
 
 pub fn model_path(app: &AppHandle) -> Result<PathBuf> {
@@ -91,13 +91,14 @@ mod tests {
     use super::{model_filename, MODEL_URL};
 
     #[test]
-    fn model_filename_is_base_en() {
-        assert_eq!(model_filename(), "ggml-base.en.bin");
+    fn model_filename_is_medium() {
+        assert_eq!(model_filename(), "ggml-medium.bin");
     }
 
     #[test]
-    fn model_url_points_at_base_en() {
-        assert!(MODEL_URL.ends_with("ggml-base.en.bin"));
+    fn model_url_points_at_medium() {
+        assert!(MODEL_URL.ends_with("ggml-medium.bin"));
+        assert!(!MODEL_URL.contains(".en."));
         assert!(MODEL_URL.starts_with("https://"));
     }
 }
