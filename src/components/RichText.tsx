@@ -1,7 +1,7 @@
 import type { ReactNode, MouseEvent } from "react";
 import { openExternal } from "../lib/api";
 
-const ALLOWED_SCHEMES = /^(https?:|mailto:)/i;
+const ALLOWED_SCHEMES = /^https?:/i;
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
 
 function openLink(e: MouseEvent, url: string) {
@@ -16,16 +16,17 @@ function linkifyText(text: string, keyBase: string): ReactNode[] {
   let i = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(<span key={`${keyBase}-t${i}`}>{text.slice(last, m.index)}</span>);
     const url = m[0];
     out.push(
-      <a key={`${keyBase}-u${i++}`} href={url} onClick={(e) => openLink(e, url)}>
+      <a key={`${keyBase}-u${i}`} href={url} onClick={(e) => openLink(e, url)}>
         {url}
       </a>,
     );
+    i++;
     last = m.index + url.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(<span key={`${keyBase}-t${i}`}>{text.slice(last)}</span>);
   return out;
 }
 
