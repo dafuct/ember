@@ -166,7 +166,7 @@ export function EventModal({
               </select>
             </div>
             {editing ? (
-              editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>Join Google Meet</button> : null
+              editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>{editing.meet_link!.includes("zoom") ? "Join Zoom Meeting" : "Join Google Meet"}</button> : null
             ) : (
               <div className="event-row event-conf">
                 <span className="event-conf-icon"><Video size={16} /></span>

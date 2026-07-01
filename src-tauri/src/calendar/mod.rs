@@ -114,7 +114,7 @@ impl CalendarClient {
             self.base_url, cal
         );
         let mut body = event_body(ev);
-        let mut description_owned: Option<String> = None;
+        let description_owned: Option<String>;
         match conferencing {
             types::Conferencing::None => {}
             types::Conferencing::Meet => {
