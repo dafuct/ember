@@ -10,6 +10,28 @@ pub struct Transcriber {
 
 pub type TranscriberState = Arc<Mutex<Option<Transcriber>>>;
 
+const BEAM_SIZE: i32 = 5;
+
+pub fn resolve_language(lang: Option<&str>) -> &str {
+    match lang {
+        Some(s) if !s.trim().is_empty() => s,
+        _ => "auto",
+    }
+}
+
+pub fn initial_prompt_for(lang: &str) -> Option<&'static str> {
+    match lang {
+        "uk" => Some("Це розшифровка ділової зустрічі українською мовою."),
+        _ => None,
+    }
+}
+
+fn n_threads() -> i32 {
+    std::thread::available_parallelism()
+        .map(|c| c.get().min(8))
+        .unwrap_or(4) as i32
+}
+
 impl Transcriber {
     pub fn load(model_path: &str) -> Result<Self> {
         let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
@@ -44,5 +66,36 @@ impl Transcriber {
             }
         }
         Ok(out.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{initial_prompt_for, resolve_language};
+
+    #[test]
+    fn resolve_language_defaults_to_auto() {
+        assert_eq!(resolve_language(None), "auto");
+        assert_eq!(resolve_language(Some("")), "auto");
+        assert_eq!(resolve_language(Some("   ")), "auto");
+    }
+
+    #[test]
+    fn resolve_language_passes_codes_through() {
+        assert_eq!(resolve_language(Some("uk")), "uk");
+        assert_eq!(resolve_language(Some("en")), "en");
+    }
+
+    #[test]
+    fn ukrainian_prompt_is_cyrillic() {
+        let p = initial_prompt_for("uk").expect("uk prompt present");
+        assert!(p.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)));
+    }
+
+    #[test]
+    fn non_ukrainian_has_no_prompt() {
+        assert!(initial_prompt_for("en").is_none());
+        assert!(initial_prompt_for("auto").is_none());
+        assert!(initial_prompt_for("de").is_none());
     }
 }
