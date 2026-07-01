@@ -98,7 +98,7 @@ export function EventModal({
     setError(null);
     try {
       if (editing) await updateCalendarEvent(editing.calendar_id, editing.id, w);
-      else await createCalendarEvent(calendarId, w, addMeet);
+      else await createCalendarEvent(calendarId, w, addMeet ? "meet" : "none");
       onSaved();
       onClose();
     } catch (e) {

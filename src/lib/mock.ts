@@ -1,6 +1,6 @@
 import type { CalendarEvent, Attendee } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary, PersonHit, FindTimesResult, Slot } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary, PersonHit, FindTimesResult, Slot, Conferencing, ZoomAccount } from "./api";
 import type { MeetingNote, MeetingNoteWrite, CaptureEvent } from "./notes";
 import type { SnoozedRow } from "./snooze";
 
@@ -178,7 +178,7 @@ export function mockPickFiles(): string[] {
   return ["/Users/you/Documents/proposal.pdf"];
 }
 
-export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boolean): CalendarEvent {
+export function mockCreateEvent(calendarId: string, ev: EventWrite, conferencing: Conferencing): CalendarEvent {
   return {
     id: `mock-${ev.title.replace(/\s+/g, "-")}`,
     calendar_id: calendarId,
@@ -189,14 +189,14 @@ export function mockCreateEvent(calendarId: string, ev: EventWrite, addMeet: boo
     location: ev.location,
     color: "#16a34a",
     description: ev.description,
-    meet_link: addMeet ? "https://meet.google.com/mock-abc" : null,
+    meet_link: conferencing === "meet" ? "https://meet.google.com/mock-abc" : null,
     html_link: null,
     attendees: ev.attendees.map((e) => ({ email: e, response_status: "needsAction", self: false })),
     my_response_status: null,
   };
 }
 export function mockUpdateEvent(calendarId: string, eventId: string, ev: EventWrite): CalendarEvent {
-  return { ...mockCreateEvent(calendarId, ev, false), id: eventId };
+  return { ...mockCreateEvent(calendarId, ev, "none"), id: eventId };
 }
 export function mockRespondEvent(calendarId: string, eventId: string, responseStatus: string): CalendarEvent {
   const base = RSVP_GUESTS[eventId] ?? [{ email: "you@example.com", response_status: responseStatus, self: true }];
@@ -450,3 +450,8 @@ export function mockFindMeetingTimes(
   const unavailable = grid.filter((g) => g.error).map((g) => g.email);
   return { grid, suggestions, unavailable };
 }
+
+let mockZoom: ZoomAccount | null = { email: "me@zoomer.com", account_id: "abc" };
+export function mockZoomStatus(): ZoomAccount | null { return mockZoom; }
+export function mockZoomConnect(): ZoomAccount { mockZoom = { email: "me@zoomer.com", account_id: "abc" }; return mockZoom; }
+export function mockZoomDisconnect(): void { mockZoom = null; }

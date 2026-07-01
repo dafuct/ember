@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials, mockRespondEvent, mockSearchPeople, mockFindMeetingTimes } from "./mock";
+import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials, mockRespondEvent, mockSearchPeople, mockFindMeetingTimes, mockZoomStatus, mockZoomConnect, mockZoomDisconnect } from "./mock";
 
 export type { CalendarEvent };
 
@@ -276,14 +276,17 @@ export interface CalendarSummary {
 export const listCalendars = (): Promise<CalendarSummary[]> =>
   isTauri() ? invoke<CalendarSummary[]>("list_calendars") : Promise.resolve(mockListCalendars());
 
+export type Conferencing = "none" | "meet" | "zoom";
+export interface ZoomAccount { email: string; account_id: string }
+
 export const createCalendarEvent = (
   calendarId: string,
   event: EventWrite,
-  addMeet: boolean,
+  conferencing: Conferencing,
 ): Promise<CalendarEvent> =>
   isTauri()
-    ? invoke<CalendarEvent>("create_calendar_event", { calendarId, event, addMeet })
-    : Promise.resolve(mockCreateEvent(calendarId, event, addMeet));
+    ? invoke<CalendarEvent>("create_calendar_event", { calendarId, event, conferencing })
+    : Promise.resolve(mockCreateEvent(calendarId, event, conferencing));
 
 export const updateCalendarEvent = (
   calendarId: string,
@@ -329,3 +332,16 @@ export const findMeetingTimes = (
   isTauri()
     ? invoke<FindTimesResult>("find_meeting_times", { attendees, timeMin, timeMax, durationMin })
     : Promise.resolve(mockFindMeetingTimes(attendees, timeMin, timeMax, durationMin));
+
+export const zoomStatus = (): Promise<ZoomAccount | null> =>
+  isTauri() ? invoke<ZoomAccount | null>("zoom_status") : Promise.resolve(mockZoomStatus());
+export const zoomConnect = (): Promise<ZoomAccount> =>
+  isTauri() ? invoke<ZoomAccount>("zoom_connect") : Promise.resolve(mockZoomConnect());
+export const zoomDisconnect = (): Promise<void> =>
+  isTauri() ? invoke<void>("zoom_disconnect") : Promise.resolve(mockZoomDisconnect());
+export const zoomCredentialsStatus = (): Promise<string> =>
+  isTauri() ? invoke<string>("zoom_credentials_status") : Promise.resolve("baked");
+export const setZoomCredentials = (clientId: string, clientSecret: string): Promise<void> =>
+  isTauri() ? invoke<void>("set_zoom_credentials", { clientId, clientSecret }) : Promise.resolve();
+export const clearZoomCredentials = (): Promise<void> =>
+  isTauri() ? invoke<void>("clear_zoom_credentials") : Promise.resolve();
