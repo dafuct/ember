@@ -66,10 +66,10 @@ export const readTranscriptFile = (path: string): Promise<string> =>
     ? invoke<string>("read_transcript_file", { path })
     : Promise.resolve(mockReadTranscriptFile(path));
 
-export const transcribeRecording = (path: string): Promise<string> =>
+export const transcribeRecording = (path: string, language: string): Promise<string> =>
   isTauri()
-    ? invoke<string>("transcribe_recording", { path })
-    : Promise.resolve(mockTranscribeRecording(path));
+    ? invoke<string>("transcribe_recording", { path, language })
+    : Promise.resolve(mockTranscribeRecording(path, language));
 
 export type CaptureEvent =
   | { type: "Chunk"; text: string }
@@ -78,12 +78,13 @@ export type CaptureEvent =
 
 export const startSystemCapture = (
   captureMic: boolean,
+  language: string,
   onEvent: (e: CaptureEvent) => void,
 ): Promise<void> => {
   if (!isTauri()) return mockStartCapture("system", onEvent);
   const ch = new Channel<CaptureEvent>();
   ch.onmessage = onEvent;
-  return invoke<void>("start_system_capture", { captureMic, onEvent: ch });
+  return invoke<void>("start_system_capture", { captureMic, language, onEvent: ch });
 };
 
 export const stopSystemCapture = (): Promise<void> =>
@@ -95,9 +96,12 @@ export type PrepProgress =
   | { type: "Ready" }
   | { type: "Error"; message: string };
 
-export const prepareTranscription = (onProgress: (p: PrepProgress) => void): Promise<void> => {
+export const prepareTranscription = (
+  model: string,
+  onProgress: (p: PrepProgress) => void,
+): Promise<void> => {
   if (!isTauri()) return Promise.resolve();
   const ch = new Channel<PrepProgress>();
   ch.onmessage = onProgress;
-  return invoke<void>("prepare_transcription", { onProgress: ch });
+  return invoke<void>("prepare_transcription", { model, onProgress: ch });
 };

@@ -317,7 +317,7 @@ export function mockReadTranscriptFile(_path: string): string {
   return "Dana: Welcome everyone.\nYou: Let's review the Q3 priorities.\nDana: Action — share the roadmap doc by Friday.";
 }
 
-export function mockTranscribeRecording(_path: string): string {
+export function mockTranscribeRecording(_path: string, _language?: string): string {
   return "Dana: Thanks for joining the call.\nYou: Let's start with the budget review.\nDana: Action — send the revised figures by Wednesday.";
 }
 
