@@ -1130,7 +1130,7 @@ pub async fn prepare_transcription(
             return Ok(());
         }
     }
-    let model = crate::model::ensure_model(&app, &on_progress).await?;
+    let model = crate::model::ensure_model(&app, crate::model::DEFAULT_MODEL_ID, &on_progress).await?;
     let _ = on_progress.send(crate::model::PrepProgress::Loading);
     let model_str = model.to_string_lossy().to_string();
     let loaded = tokio::task::spawn_blocking(move || crate::transcribe::Transcriber::load(&model_str))
