@@ -12,6 +12,7 @@ import {
 import { rfc3339Local, allDayEndExclusive } from "../lib/calendar";
 import { isPlausibleEmail } from "../lib/compose";
 import { GuestField } from "./GuestField";
+import { FindTimePanel } from "./FindTimePanel";
 
 export interface EventInitial {
   calendars: CalendarSummary[];
@@ -165,6 +166,28 @@ export function EventModal({
               </label>
             )}
           </>
+        )}
+        {tab === "find" && !allDay && (
+          <FindTimePanel
+            attendees={guests}
+            day={date}
+            durationMin={Math.max(
+              15,
+              Math.round(
+                (new Date(rfc3339Local(endDate, endTime)).getTime() -
+                  new Date(rfc3339Local(date, startTime)).getTime()) / 60000,
+              ),
+            )}
+            onPick={(slot) => {
+              const s = new Date(slot.start);
+              const e = new Date(slot.end);
+              setDate(fmtDate(s));
+              setStartTime(fmtTime(s));
+              setEndDate(fmtDate(e));
+              setEndTime(fmtTime(e));
+              setTab("details");
+            }}
+          />
         )}
         {error && <div className="compose-error">{error}</div>}
         <div className="compose-actions">

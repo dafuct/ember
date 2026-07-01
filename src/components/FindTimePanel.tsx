@@ -1,0 +1,93 @@
+import { useEffect, useState } from "react";
+import { findMeetingTimes, type FindTimesResult, type Slot } from "../lib/api";
+
+const WORK_START = 9;
+const WORK_END = 18;
+const HOURS = Array.from({ length: WORK_END - WORK_START }, (_, i) => WORK_START + i);
+
+function minutesFromStart(iso: string): number {
+  const d = new Date(iso);
+  return (d.getHours() - WORK_START) * 60 + d.getMinutes();
+}
+const TOTAL_MIN = (WORK_END - WORK_START) * 60;
+
+export function FindTimePanel({
+  attendees,
+  day,
+  durationMin,
+  onPick,
+}: {
+  attendees: string[];
+  day: string;
+  durationMin: number;
+  onPick: (slot: Slot) => void;
+}) {
+  const [data, setData] = useState<FindTimesResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const timeMin = `${day}T00:00:00`;
+    const timeMax = `${day}T23:59:59`;
+    findMeetingTimes(attendees, timeMin, timeMax, durationMin)
+      .then((r) => !cancelled && setData(r))
+      .catch((e) => !cancelled && setError(String(e)))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [attendees, day, durationMin]);
+
+  if (loading) return <div className="find-time"><p className="subtitle">Checking availability…</p></div>;
+  if (error) return <div className="find-time"><p className="compose-error">{error}</p></div>;
+  if (!data) return null;
+
+  const total = data.grid.length;
+  const available = total - data.unavailable.length;
+
+  return (
+    <div className="find-time">
+      <div className="ft-axis">
+        {HOURS.map((h) => <span key={h}>{h}</span>)}
+      </div>
+      {data.grid.map((row) => (
+        <div key={row.email} className={row.error ? "ft-row ft-row-unavail" : "ft-row"}>
+          <span className="ft-name" title={row.email}>{row.email.split("@")[0]}</span>
+          <span className="ft-strip">
+            {row.error ? (
+              <span className="ft-nodata">no availability</span>
+            ) : (
+              row.busy.map((b, i) => (
+                <span
+                  key={i}
+                  className="ft-busy"
+                  style={{
+                    left: `${(minutesFromStart(b.start) / TOTAL_MIN) * 100}%`,
+                    width: `${((minutesFromStart(b.end) - minutesFromStart(b.start)) / TOTAL_MIN) * 100}%`,
+                  }}
+                />
+              ))
+            )}
+          </span>
+        </div>
+      ))}
+
+      <div className="ft-suggest-label">
+        Suggested times{data.unavailable.length ? ` · based on ${available} of ${total} guests` : ""}
+      </div>
+      {data.suggestions.length === 0 ? (
+        <p className="subtitle">No common time — try another day.</p>
+      ) : (
+        data.suggestions.map((s) => (
+          <button key={s.start} type="button" className="ft-slot" onClick={() => onPick(s)}>
+            {new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
+            {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
