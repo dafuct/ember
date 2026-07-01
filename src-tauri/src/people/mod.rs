@@ -9,6 +9,7 @@ pub struct PersonHit {
     pub photo_url: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct PeopleClient {
     base_url: String,
     access_token: String,

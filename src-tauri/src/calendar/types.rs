@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -108,8 +109,6 @@ pub struct CalendarSummary {
     pub primary: bool,
     pub writable: bool,
 }
-
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BusySpan {

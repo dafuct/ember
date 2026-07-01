@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { findMeetingTimes, type FindTimesResult, type Slot } from "../lib/api";
+import { rfc3339Local } from "../lib/calendar";
 
 const WORK_START = 9;
 const WORK_END = 18;
@@ -25,13 +26,20 @@ export function FindTimePanel({
   const [data, setData] = useState<FindTimesResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dayOffset, setDayOffset] = useState(0);
+  const shownDay = (() => {
+    const d = new Date(`${day}T00:00:00`);
+    d.setDate(d.getDate() + dayOffset);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  })();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const timeMin = `${day}T00:00:00`;
-    const timeMax = `${day}T23:59:59`;
+    const timeMin = rfc3339Local(shownDay, "00:00");
+    const timeMax = rfc3339Local(shownDay, "23:59");
     findMeetingTimes(attendees, timeMin, timeMax, durationMin)
       .then((r) => !cancelled && setData(r))
       .catch((e) => !cancelled && setError(String(e)))
@@ -39,7 +47,7 @@ export function FindTimePanel({
     return () => {
       cancelled = true;
     };
-  }, [attendees, day, durationMin]);
+  }, [attendees, shownDay, durationMin]);
 
   if (loading) return <div className="find-time"><p className="subtitle">Checking availability…</p></div>;
   if (error) return <div className="find-time"><p className="compose-error">{error}</p></div>;
@@ -50,6 +58,11 @@ export function FindTimePanel({
 
   return (
     <div className="find-time">
+      <div className="ft-daypager">
+        <button type="button" aria-label="Previous day" onClick={() => setDayOffset((o) => o - 1)}>‹</button>
+        <span>{new Date(`${shownDay}T00:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
+        <button type="button" aria-label="Next day" onClick={() => setDayOffset((o) => o + 1)}>›</button>
+      </div>
       <div className="ft-axis">
         {HOURS.map((h) => <span key={h}>{h}</span>)}
       </div>
@@ -85,7 +98,7 @@ export function FindTimePanel({
         <p className="subtitle">No common time — try another day.</p>
       ) : (
         data.suggestions.map((s) => (
-          <button key={s.start} type="button" className="ft-slot" onClick={() => onPick(s)}>
+          <button key={`${s.start}/${s.end}`} type="button" className="ft-slot" onClick={() => onPick(s)}>
             {new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
             {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </button>

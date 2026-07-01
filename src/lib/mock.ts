@@ -426,6 +426,12 @@ export function mockFindMeetingTimes(
 ): FindTimesResult {
   const day = timeMin.slice(0, 10);
   const at = (h: number, m: number) => `${day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+  const addMinutes = (base: string, mins: number): string => {
+    const d = new Date(base);
+    d.setMinutes(d.getMinutes() + mins);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${day}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+  };
   const grid = ["you@company.com", ...attendees].map((email, i) => ({
     email,
     busy: i % 2 === 0
@@ -433,10 +439,13 @@ export function mockFindMeetingTimes(
       : [{ start: at(11, 0), end: at(12, 0) }],
     error: email.endsWith("@gmail.com") ? "not available" : null,
   }));
+  const s0 = at(14, 0);
+  const s1 = at(15, 30);
+  const s2 = at(16, 30);
   const suggestions: Slot[] = [
-    { start: at(14, 0), end: at(14, durationMin % 60) },
-    { start: at(15, 30), end: at(16, 0) },
-    { start: at(16, 30), end: at(17, 0) },
+    { start: s0, end: addMinutes(s0, durationMin) },
+    { start: s1, end: addMinutes(s1, durationMin) },
+    { start: s2, end: addMinutes(s2, durationMin) },
   ];
   const unavailable = grid.filter((g) => g.error).map((g) => g.email);
   return { grid, suggestions, unavailable };

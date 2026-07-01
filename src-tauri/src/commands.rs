@@ -1175,6 +1175,19 @@ pub struct FindTimesResult {
     pub unavailable: Vec<String>,
 }
 
+pub(crate) fn parse_time_bound(s: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        if let Some(local) = Local.from_local_datetime(&naive).single() {
+            return Ok(local.with_timezone(&Utc));
+        }
+    }
+    Err(AppError::Other(format!("bad time bound: {s}")))
+}
+
 #[tauri::command]
 pub async fn find_meeting_times(
     attendees: Vec<String>,
@@ -1194,12 +1207,8 @@ pub async fn find_meeting_times(
     let client = CalendarClient::new(stored.access_token);
     let fb = client.free_busy(&emails, &time_min, &time_max).await?;
 
-    let range_start = DateTime::parse_from_rfc3339(&time_min)
-        .map_err(|e| AppError::Other(format!("bad time_min: {e}")))?
-        .with_timezone(&Utc);
-    let range_end = DateTime::parse_from_rfc3339(&time_max)
-        .map_err(|e| AppError::Other(format!("bad time_max: {e}")))?
-        .with_timezone(&Utc);
+    let range_start = parse_time_bound(&time_min)?;
+    let range_end = parse_time_bound(&time_max)?;
     let tz = Local::now().offset().fix();
 
     Ok(build_find_times_result(&emails, &fb, range_start, range_end, tz, duration_min))
@@ -1238,6 +1247,8 @@ pub(crate) fn build_find_times_result(
                         start: s.with_timezone(&Utc),
                         end: e.with_timezone(&Utc),
                     });
+                } else {
+                    eprintln!("find_meeting_times: skipping unparseable busy span {}..{}", b.start, b.end);
                 }
             }
         }
@@ -1323,6 +1334,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_time_bound_accepts_offset_and_naive_local() {
+        use chrono::{TimeZone, Utc};
+        assert_eq!(
+            parse_time_bound("2026-07-01T09:00:00+03:00").unwrap(),
+            Utc.with_ymd_and_hms(2026, 7, 1, 6, 0, 0).unwrap()
+        );
+        assert!(parse_time_bound("2026-07-01T00:00:00").is_ok());
+        assert!(parse_time_bound("not-a-time").is_err());
+    }
+
+    #[test]
     fn build_find_times_matches_email_case_insensitively_and_excludes_errored() {
         use crate::calendar::types::{BusySpan, FreeBusyResult, PersonFreeBusy};
         use chrono::{FixedOffset, TimeZone, Utc};
@@ -1363,4 +1385,5 @@ mod tests {
         // Grid preserves original casing.
         assert!(res.grid.iter().any(|g| g.email == "John.Doe@company.com"));
     }
+
 }
