@@ -1194,12 +1194,35 @@ pub async fn find_meeting_times(
     let client = CalendarClient::new(stored.access_token);
     let fb = client.free_busy(&emails, &time_min, &time_max).await?;
 
+    let range_start = DateTime::parse_from_rfc3339(&time_min)
+        .map_err(|e| AppError::Other(format!("bad time_min: {e}")))?
+        .with_timezone(&Utc);
+    let range_end = DateTime::parse_from_rfc3339(&time_max)
+        .map_err(|e| AppError::Other(format!("bad time_max: {e}")))?
+        .with_timezone(&Utc);
+    let tz = Local::now().offset().fix();
+
+    Ok(build_find_times_result(&emails, &fb, range_start, range_end, tz, duration_min))
+}
+
+pub(crate) fn build_find_times_result(
+    emails: &[String],
+    fb: &crate::calendar::types::FreeBusyResult,
+    range_start: chrono::DateTime<chrono::Utc>,
+    range_end: chrono::DateTime<chrono::Utc>,
+    tz: chrono::FixedOffset,
+    duration_min: i64,
+) -> FindTimesResult {
+    // Build a lowercased-key view once so lookup is case-insensitive.
+    let by_lc: std::collections::HashMap<String, &crate::calendar::types::PersonFreeBusy> =
+        fb.calendars.iter().map(|(k, v)| (k.to_lowercase(), v)).collect();
+
     let mut grid = Vec::new();
     let mut unavailable = Vec::new();
     let mut busy_all: Vec<BusyInterval> = Vec::new();
 
-    for email in &emails {
-        let (busy_spans, error) = match fb.calendars.get(email) {
+    for email in emails {
+        let (busy_spans, error) = match by_lc.get(&email.to_lowercase()) {
             Some(p) => (p.busy.clone(), p.error.clone()),
             None => (vec![], Some("no data".to_string())),
         };
@@ -1221,14 +1244,6 @@ pub async fn find_meeting_times(
         grid.push(PersonBusy { email: email.clone(), busy: busy_spans, error });
     }
 
-    let range_start = DateTime::parse_from_rfc3339(&time_min)
-        .map_err(|e| AppError::Other(format!("bad time_min: {e}")))?
-        .with_timezone(&Utc);
-    let range_end = DateTime::parse_from_rfc3339(&time_max)
-        .map_err(|e| AppError::Other(format!("bad time_max: {e}")))?
-        .with_timezone(&Utc);
-    let tz = Local::now().offset().fix();
-
     let suggestions = scheduling::suggest_slots(
         busy_all,
         range_start,
@@ -1240,7 +1255,7 @@ pub async fn find_meeting_times(
         6,
     );
 
-    Ok(FindTimesResult { grid, suggestions, unavailable })
+    FindTimesResult { grid, suggestions, unavailable }
 }
 
 #[cfg(test)]
@@ -1305,5 +1320,47 @@ mod tests {
         assert_eq!(rows[1].category, "people");
         assert_eq!(rows[2].category, "newsletters");
         assert_eq!(rows[2].label_ids, "");
+    }
+
+    #[test]
+    fn build_find_times_matches_email_case_insensitively_and_excludes_errored() {
+        use crate::calendar::types::{BusySpan, FreeBusyResult, PersonFreeBusy};
+        use chrono::{FixedOffset, TimeZone, Utc};
+        let mut calendars = std::collections::HashMap::new();
+        // Google echoes the organizer key lowercased though we requested mixed-case.
+        calendars.insert(
+            "john.doe@company.com".to_string(),
+            PersonFreeBusy {
+                busy: vec![BusySpan {
+                    start: "2026-07-01T06:00:00Z".into(),
+                    end: "2026-07-01T07:00:00Z".into(),
+                }],
+                error: None,
+            },
+        );
+        calendars.insert(
+            "ext@gmail.com".to_string(),
+            PersonFreeBusy { busy: vec![], error: Some("notFound".into()) },
+        );
+        let fb = FreeBusyResult { calendars };
+        let tz = FixedOffset::east_opt(3 * 3600).unwrap();
+        let emails = vec!["John.Doe@company.com".to_string(), "ext@gmail.com".to_string()];
+        let range_start = Utc.with_ymd_and_hms(2026, 7, 1, 0, 0, 0).unwrap();
+        let range_end = Utc.with_ymd_and_hms(2026, 7, 1, 23, 0, 0).unwrap();
+
+        let res = build_find_times_result(&emails, &fb, range_start, range_end, tz, 60);
+
+        // External guest with an error is unavailable.
+        assert_eq!(res.unavailable, vec!["ext@gmail.com".to_string()]);
+        // Organizer matched despite casing → their 09:00-10:00 local busy is respected,
+        // so the first suggestion must NOT be 09:00.
+        assert!(!res.suggestions.is_empty(), "expected some suggestions");
+        assert!(
+            !res.suggestions[0].start.starts_with("2026-07-01T09:00:00"),
+            "organizer busy 09:00-10:00 must be respected, got {}",
+            res.suggestions[0].start
+        );
+        // Grid preserves original casing.
+        assert!(res.grid.iter().any(|g| g.email == "John.Doe@company.com"));
     }
 }
