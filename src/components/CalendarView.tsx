@@ -255,7 +255,7 @@ export function CalendarView({
                 className="event-meet event-meet-btn"
                 onClick={() => openExternal(detail.meet_link!)}
               >
-                Join Google Meet
+                {detail.meet_link.includes("zoom") ? "Join Zoom Meeting" : "Join Google Meet"}
               </button>
             )}
             {detail.html_link && (
