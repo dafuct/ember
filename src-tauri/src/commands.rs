@@ -9,11 +9,14 @@ use crate::auth::{ensure_token_for, GoogleOAuth, PRIMARY_ACCOUNT};
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::gmail::types::{MessagePreview, ReplyContext};
-use crate::calendar::types::{CalendarEvent, CalendarSummary, EventWrite};
+use crate::calendar::types::{BusySpan, CalendarEvent, CalendarSummary, EventWrite};
 use crate::calendar::{map_event, CalendarClient};
 use crate::gmail::GmailClient;
 use crate::html::sanitize_html;
+use crate::people::{PeopleClient, PersonHit};
+use crate::scheduling::{self, BusyInterval, Slot, WorkingHours};
 use crate::scorer;
+use chrono::{DateTime, Local, Offset, Utc};
 
 pub type Db = Arc<Mutex<Connection>>;
 
@@ -1143,6 +1146,101 @@ pub async fn prepare_transcription(
     }
     let _ = on_progress.send(crate::model::PrepProgress::Ready);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn search_people(
+    query: String,
+    state: tauri::State<'_, Db>,
+) -> Result<Vec<PersonHit>> {
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    let stored = active_token(&state).await?;
+    let client = PeopleClient::new(stored.access_token);
+    Ok(client.search(query.trim()).await)
+}
+
+#[derive(serde::Serialize)]
+pub struct PersonBusy {
+    pub email: String,
+    pub busy: Vec<BusySpan>,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct FindTimesResult {
+    pub grid: Vec<PersonBusy>,
+    pub suggestions: Vec<Slot>,
+    pub unavailable: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn find_meeting_times(
+    attendees: Vec<String>,
+    time_min: String,
+    time_max: String,
+    duration_min: i64,
+    state: tauri::State<'_, Db>,
+) -> Result<FindTimesResult> {
+    let stored = active_token(&state).await?;
+
+    // Always include the organizer's own calendar.
+    let mut emails = attendees.clone();
+    if !emails.iter().any(|e| e.eq_ignore_ascii_case(&stored.email)) {
+        emails.insert(0, stored.email.clone());
+    }
+
+    let client = CalendarClient::new(stored.access_token);
+    let fb = client.free_busy(&emails, &time_min, &time_max).await?;
+
+    let mut grid = Vec::new();
+    let mut unavailable = Vec::new();
+    let mut busy_all: Vec<BusyInterval> = Vec::new();
+
+    for email in &emails {
+        let (busy_spans, error) = match fb.calendars.get(email) {
+            Some(p) => (p.busy.clone(), p.error.clone()),
+            None => (vec![], Some("no data".to_string())),
+        };
+        if error.is_some() {
+            unavailable.push(email.clone());
+        } else {
+            for b in &busy_spans {
+                if let (Ok(s), Ok(e)) = (
+                    DateTime::parse_from_rfc3339(&b.start),
+                    DateTime::parse_from_rfc3339(&b.end),
+                ) {
+                    busy_all.push(BusyInterval {
+                        start: s.with_timezone(&Utc),
+                        end: e.with_timezone(&Utc),
+                    });
+                }
+            }
+        }
+        grid.push(PersonBusy { email: email.clone(), busy: busy_spans, error });
+    }
+
+    let range_start = DateTime::parse_from_rfc3339(&time_min)
+        .map_err(|e| AppError::Other(format!("bad time_min: {e}")))?
+        .with_timezone(&Utc);
+    let range_end = DateTime::parse_from_rfc3339(&time_max)
+        .map_err(|e| AppError::Other(format!("bad time_max: {e}")))?
+        .with_timezone(&Utc);
+    let tz = Local::now().offset().fix();
+
+    let suggestions = scheduling::suggest_slots(
+        busy_all,
+        range_start,
+        range_end,
+        tz,
+        WorkingHours::default(),
+        duration_min,
+        30,
+        6,
+    );
+
+    Ok(FindTimesResult { grid, suggestions, unavailable })
 }
 
 #[cfg(test)]

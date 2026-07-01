@@ -120,6 +120,8 @@ pub fn run() {
             commands::remove_account,
             commands::list_accounts,
             commands::set_active_account,
+            commands::search_people,
+            commands::find_meeting_times,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

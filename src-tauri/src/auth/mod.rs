@@ -19,6 +19,8 @@ const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const SCOPE_GMAIL_FULL: &str = "https://mail.google.com/";
 const SCOPE_CALENDAR_READONLY: &str = "https://www.googleapis.com/auth/calendar.readonly";
 const SCOPE_CALENDAR_EVENTS: &str = "https://www.googleapis.com/auth/calendar.events";
+const SCOPE_DIRECTORY_READONLY: &str = "https://www.googleapis.com/auth/directory.readonly";
+const SCOPE_CONTACTS_READONLY: &str = "https://www.googleapis.com/auth/contacts.readonly";
 pub const PRIMARY_ACCOUNT: &str = "primary";
 
 fn now_secs() -> u64 {
@@ -114,6 +116,8 @@ impl GoogleOAuth {
             .add_scope(Scope::new(SCOPE_GMAIL_FULL.into()))
             .add_scope(Scope::new(SCOPE_CALENDAR_READONLY.into()))
             .add_scope(Scope::new(SCOPE_CALENDAR_EVENTS.into()))
+            .add_scope(Scope::new(SCOPE_DIRECTORY_READONLY.into()))
+            .add_scope(Scope::new(SCOPE_CONTACTS_READONLY.into()))
             .add_extra_param("access_type", "offline")
             .add_extra_param("prompt", "consent")
             .set_pkce_challenge(pkce_challenge)
