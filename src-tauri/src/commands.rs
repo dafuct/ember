@@ -16,6 +16,8 @@ use crate::html::sanitize_html;
 use crate::people::{PeopleClient, PersonHit};
 use crate::scheduling::{self, BusyInterval, Slot, WorkingHours};
 use crate::scorer;
+use crate::zoom::{ensure_zoom_token, ZoomAccount, ZoomClient, ZoomOAuth};
+use crate::calendar::types::Conferencing;
 use chrono::{DateTime, Local, Offset, Utc};
 
 pub type Db = Arc<Mutex<Connection>>;
@@ -927,12 +929,58 @@ pub async fn list_calendars(state: tauri::State<'_, Db>) -> Result<Vec<CalendarS
 pub async fn create_calendar_event(
     calendar_id: String,
     event: EventWrite,
-    conferencing: crate::calendar::types::Conferencing,
+    conferencing: Conferencing,
     state: tauri::State<'_, Db>,
 ) -> Result<CalendarEvent> {
     let stored = active_token(&state).await?;
+    let zoom_url = if matches!(conferencing, Conferencing::Zoom) {
+        let ztok = ensure_zoom_token().await?;
+        let tz = "UTC"; // Zoom accepts an IANA tz; event start carries its own offset
+        let dur = 30u32; // duration is informational for Zoom; the Google event holds the real time
+        let meeting = ZoomClient::new(ztok.access_token)
+            .create_meeting(&event.title, &event.start, dur, tz)
+            .await?;
+        Some(meeting.join_url)
+    } else {
+        None
+    };
     let client = CalendarClient::new(stored.access_token);
-    client.create_event(&calendar_id, &event, conferencing, None).await
+    client.create_event(&calendar_id, &event, conferencing, zoom_url.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn zoom_connect() -> Result<ZoomAccount> {
+    let oauth = ZoomOAuth::resolve()?;
+    let stored = oauth.connect().await?;
+    ZoomClient::new(stored.access_token).get_me().await
+}
+
+#[tauri::command]
+pub async fn zoom_status() -> Result<Option<ZoomAccount>> {
+    match crate::auth::tokens::load_token(crate::zoom::ZOOM_ACCOUNT)? {
+        Some(t) => Ok(Some(ZoomAccount { email: t.email, account_id: String::new() })),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn zoom_disconnect() -> Result<()> {
+    crate::auth::tokens::delete_token(crate::zoom::ZOOM_ACCOUNT)
+}
+
+#[tauri::command]
+pub async fn set_zoom_credentials(client_id: String, client_secret: String) -> Result<()> {
+    crate::auth::tokens::save_zoom_credentials(client_id.trim(), client_secret.trim())
+}
+
+#[tauri::command]
+pub async fn zoom_credentials_status() -> Result<String> {
+    Ok(ZoomOAuth::credentials_source()?.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_zoom_credentials() -> Result<()> {
+    crate::auth::tokens::delete_zoom_credentials()
 }
 
 #[tauri::command]
