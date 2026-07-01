@@ -1,6 +1,9 @@
 pub mod types;
 
-use types::{CalendarEvent, CalendarListEntry, CalendarListResponse, EventsResponse, GEvent};
+use types::{
+    BusySpan, CalendarEvent, CalendarListEntry, CalendarListResponse, EventsResponse,
+    FreeBusyResult, GEvent, PersonFreeBusy,
+};
 
 use crate::error::{AppError, Result};
 
@@ -168,6 +171,42 @@ impl CalendarClient {
         self.get_json(&url).await
     }
 
+    pub async fn free_busy(
+        &self,
+        emails: &[String],
+        time_min: &str,
+        time_max: &str,
+    ) -> Result<FreeBusyResult> {
+        let url = format!("{}/calendar/v3/freeBusy", self.base_url);
+        let req = FreeBusyReq {
+            time_min,
+            time_max,
+            items: emails.iter().map(|e| FreeBusyReqItem { id: e }).collect(),
+        };
+        let resp = self.http.post(&url).bearer_auth(&self.access_token).json(&req).send().await?;
+        let resp = self.check_auth_status(resp).await?;
+        let wire: FbWireResp = resp.json().await?;
+        let calendars = wire
+            .calendars
+            .into_iter()
+            .map(|(k, v)| {
+                let error = v.errors.into_iter().find_map(|e| e.reason);
+                (
+                    k,
+                    PersonFreeBusy {
+                        busy: v
+                            .busy
+                            .into_iter()
+                            .map(|b| BusySpan { start: b.start, end: b.end })
+                            .collect(),
+                        error,
+                    },
+                )
+            })
+            .collect();
+        Ok(FreeBusyResult { calendars })
+    }
+
     pub async fn respond_to_event(
         &self,
         calendar_id: &str,
@@ -206,6 +245,41 @@ impl CalendarClient {
         map_event(g, calendar_id, None)
             .ok_or_else(|| AppError::Other("calendar returned an unusable event".into()))
     }
+}
+
+#[derive(serde::Serialize)]
+struct FreeBusyReqItem<'a> {
+    id: &'a str,
+}
+#[derive(serde::Serialize)]
+struct FreeBusyReq<'a> {
+    #[serde(rename = "timeMin")]
+    time_min: &'a str,
+    #[serde(rename = "timeMax")]
+    time_max: &'a str,
+    items: Vec<FreeBusyReqItem<'a>>,
+}
+#[derive(serde::Deserialize)]
+struct FbWireBusy {
+    start: String,
+    end: String,
+}
+#[derive(serde::Deserialize)]
+struct FbWireError {
+    #[serde(default)]
+    reason: Option<String>,
+}
+#[derive(serde::Deserialize)]
+struct FbWireCal {
+    #[serde(default)]
+    busy: Vec<FbWireBusy>,
+    #[serde(default)]
+    errors: Vec<FbWireError>,
+}
+#[derive(serde::Deserialize)]
+struct FbWireResp {
+    #[serde(default)]
+    calendars: std::collections::HashMap<String, FbWireCal>,
 }
 
 #[derive(serde::Serialize)]

@@ -108,3 +108,22 @@ pub struct CalendarSummary {
     pub primary: bool,
     pub writable: bool,
 }
+
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BusySpan {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct PersonFreeBusy {
+    pub busy: Vec<BusySpan>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct FreeBusyResult {
+    pub calendars: HashMap<String, PersonFreeBusy>,
+}

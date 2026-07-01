@@ -317,3 +317,36 @@ fn is_safe_url_allows_only_web_schemes() {
     assert!(!is_safe_url("mailto:a@b.com"));
     assert!(!is_safe_url(""));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn free_busy_parses_busy_and_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/calendar/v3/freeBusy"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "calendars": {
+                "me@company.com": { "busy": [
+                    { "start": "2026-07-01T09:00:00Z", "end": "2026-07-01T10:00:00Z" }
+                ] },
+                "ext@gmail.com": { "busy": [], "errors": [ { "reason": "notFound" } ] }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let emails = vec!["me@company.com".to_string(), "ext@gmail.com".to_string()];
+    let fb = client
+        .free_busy(&emails, "2026-07-01T00:00:00Z", "2026-07-01T23:00:00Z")
+        .await
+        .unwrap();
+
+    let me = fb.calendars.get("me@company.com").unwrap();
+    assert_eq!(me.busy.len(), 1);
+    assert_eq!(me.busy[0].start, "2026-07-01T09:00:00Z");
+    assert!(me.error.is_none());
+
+    let ext = fb.calendars.get("ext@gmail.com").unwrap();
+    assert!(ext.busy.is_empty());
+    assert_eq!(ext.error.as_deref(), Some("notFound"));
+}
