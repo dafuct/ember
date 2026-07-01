@@ -97,12 +97,14 @@ export function FindTimePanel({
       {data.suggestions.length === 0 ? (
         <p className="subtitle">No common time — try another day.</p>
       ) : (
-        data.suggestions.map((s) => (
-          <button key={`${s.start}/${s.end}`} type="button" className="ft-slot" onClick={() => onPick(s)}>
-            {new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
-            {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </button>
-        ))
+        <div className="ft-slots">
+          {data.suggestions.map((s) => (
+            <button key={`${s.start}/${s.end}`} type="button" className="ft-slot" onClick={() => onPick(s)}>
+              {new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
+              {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

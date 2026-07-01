@@ -86,6 +86,37 @@ pub fn delete_credentials() -> Result<()> {
     }
 }
 
+const ZOOM_CLIENT_CREDS_KEY: &str = "__zoom_client__";
+
+pub fn save_zoom_credentials(client_id: &str, client_secret: &str) -> Result<()> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, ZOOM_CLIENT_CREDS_KEY)?;
+    let creds = StoredCredentials { client_id: client_id.to_string(), client_secret: client_secret.to_string() };
+    let json = serde_json::to_string(&creds).map_err(|e| AppError::Other(e.to_string()))?;
+    entry.set_password(&json)?;
+    Ok(())
+}
+
+pub fn load_zoom_credentials() -> Result<Option<(String, String)>> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, ZOOM_CLIENT_CREDS_KEY)?;
+    match entry.get_password() {
+        Ok(json) => {
+            let c: StoredCredentials = serde_json::from_str(&json).map_err(|e| AppError::Other(e.to_string()))?;
+            Ok(Some((c.client_id, c.client_secret)))
+        }
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn delete_zoom_credentials() -> Result<()> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, ZOOM_CLIENT_CREDS_KEY)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::StoredToken;

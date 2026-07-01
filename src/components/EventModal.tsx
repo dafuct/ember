@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { X, Video } from "lucide-react";
 import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
   openExternal,
+  zoomStatus,
   type EventWrite,
   type CalendarSummary,
   type CalendarEvent,
+  type Conferencing,
 } from "../lib/api";
 import { rfc3339Local, allDayEndExclusive } from "../lib/calendar";
 import { isPlausibleEmail } from "../lib/compose";
@@ -52,7 +54,8 @@ export function EventModal({
   const [calendarId, setCalendarId] = useState(
     editing?.calendar_id ?? writableCals.find((c) => c.primary)?.id ?? writableCals[0]?.id ?? "primary",
   );
-  const [addMeet, setAddMeet] = useState(false);
+  const [conferencing, setConferencing] = useState<Conferencing>("none");
+  const [zoomConnected, setZoomConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +64,10 @@ export function EventModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    zoomStatus().then((z) => setZoomConnected(!!z)).catch(() => {});
+  }, []);
 
   function buildWrite(): EventWrite | string {
     if (title.trim() === "") return "A title is required.";
@@ -98,7 +105,7 @@ export function EventModal({
     setError(null);
     try {
       if (editing) await updateCalendarEvent(editing.calendar_id, editing.id, w);
-      else await createCalendarEvent(calendarId, w, addMeet);
+      else await createCalendarEvent(calendarId, w, conferencing);
       onSaved();
       onClose();
     } catch (e) {
@@ -159,11 +166,23 @@ export function EventModal({
               </select>
             </div>
             {editing ? (
-              editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>Join Google Meet</button> : null
+              editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>{editing.meet_link!.includes("zoom") ? "Join Zoom Meeting" : "Join Google Meet"}</button> : null
             ) : (
-              <label className="event-row">
-                <input type="checkbox" checked={addMeet} onChange={(e) => setAddMeet(e.target.checked)} /> Add Google Meet
-              </label>
+              <div className="event-row event-conf">
+                <span className="event-conf-icon"><Video size={16} /></span>
+                <select
+                  className="compose-field"
+                  value={conferencing}
+                  onChange={(e) => setConferencing(e.target.value as Conferencing)}
+                  aria-label="Video conferencing"
+                >
+                  <option value="none">No video conferencing</option>
+                  <option value="meet">Google Meet</option>
+                  <option value="zoom" disabled={!zoomConnected}>
+                    {zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}
+                  </option>
+                </select>
+              </div>
             )}
           </>
         )}

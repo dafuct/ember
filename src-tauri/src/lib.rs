@@ -36,6 +36,8 @@ pub mod scheduling;
 
 pub mod people;
 
+pub mod zoom;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -99,6 +101,12 @@ pub fn run() {
             commands::create_calendar_event,
             commands::update_calendar_event,
             commands::delete_calendar_event,
+            commands::zoom_connect,
+            commands::zoom_status,
+            commands::zoom_disconnect,
+            commands::set_zoom_credentials,
+            commands::zoom_credentials_status,
+            commands::clear_zoom_credentials,
             commands::open_external,
             commands::respond_to_event,
             commands::get_meeting_note,
