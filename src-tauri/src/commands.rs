@@ -927,12 +927,12 @@ pub async fn list_calendars(state: tauri::State<'_, Db>) -> Result<Vec<CalendarS
 pub async fn create_calendar_event(
     calendar_id: String,
     event: EventWrite,
-    add_meet: bool,
+    conferencing: crate::calendar::types::Conferencing,
     state: tauri::State<'_, Db>,
 ) -> Result<CalendarEvent> {
     let stored = active_token(&state).await?;
     let client = CalendarClient::new(stored.access_token);
-    client.create_event(&calendar_id, &event, add_meet).await
+    client.create_event(&calendar_id, &event, conferencing, None).await
 }
 
 #[tauri::command]

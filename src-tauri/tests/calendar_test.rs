@@ -117,6 +117,7 @@ fn map_event_normalizes_and_skips_cancelled() {
             GAttendee { email: "me@x.com".into(), response_status: Some("needsAction".into()), is_self: true },
             GAttendee { email: "b@y.com".into(), response_status: Some("accepted".into()), is_self: false },
         ]),
+        conference_data: None,
     };
     let m = map_event(timed, "primary", Some("#16a34a")).unwrap();
     assert_eq!(m.title, "Standup");
@@ -144,6 +145,7 @@ fn map_event_normalizes_and_skips_cancelled() {
         html_link: None,
         hangout_link: None,
         attendees: None,
+        conference_data: None,
     };
     let m2 = map_event(allday, "primary", None).unwrap();
     assert_eq!(m2.title, "(no title)");
@@ -162,6 +164,7 @@ fn map_event_normalizes_and_skips_cancelled() {
         html_link: None,
         hangout_link: None,
         attendees: None,
+        conference_data: None,
     };
     assert!(map_event(cancelled, "primary", None).is_none());
 }
@@ -198,9 +201,41 @@ async fn create_event_with_meet_posts_conference_and_attendees() {
         location: None,
         attendees: vec!["a@x.com".into()],
     };
-    let created = client.create_event("primary", &ev, true).await.unwrap();
+    let created = client
+        .create_event("primary", &ev, ember_lib::calendar::types::Conferencing::Meet, None)
+        .await
+        .unwrap();
     assert_eq!(created.id, "new1");
     assert_eq!(created.meet_link.as_deref(), Some("https://meet.google.com/xyz"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_event_with_zoom_sets_entrypoint_and_description() {
+    use ember_lib::calendar::types::{Conferencing, EventWrite};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/calendar/v3/calendars/primary/events"))
+        .and(body_partial_json(json!({
+            "conferenceData": { "entryPoints": [ { "entryPointType": "video",
+                "uri": "https://zoom.us/j/1" } ] }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "e1", "summary": "Sync",
+            "start": { "dateTime": "2026-07-02T14:00:00+03:00" },
+            "end": { "dateTime": "2026-07-02T14:30:00+03:00" },
+            "conferenceData": { "entryPoints": [ { "entryPointType": "video", "uri": "https://zoom.us/j/1" } ] }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = CalendarClient::with_base_url("tok".into(), server.uri());
+    let ev = EventWrite {
+        title: "Sync".into(), start: "2026-07-02T14:00:00+03:00".into(),
+        end: "2026-07-02T14:30:00+03:00".into(), all_day: false,
+        description: None, location: None, attendees: vec![],
+    };
+    let out = client.create_event("primary", &ev, Conferencing::Zoom, Some("https://zoom.us/j/1")).await.unwrap();
+    assert_eq!(out.meet_link.as_deref(), Some("https://zoom.us/j/1"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

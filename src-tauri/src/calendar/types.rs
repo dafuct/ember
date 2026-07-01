@@ -44,6 +44,29 @@ pub struct GEvent {
     pub hangout_link: Option<String>,
     #[serde(default)]
     pub attendees: Option<Vec<GAttendee>>,
+    #[serde(rename = "conferenceData", default)]
+    pub conference_data: Option<GConferenceData>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GConferenceData {
+    #[serde(rename = "entryPoints", default)]
+    pub entry_points: Vec<GEntryPoint>,
+}
+#[derive(Debug, Deserialize)]
+pub struct GEntryPoint {
+    #[serde(rename = "entryPointType", default)]
+    pub entry_point_type: Option<String>,
+    #[serde(default)]
+    pub uri: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Conferencing {
+    None,
+    Meet,
+    Zoom,
 }
 
 #[derive(Debug, Deserialize)]

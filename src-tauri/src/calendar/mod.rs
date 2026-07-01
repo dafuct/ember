@@ -105,7 +105,8 @@ impl CalendarClient {
         &self,
         calendar_id: &str,
         ev: &types::EventWrite,
-        add_meet: bool,
+        conferencing: types::Conferencing,
+        zoom_join_url: Option<&str>,
     ) -> Result<CalendarEvent> {
         let cal = url::form_urlencoded::byte_serialize(calendar_id.as_bytes()).collect::<String>();
         let url = format!(
@@ -113,17 +114,44 @@ impl CalendarClient {
             self.base_url, cal
         );
         let mut body = event_body(ev);
-        if add_meet {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            body.conference_data = Some(ConferenceDataBody {
-                create_request: CreateConferenceRequest {
-                    request_id: format!("ember-meet-{nanos}"),
-                    conference_solution_key: ConferenceSolutionKey { type_: "hangoutsMeet" },
-                },
-            });
+        let mut description_owned: Option<String> = None;
+        match conferencing {
+            types::Conferencing::None => {}
+            types::Conferencing::Meet => {
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                body.conference_data = Some(ConferenceDataBody::Create {
+                    create_request: CreateConferenceRequest {
+                        request_id: format!("ember-meet-{nanos}"),
+                        conference_solution_key: ConferenceSolutionKey { type_: "hangoutsMeet" },
+                    },
+                });
+            }
+            types::Conferencing::Zoom => {
+                let uri = zoom_join_url.unwrap_or_default().to_string();
+                body.conference_data = Some(ConferenceDataBody::Manual {
+                    conference_solution: ConferenceSolutionBody {
+                        key: ConferenceSolutionKey { type_: "addOn" },
+                        name: "Zoom Meeting",
+                    },
+                    entry_points: vec![EntryPointBody {
+                        entry_point_type: "video",
+                        uri: uri.clone(),
+                        label: "Zoom Meeting",
+                    }],
+                });
+                // description fallback so the link is never lost
+                let base = ev.description.clone().unwrap_or_default();
+                let joined = if base.is_empty() {
+                    format!("Join Zoom Meeting: {uri}")
+                } else {
+                    format!("Join Zoom Meeting: {uri}\n\n{base}")
+                };
+                description_owned = Some(joined);
+                body.description = description_owned.as_deref();
+            }
         }
         let resp = self.http.post(&url).bearer_auth(&self.access_token).json(&body).send().await?;
         let resp = self.check_auth_status(resp).await?;
@@ -306,9 +334,31 @@ struct CreateConferenceRequest {
     conference_solution_key: ConferenceSolutionKey,
 }
 #[derive(serde::Serialize)]
-struct ConferenceDataBody {
-    #[serde(rename = "createRequest")]
-    create_request: CreateConferenceRequest,
+#[serde(untagged)]
+enum ConferenceDataBody {
+    Create {
+        #[serde(rename = "createRequest")]
+        create_request: CreateConferenceRequest,
+    },
+    Manual {
+        #[serde(rename = "conferenceSolution")]
+        conference_solution: ConferenceSolutionBody,
+        #[serde(rename = "entryPoints")]
+        entry_points: Vec<EntryPointBody>,
+    },
+}
+
+#[derive(serde::Serialize)]
+struct ConferenceSolutionBody {
+    key: ConferenceSolutionKey,
+    name: &'static str,
+}
+#[derive(serde::Serialize)]
+struct EntryPointBody {
+    #[serde(rename = "entryPointType")]
+    entry_point_type: &'static str,
+    uri: String,
+    label: &'static str,
 }
 #[derive(serde::Serialize)]
 struct AttendeeResponseBody<'a> {
@@ -387,7 +437,14 @@ pub fn map_event(ev: GEvent, calendar_id: &str, color: Option<&str>) -> Option<C
         location: ev.location,
         color: color.map(|c| c.to_string()),
         description: ev.description,
-        meet_link: ev.hangout_link,
+        meet_link: ev.hangout_link.clone().or_else(|| {
+            ev.conference_data.as_ref().and_then(|c| {
+                c.entry_points
+                    .iter()
+                    .find(|e| e.entry_point_type.as_deref() == Some("video"))
+                    .and_then(|e| e.uri.clone())
+            })
+        }),
         html_link: ev.html_link,
         attendees,
         my_response_status,
