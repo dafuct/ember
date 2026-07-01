@@ -32,6 +32,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 whisper-rs = { version = "0.14", features = ["metal"] }
 symphonia = { version = "0.5", features = ["mp3", "aac", "alac", "isomp4", "flac", "ogg", "vorbis", "wav", "pcm"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 base64 = "0.22.1"

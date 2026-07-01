@@ -1000,6 +1000,7 @@ dependencies = [
  "ammonia",
  "base64 0.22.1",
  "cc",
+ "chrono",
  "dotenvy",
  "futures",
  "keyring",
