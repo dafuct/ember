@@ -36,6 +36,8 @@ pub mod scheduling;
 
 pub mod people;
 
+pub mod zoom;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
