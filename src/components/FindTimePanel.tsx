@@ -60,16 +60,19 @@ export function FindTimePanel({
             {row.error ? (
               <span className="ft-nodata">no availability</span>
             ) : (
-              row.busy.map((b, i) => (
-                <span
-                  key={i}
-                  className="ft-busy"
-                  style={{
-                    left: `${(minutesFromStart(b.start) / TOTAL_MIN) * 100}%`,
-                    width: `${((minutesFromStart(b.end) - minutesFromStart(b.start)) / TOTAL_MIN) * 100}%`,
-                  }}
-                />
-              ))
+              row.busy.map((b, i) => {
+                const startMin = Math.max(0, Math.min(TOTAL_MIN, minutesFromStart(b.start)));
+                const endMin = Math.max(0, Math.min(TOTAL_MIN, minutesFromStart(b.end)));
+                const leftPct = (startMin / TOTAL_MIN) * 100;
+                const widthPct = ((endMin - startMin) / TOTAL_MIN) * 100;
+                return (
+                  <span
+                    key={i}
+                    className="ft-busy"
+                    style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                  />
+                );
+              })
             )}
           </span>
         </div>
