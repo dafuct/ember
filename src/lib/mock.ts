@@ -1,6 +1,6 @@
 import type { CalendarEvent, Attendee } from "./calendar";
 import { toYmd } from "./calendar";
-import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary } from "./api";
+import type { MessagePreview, SyncSummary, DraftContent, Label, MessageBody, Attachment, ReplyContext, EventWrite, CalendarSummary, PersonHit, FindTimesResult, Slot } from "./api";
 import type { MeetingNote, MeetingNoteWrite, CaptureEvent } from "./notes";
 import type { SnoozedRow } from "./snooze";
 
@@ -402,3 +402,42 @@ let mockConfigured = true;
 export const mockCredentialStatus = () => ({ configured: mockConfigured, source: mockConfigured ? "stored" : "none" });
 export const mockSetCredentials = () => { mockConfigured = true; };
 export const mockClearCredentials = () => { mockConfigured = false; };
+
+const MOCK_DIRECTORY: PersonHit[] = [
+  { name: "Anna Melnyk", email: "anna@company.com", photo_url: null },
+  { name: "Andrii Bond", email: "andrii@company.com", photo_url: null },
+  { name: "Bob Lee", email: "bob@company.com", photo_url: null },
+  { name: "Kate Ivanova", email: "kate@company.com", photo_url: null },
+];
+
+export function mockSearchPeople(query: string): PersonHit[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return MOCK_DIRECTORY.filter(
+    (p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q),
+  );
+}
+
+export function mockFindMeetingTimes(
+  attendees: string[],
+  timeMin: string,
+  _timeMax: string,
+  durationMin: number,
+): FindTimesResult {
+  const day = timeMin.slice(0, 10);
+  const at = (h: number, m: number) => `${day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+  const grid = ["you@company.com", ...attendees].map((email, i) => ({
+    email,
+    busy: i % 2 === 0
+      ? [{ start: at(9, 0), end: at(10, 0) }]
+      : [{ start: at(11, 0), end: at(12, 0) }],
+    error: email.endsWith("@gmail.com") ? "not available" : null,
+  }));
+  const suggestions: Slot[] = [
+    { start: at(14, 0), end: at(14, durationMin % 60) },
+    { start: at(15, 30), end: at(16, 0) },
+    { start: at(16, 30), end: at(17, 0) },
+  ];
+  const unavailable = grid.filter((g) => g.error).map((g) => g.email);
+  return { grid, suggestions, unavailable };
+}

@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { CalendarEvent } from "./calendar";
-import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials, mockRespondEvent } from "./mock";
+import { MOCK_SYNC, mockCalendarWeek, mockSearch, mockFolder, mockGetDraft, mockSaveDraft, MOCK_LABELS, mockFetchLabel, mockMessageBody, mockReplyContext, mockCreateEvent, mockUpdateEvent, mockListCalendars, mockListAccounts, mockSetActiveAccount, mockRemoveAccount, mockGetActive, mockInboxForActive, mockCredentialStatus, mockSetCredentials, mockClearCredentials, mockRespondEvent, mockSearchPeople, mockFindMeetingTimes } from "./mock";
 
 export type { CalendarEvent };
 
@@ -310,3 +310,22 @@ export const respondToEvent = (
   isTauri()
     ? invoke<CalendarEvent>("respond_to_event", { calendarId, eventId, responseStatus })
     : Promise.resolve(mockRespondEvent(calendarId, eventId, responseStatus));
+
+export interface PersonHit { name: string; email: string; photo_url: string | null }
+export interface BusySpan { start: string; end: string }
+export interface PersonBusy { email: string; busy: BusySpan[]; error: string | null }
+export interface Slot { start: string; end: string }
+export interface FindTimesResult { grid: PersonBusy[]; suggestions: Slot[]; unavailable: string[] }
+
+export const searchPeople = (query: string): Promise<PersonHit[]> =>
+  isTauri() ? invoke<PersonHit[]>("search_people", { query }) : Promise.resolve(mockSearchPeople(query));
+
+export const findMeetingTimes = (
+  attendees: string[],
+  timeMin: string,
+  timeMax: string,
+  durationMin: number,
+): Promise<FindTimesResult> =>
+  isTauri()
+    ? invoke<FindTimesResult>("find_meeting_times", { attendees, timeMin, timeMax, durationMin })
+    : Promise.resolve(mockFindMeetingTimes(attendees, timeMin, timeMax, durationMin));
