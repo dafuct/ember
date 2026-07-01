@@ -49,6 +49,7 @@ fn err_buf_to_string(buf: &[u8]) -> String {
 #[tauri::command]
 pub async fn start_system_capture(
     capture_mic: bool,
+    language: Option<String>,
     on_event: tauri::ipc::Channel<CaptureEvent>,
     state: tauri::State<'_, SysCaptureState>,
     transcriber: tauri::State<'_, crate::transcribe::TranscriberState>,
@@ -101,7 +102,7 @@ pub async fn start_system_capture(
         Err(msg) => return Err(AppError::Other(msg)),
     };
 
-    let worker = tokio::spawn(mix_worker(rx, on_event, capture_mic, transcriber));
+    let worker = tokio::spawn(mix_worker(rx, on_event, capture_mic, language, transcriber));
 
     let mut guard = match state.lock() {
         Ok(g) => g,
@@ -146,9 +147,11 @@ async fn mix_worker(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<Chunk>,
     on_event: tauri::ipc::Channel<CaptureEvent>,
     capture_mic: bool,
+    language: Option<String>,
     transcriber: crate::transcribe::TranscriberState,
 ) {
     const WINDOW: usize = 16_000 * 10;
+    let lang = language.as_deref();
     let mut sys: Vec<f32> = Vec::new();
     let mut mic: Vec<f32> = Vec::new();
     while let Some(c) = rx.recv().await {
@@ -168,7 +171,7 @@ async fn mix_worker(
             } else {
                 a
             };
-            transcribe_and_emit(&transcriber, &window, &on_event);
+            transcribe_and_emit(&transcriber, &window, lang, &on_event);
         }
     }
     if !sys.is_empty() {
@@ -179,7 +182,7 @@ async fn mix_worker(
             sys
         };
         if !window.is_empty() {
-            transcribe_and_emit(&transcriber, &window, &on_event);
+            transcribe_and_emit(&transcriber, &window, lang, &on_event);
         }
     }
     let _ = on_event.send(CaptureEvent::Stopped);
@@ -188,6 +191,7 @@ async fn mix_worker(
 fn transcribe_and_emit(
     transcriber: &crate::transcribe::TranscriberState,
     samples_16k: &[f32],
+    lang: Option<&str>,
     on_event: &tauri::ipc::Channel<CaptureEvent>,
 ) {
     let text = {
@@ -196,7 +200,7 @@ fn transcribe_and_emit(
             Err(_) => return,
         };
         match guard.as_ref() {
-            Some(t) => t.transcribe_samples(samples_16k, None),
+            Some(t) => t.transcribe_samples(samples_16k, lang),
             None => return,
         }
     };
