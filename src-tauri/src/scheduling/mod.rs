@@ -72,9 +72,17 @@ pub fn suggest_slots(
                 let ws = tz.from_local_datetime(&day.and_time(st)).single();
                 let we = tz.from_local_datetime(&day.and_time(et)).single();
                 if let (Some(ws), Some(we)) = (ws, we) {
-                    let ws_u = ws.with_timezone(&Utc).max(range_start);
+                    let ws_utc = ws.with_timezone(&Utc);
+                    let ws_u = ws_utc.max(range_start);
                     let we_u = we.with_timezone(&Utc).min(range_end);
                     let mut t = ws_u;
+                    if t > ws_utc {
+                        let elapsed = (t - ws_utc).num_minutes();
+                        let rem = elapsed % granularity_min.max(1);
+                        if rem != 0 {
+                            t += Duration::minutes(granularity_min.max(1) - rem);
+                        }
+                    }
                     while t + dur <= we_u {
                         if is_free(t, t + dur, &merged) {
                             out.push(Slot {
@@ -172,5 +180,41 @@ mod tests {
             tz, WorkingHours::default(), 30, 30, 5,
         );
         assert!(slots.is_empty());
+    }
+
+    #[test]
+    fn snaps_first_slot_to_granularity_grid_when_range_starts_off_grid() {
+        let tz = FixedOffset::east_opt(3 * 3600).unwrap();
+        // 06:17 UTC == 09:17 local; working window opens 09:00 local (06:00 UTC).
+        let slots = suggest_slots(
+            vec![],
+            utc(2026, 7, 1, 6, 17),
+            utc(2026, 7, 1, 23, 0),
+            tz,
+            WorkingHours::default(),
+            30,
+            30,
+            1,
+        );
+        assert!(slots[0].start.starts_with("2026-07-01T09:30:00"), "got {}", slots[0].start);
+    }
+
+    #[test]
+    fn spans_midweek_across_weekend_into_next_week() {
+        let tz = FixedOffset::east_opt(3 * 3600).unwrap();
+        // Fri 2026-07-03 -> Sat/Sun skipped -> Mon 2026-07-06. Busy all of Friday's working hours.
+        let busy = vec![BusyInterval { start: utc(2026, 7, 3, 6, 0), end: utc(2026, 7, 3, 15, 0) }];
+        let slots = suggest_slots(
+            busy,
+            utc(2026, 7, 3, 0, 0),
+            utc(2026, 7, 6, 23, 0),
+            tz,
+            WorkingHours::default(),
+            30,
+            30,
+            1,
+        );
+        // Friday fully busy, Sat/Sun skipped -> first free slot is Monday 09:00 local.
+        assert!(slots[0].start.starts_with("2026-07-06T09:00:00"), "got {}", slots[0].start);
     }
 }
