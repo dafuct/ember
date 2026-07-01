@@ -300,10 +300,17 @@ export const updateCalendarEvent = (
 export const deleteCalendarEvent = (calendarId: string, eventId: string): Promise<void> =>
   isTauri() ? invoke<void>("delete_calendar_event", { calendarId, eventId }) : Promise.resolve();
 
-export const openExternal = (url: string): Promise<void> =>
-  isTauri()
+export const openExternal = (url: string): Promise<void> => {
+  // Mirror the Rust `is_safe_url` check (http/https only) so the browser-maket
+  // fallback can't open a non-web scheme (javascript:, file:, …). The Tauri
+  // command re-checks server-side; this is defense-in-depth on the client.
+  if (!/^https?:\/\//i.test(url.trim())) {
+    return Promise.reject(new Error(`Refusing to open non-web URL: ${url}`));
+  }
+  return isTauri()
     ? invoke<void>("open_external", { url })
     : Promise.resolve(void window.open(url, "_blank", "noopener,noreferrer"));
+};
 
 export const respondToEvent = (
   calendarId: string,
