@@ -10,7 +10,8 @@ import {
   type CalendarEvent,
 } from "../lib/api";
 import { rfc3339Local, allDayEndExclusive } from "../lib/calendar";
-import { parseRecipients, isPlausibleEmail } from "../lib/compose";
+import { isPlausibleEmail } from "../lib/compose";
+import { GuestField } from "./GuestField";
 
 export interface EventInitial {
   calendars: CalendarSummary[];
@@ -45,7 +46,8 @@ export function EventModal({
   const [endTime, setEndTime] = useState(fmtTime(seedEnd));
   const [location, setLocation] = useState(editing?.location ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
-  const [guests, setGuests] = useState((editing?.attendees ?? []).map((a) => a.email).join(", "));
+  const [guests, setGuests] = useState<string[]>((editing?.attendees ?? []).map((a) => a.email));
+  const [tab, setTab] = useState<"details" | "find">("details");
   const [calendarId, setCalendarId] = useState(
     editing?.calendar_id ?? writableCals.find((c) => c.primary)?.id ?? writableCals[0]?.id ?? "primary",
   );
@@ -61,7 +63,7 @@ export function EventModal({
 
   function buildWrite(): EventWrite | string {
     if (title.trim() === "") return "A title is required.";
-    const emails = parseRecipients(guests);
+    const emails = guests;
     if (emails.length > 0 && !emails.every(isPlausibleEmail)) return "One of the guest emails looks invalid.";
     let start: string;
     let end: string;
@@ -127,34 +129,42 @@ export function EventModal({
           <span className="compose-title" id="event-title">{editing ? "Edit event" : "New event"}</span>
           <button className="icon-btn" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <input className="compose-field" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        <label className="event-row">
-          <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} /> All day
-        </label>
-        <div className="event-row">
-          <input type="date" className="compose-field" value={date} onChange={(e) => setDate(e.target.value)} />
-          {!allDay && <input type="time" className="compose-field" value={startTime} onChange={(e) => setStartTime(e.target.value)} />}
+        <div className="event-tabs">
+          <button type="button" className={tab === "details" ? "event-tab on" : "event-tab"} onClick={() => setTab("details")}>Details</button>
+          <button type="button" className={tab === "find" ? "event-tab on" : "event-tab"} onClick={() => setTab("find")} disabled={allDay}>Find a time</button>
         </div>
-        <div className="event-row">
-          <input type="date" className="compose-field" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          {!allDay && <input type="time" className="compose-field" value={endTime} onChange={(e) => setEndTime(e.target.value)} />}
-        </div>
-        <input className="compose-field" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
-        <input className="compose-field" placeholder="Guests (comma-separated emails)" value={guests} onChange={(e) => setGuests(e.target.value)} />
-        <textarea className="compose-body" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
-        <div className="event-row">
-          <select className="compose-field" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} disabled={!!editing}>
-            {writableCals.map((c) => (
-              <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
-            ))}
-          </select>
-        </div>
-        {editing ? (
-          editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>Join Google Meet</button> : null
-        ) : (
-          <label className="event-row">
-            <input type="checkbox" checked={addMeet} onChange={(e) => setAddMeet(e.target.checked)} /> Add Google Meet
-          </label>
+        {tab === "details" && (
+          <>
+            <input className="compose-field" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+            <label className="event-row">
+              <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} /> All day
+            </label>
+            <div className="event-row">
+              <input type="date" className="compose-field" value={date} onChange={(e) => setDate(e.target.value)} />
+              {!allDay && <input type="time" className="compose-field" value={startTime} onChange={(e) => setStartTime(e.target.value)} />}
+            </div>
+            <div className="event-row">
+              <input type="date" className="compose-field" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              {!allDay && <input type="time" className="compose-field" value={endTime} onChange={(e) => setEndTime(e.target.value)} />}
+            </div>
+            <input className="compose-field" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
+            <GuestField value={guests} onChange={setGuests} />
+            <textarea className="compose-body" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
+            <div className="event-row">
+              <select className="compose-field" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} disabled={!!editing}>
+                {writableCals.map((c) => (
+                  <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
+                ))}
+              </select>
+            </div>
+            {editing ? (
+              editing.meet_link ? <button type="button" className="event-meet event-meet-btn" onClick={() => openExternal(editing.meet_link!)}>Join Google Meet</button> : null
+            ) : (
+              <label className="event-row">
+                <input type="checkbox" checked={addMeet} onChange={(e) => setAddMeet(e.target.checked)} /> Add Google Meet
+              </label>
+            )}
+          </>
         )}
         {error && <div className="compose-error">{error}</div>}
         <div className="compose-actions">
