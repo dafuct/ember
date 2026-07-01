@@ -4,9 +4,16 @@ import {
   googleCredentialsStatus,
   setGoogleCredentials,
   clearGoogleCredentials,
+  zoomStatus,
+  zoomConnect,
+  zoomDisconnect,
+  zoomCredentialsStatus,
+  setZoomCredentials,
+  clearZoomCredentials,
   type AccountInfo,
   type Settings,
   type CredentialStatus,
+  type ZoomAccount,
 } from "../lib/api";
 import { ensureNotificationPermission } from "../lib/notify";
 import { isTauri } from "@tauri-apps/api/core";
@@ -43,9 +50,77 @@ export function SettingsModal({
   const [credBusy, setCredBusy] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
 
+  const [zoomAccount, setZoomAccount] = useState<ZoomAccount | null>(null);
+  const [zoomBusy, setZoomBusy] = useState(false);
+  const [zoomError, setZoomError] = useState<string | null>(null);
+  const [zoomCredsOpen, setZoomCredsOpen] = useState(false);
+  const [zoomCredStatus, setZoomCredStatus] = useState<string | null>(null);
+  const [zoomCredId, setZoomCredId] = useState("");
+  const [zoomCredSecret, setZoomCredSecret] = useState("");
+  const [zoomCredBusy, setZoomCredBusy] = useState(false);
+  const [zoomCredError, setZoomCredError] = useState<string | null>(null);
+
   useEffect(() => {
     googleCredentialsStatus().then(setCredStatus).catch(() => {});
+    zoomStatus().then(setZoomAccount).catch(() => {});
+    zoomCredentialsStatus().then(setZoomCredStatus).catch(() => {});
   }, []);
+
+  async function handleZoomConnect() {
+    setZoomBusy(true);
+    setZoomError(null);
+    try {
+      await zoomConnect();
+      setZoomAccount(await zoomStatus());
+    } catch (e) {
+      setZoomError(String(e));
+    } finally {
+      setZoomBusy(false);
+    }
+  }
+
+  async function handleZoomDisconnect() {
+    setZoomBusy(true);
+    setZoomError(null);
+    try {
+      await zoomDisconnect();
+      setZoomAccount(await zoomStatus());
+    } catch (e) {
+      setZoomError(String(e));
+    } finally {
+      setZoomBusy(false);
+    }
+  }
+
+  async function handleSaveZoomCreds() {
+    setZoomCredBusy(true);
+    setZoomCredError(null);
+    try {
+      await setZoomCredentials(zoomCredId.trim(), zoomCredSecret.trim());
+      setZoomCredId("");
+      setZoomCredSecret("");
+      setZoomCredStatus(await zoomCredentialsStatus());
+    } catch (e) {
+      setZoomCredError(String(e));
+    } finally {
+      setZoomCredBusy(false);
+    }
+  }
+
+  async function handleClearZoomCreds() {
+    setZoomCredBusy(true);
+    setZoomCredError(null);
+    try {
+      await clearZoomCredentials();
+      setZoomCredId("");
+      setZoomCredSecret("");
+      setZoomCredStatus(await zoomCredentialsStatus());
+    } catch (e) {
+      setZoomCredError(String(e));
+    } finally {
+      setZoomCredBusy(false);
+    }
+  }
 
   async function handleSaveCreds() {
     setCredBusy(true);
@@ -271,6 +346,80 @@ export function SettingsModal({
             )}
           </div>
           {credError && <div className="compose-error">{credError}</div>}
+        </div>
+
+        <div className="settings-field">
+          <span className="settings-label">Zoom</span>
+          <div className="settings-row">
+            <span className="settings-value">
+              {zoomAccount ? (
+                <>
+                  Connected as {zoomAccount.email}
+                  <span className="settings-chip">Active</span>
+                </>
+              ) : (
+                "Not connected"
+              )}
+            </span>
+            {zoomAccount ? (
+              <button className="btn btn-danger-outline" disabled={zoomBusy} onClick={handleZoomDisconnect}>
+                {zoomBusy ? "Disconnecting…" : "Disconnect"}
+              </button>
+            ) : (
+              <button className="btn btn-accent" disabled={zoomBusy} onClick={handleZoomConnect}>
+                {zoomBusy ? "Connecting…" : "Connect Zoom"}
+              </button>
+            )}
+          </div>
+          {zoomError && <div className="compose-error">{zoomError}</div>}
+
+          <button
+            className="creds-help-toggle"
+            onClick={() => setZoomCredsOpen((s) => !s)}
+          >
+            {zoomCredsOpen ? "Hide Zoom API credentials" : "Zoom API credentials"}
+          </button>
+          {zoomCredsOpen && (
+            <>
+              <div className="settings-creds-status">
+                {zoomCredStatus === null
+                  ? "Checking…"
+                  : zoomCredStatus === "stored"
+                  ? "Using your saved key"
+                  : zoomCredStatus === "none"
+                  ? "Not configured"
+                  : "Using built-in key"}
+              </div>
+              <input
+                className="creds-input"
+                placeholder="Client ID"
+                value={zoomCredId}
+                onChange={(e) => setZoomCredId(e.target.value)}
+              />
+              <input
+                className="creds-input"
+                type="password"
+                placeholder="Client secret"
+                value={zoomCredSecret}
+                onChange={(e) => setZoomCredSecret(e.target.value)}
+              />
+              <div className="settings-creds-actions">
+                <button
+                  className="btn btn-accent"
+                  disabled={zoomCredBusy || !zoomCredId.trim() || !zoomCredSecret.trim()}
+                  onClick={handleSaveZoomCreds}
+                >
+                  Save key
+                </button>
+                {zoomCredStatus === "stored" && (
+                  <button className="btn btn-danger-outline" disabled={zoomCredBusy} onClick={handleClearZoomCreds}>
+                    Clear saved key
+                  </button>
+                )}
+              </div>
+              {zoomCredError && <div className="compose-error">{zoomCredError}</div>}
+            </>
+          )}
         </div>
 
         {error && <div className="compose-error">{error}</div>}
