@@ -1088,6 +1088,7 @@ pub async fn read_transcript_file(path: String) -> Result<String> {
 pub async fn transcribe_recording(
     state: tauri::State<'_, crate::transcribe::TranscriberState>,
     path: String,
+    language: Option<String>,
 ) -> Result<String> {
     const MAX_RECORDING_BYTES: u64 = 500 * 1024 * 1024;
     let len = std::fs::metadata(&path)
@@ -1108,7 +1109,7 @@ pub async fn transcribe_recording(
         let t = guard.as_ref().ok_or_else(|| {
             AppError::Other("transcription not ready — open a meeting note so it can set up first".into())
         })?;
-        t.transcribe_samples(&samples, None)
+        t.transcribe_samples(&samples, language.as_deref())
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))??;
@@ -1119,22 +1120,34 @@ pub async fn transcribe_recording(
 pub async fn prepare_transcription(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::transcribe::TranscriberState>,
+    model: Option<String>,
     on_progress: tauri::ipc::Channel<crate::model::PrepProgress>,
 ) -> Result<()> {
+    let model_id = model.unwrap_or_else(|| crate::model::DEFAULT_MODEL_ID.to_string());
     {
         let guard = state
             .lock()
             .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
-        if guard.is_some() {
-            let _ = on_progress.send(crate::model::PrepProgress::Ready);
-            return Ok(());
+        if let Some(t) = guard.as_ref() {
+            if t.model_id() == model_id {
+                let _ = on_progress.send(crate::model::PrepProgress::Ready);
+                return Ok(());
+            }
         }
     }
-    let model = crate::model::ensure_model(&app, crate::model::DEFAULT_MODEL_ID, &on_progress).await?;
+    // A different (or no) model is loaded — drop the old one before provisioning the new.
+    {
+        let mut guard = state
+            .lock()
+            .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
+        *guard = None;
+    }
+    let model_path = crate::model::ensure_model(&app, &model_id, &on_progress).await?;
     let _ = on_progress.send(crate::model::PrepProgress::Loading);
-    let model_str = model.to_string_lossy().to_string();
+    let model_str = model_path.to_string_lossy().to_string();
+    let id_for_load = model_id.clone();
     let loaded = tokio::task::spawn_blocking(move || {
-        crate::transcribe::Transcriber::load(&model_str, crate::model::DEFAULT_MODEL_ID)
+        crate::transcribe::Transcriber::load(&model_str, &id_for_load)
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))??;
@@ -1142,9 +1155,7 @@ pub async fn prepare_transcription(
         let mut guard = state
             .lock()
             .map_err(|_| AppError::Other("transcriber state poisoned".into()))?;
-        if guard.is_none() {
-            *guard = Some(loaded);
-        }
+        *guard = Some(loaded);
     }
     let _ = on_progress.send(crate::model::PrepProgress::Ready);
     Ok(())
