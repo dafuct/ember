@@ -1108,7 +1108,7 @@ pub async fn transcribe_recording(
         let t = guard.as_ref().ok_or_else(|| {
             AppError::Other("transcription not ready — open a meeting note so it can set up first".into())
         })?;
-        t.transcribe_samples(&samples)
+        t.transcribe_samples(&samples, None)
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))??;
@@ -1133,9 +1133,11 @@ pub async fn prepare_transcription(
     let model = crate::model::ensure_model(&app, crate::model::DEFAULT_MODEL_ID, &on_progress).await?;
     let _ = on_progress.send(crate::model::PrepProgress::Loading);
     let model_str = model.to_string_lossy().to_string();
-    let loaded = tokio::task::spawn_blocking(move || crate::transcribe::Transcriber::load(&model_str))
-        .await
-        .map_err(|e| AppError::Other(e.to_string()))??;
+    let loaded = tokio::task::spawn_blocking(move || {
+        crate::transcribe::Transcriber::load(&model_str, crate::model::DEFAULT_MODEL_ID)
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))??;
     {
         let mut guard = state
             .lock()

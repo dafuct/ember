@@ -196,7 +196,7 @@ fn transcribe_and_emit(
             Err(_) => return,
         };
         match guard.as_ref() {
-            Some(t) => t.transcribe_samples(samples_16k),
+            Some(t) => t.transcribe_samples(samples_16k, None),
             None => return,
         }
     };

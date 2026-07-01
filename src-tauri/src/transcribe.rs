@@ -6,6 +6,7 @@ use crate::error::{AppError, Result};
 
 pub struct Transcriber {
     ctx: WhisperContext,
+    model_id: String,
 }
 
 pub type TranscriberState = Arc<Mutex<Option<Transcriber>>>;
@@ -33,13 +34,20 @@ fn n_threads() -> i32 {
 }
 
 impl Transcriber {
-    pub fn load(model_path: &str) -> Result<Self> {
+    pub fn load(model_path: &str, model_id: &str) -> Result<Self> {
         let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
             .map_err(|e| AppError::Other(format!("failed to load whisper model: {e}")))?;
-        Ok(Self { ctx })
+        Ok(Self {
+            ctx,
+            model_id: model_id.to_string(),
+        })
     }
 
-    pub fn transcribe_samples(&self, samples_16k_mono: &[f32]) -> Result<String> {
+    pub fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    pub fn transcribe_samples(&self, samples_16k_mono: &[f32], lang: Option<&str>) -> Result<String> {
         if samples_16k_mono.is_empty() {
             return Ok(String::new());
         }
@@ -47,8 +55,16 @@ impl Transcriber {
             .ctx
             .create_state()
             .map_err(|e| AppError::Other(format!("whisper state error: {e}")))?;
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some("auto"));
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size: BEAM_SIZE,
+            patience: -1.0,
+        });
+        let language = resolve_language(lang);
+        params.set_language(Some(language));
+        if let Some(prompt) = initial_prompt_for(language) {
+            params.set_initial_prompt(prompt);
+        }
+        params.set_n_threads(n_threads());
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
