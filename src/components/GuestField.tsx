@@ -14,20 +14,25 @@ export function GuestField({
   const [hits, setHits] = useState<PersonHit[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  const gen = useRef(0);
 
   useEffect(() => {
     window.clearTimeout(timer.current);
     const q = text.trim();
     if (q.length < 1) {
       setHits([]);
+      setOpen(false);
       return;
     }
     timer.current = window.setTimeout(async () => {
+      const myGen = ++gen.current;
       try {
         const found = await searchPeople(q);
+        if (gen.current !== myGen) return;        // a newer query superseded this one
         setHits(found.filter((h) => !value.includes(h.email)));
         setOpen(true);
       } catch {
+        if (gen.current !== myGen) return;
         setHits([]);
       }
     }, 250);
@@ -70,6 +75,7 @@ export function GuestField({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           onFocus={() => hits.length && setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         />
       </div>
       {open && (
