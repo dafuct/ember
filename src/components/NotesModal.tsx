@@ -45,6 +45,12 @@ export function NotesModal({
   const [transcribing, setTranscribing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [captureMic, setCaptureMic] = useState(true);
+  const [lang, setLang] = useState(
+    () => localStorage.getItem("ember.transcribeLang") || "auto",
+  );
+  const [model, setModel] = useState(
+    () => localStorage.getItem("ember.transcribeModel") || "medium",
+  );
   const [error, setError] = useState<string | null>(null);
   const [prepMsg, setPrepMsg] = useState<string | null>(null);
 
@@ -156,7 +162,7 @@ export function NotesModal({
   async function ensureReady(): Promise<boolean> {
     setPrepMsg("Setting up transcription…");
     try {
-      await prepareTranscription((p) => {
+      await prepareTranscription(model, (p) => {
         if (p.type === "Downloading") setPrepMsg(`Downloading speech model… ${p.percent}%`);
         else if (p.type === "Loading") setPrepMsg("Loading model…");
         else if (p.type === "Ready") setPrepMsg(null);
@@ -188,7 +194,7 @@ export function NotesModal({
       }
       if (!path) return;
       if (!(await ensureReady())) return;
-      const text = await transcribeRecording(path);
+      const text = await transcribeRecording(path, lang);
       setTranscript(text);
     } catch (e) {
       setError(String(e));
@@ -202,7 +208,7 @@ export function NotesModal({
     if (!(await ensureReady())) return;
     setRecording(true);
     try {
-      await startSystemCapture(captureMic, (e) => {
+      await startSystemCapture(captureMic, lang, (e) => {
         if (e.type === "Chunk") {
           setTranscript((t) => (t ? t + "\n" : "") + e.text);
         } else if (e.type === "Error") {
@@ -277,6 +283,38 @@ export function NotesModal({
             <div className="note-transcript-head">
               <span>Transcript</span>
               <div className="note-transcript-actions">
+                <select
+                  className="note-select"
+                  aria-label="Transcription language"
+                  value={lang}
+                  disabled={blocked}
+                  onChange={(e) => {
+                    setLang(e.target.value);
+                    localStorage.setItem("ember.transcribeLang", e.target.value);
+                  }}
+                >
+                  <option value="auto">Auto-detect</option>
+                  <option value="uk">Ukrainian</option>
+                  <option value="en">English</option>
+                  <option value="ru">Russian</option>
+                  <option value="de">German</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="pl">Polish</option>
+                </select>
+                <select
+                  className="note-select"
+                  aria-label="Transcription model"
+                  value={model}
+                  disabled={blocked}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    localStorage.setItem("ember.transcribeModel", e.target.value);
+                  }}
+                >
+                  <option value="medium">Standard — medium (1.5 GB)</option>
+                  <option value="large-v3-turbo">High accuracy — large-v3-turbo (1.6 GB)</option>
+                </select>
                 <button className="btn" onClick={handleImport} disabled={blocked}>
                   {importing ? "Importing…" : "Import…"}
                 </button>
@@ -318,6 +356,11 @@ export function NotesModal({
               Records the meeting's audio with no setup. macOS will ask for <b>Screen Recording</b>
               {captureMic ? " and Microphone" : ""} permission the first time — click Allow.
             </div>
+            {model === "large-v3-turbo" && (
+              <div className="note-capture-help">
+                High-accuracy model downloads ~1.6 GB the first time you use it.
+              </div>
+            )}
             <div className="note-summary-section">
               <div className="note-summary-head">
                 <span>Summary</span>
