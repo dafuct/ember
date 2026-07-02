@@ -354,7 +354,8 @@ export function NotesModal({
             </div>
             <div className="note-capture-help">
               Records the meeting's audio with no setup. macOS will ask for <b>Screen Recording</b>
-              {captureMic ? " and Microphone" : ""} permission the first time — click Allow.
+              {captureMic ? " and Microphone" : ""} permission the first time — after enabling it
+              in System Settings, quit and reopen Ember, then Record again.
             </div>
             {model === "large-v3-turbo" && (
               <div className="note-capture-help">

@@ -7,6 +7,7 @@
 //
 // Objective-C (not Swift) on purpose: the ObjC runtime is always present on macOS, so there's no
 // Swift-runtime dylib to bundle (which is what made the Rust ScreenCaptureKit *crate* unshippable).
+#import <CoreGraphics/CoreGraphics.h>
 #import <CoreMedia/CoreMedia.h>
 #import <Foundation/Foundation.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
@@ -99,17 +100,30 @@ void *ember_syscapture_start(int capture_mic, ember_audio_cb cb, void *ctx, char
                              int err_len) {
   @autoreleasepool {
     __block SCShareableContent *content = nil;
+    __block NSError *contentErr = nil;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     [SCShareableContent
         getShareableContentWithCompletionHandler:^(SCShareableContent *c, NSError *e) {
           content = c;
+          contentErr = e;
           dispatch_semaphore_signal(sem);
         }];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     if (!content || content.displays.count == 0) {
-      snprintf(err_out, err_len,
-               "Screen Recording permission is needed. Enable Ember in System Settings -> "
-               "Privacy & Security -> Screen Recording, then try again.");
+      // TCC evaluates Screen Recording per process at launch: a grant made while Ember is
+      // running (or recorded against a previous build of the app) does not apply to this
+      // process, so retrying without a relaunch can never succeed.
+      if (!CGPreflightScreenCaptureAccess()) {
+        snprintf(err_out, err_len,
+                 "Screen Recording permission is needed. Enable Ember in System Settings -> "
+                 "Privacy & Security -> Screen Recording, then quit and reopen Ember.");
+      } else {
+        snprintf(err_out, err_len,
+                 "Could not start screen capture even though Screen Recording is granted. "
+                 "Quit and reopen Ember (macOS applies the permission at launch)%s%s",
+                 contentErr ? " — " : ".",
+                 contentErr ? contentErr.localizedDescription.UTF8String : "");
+      }
       return NULL;
     }
 
