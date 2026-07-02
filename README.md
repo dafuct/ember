@@ -106,7 +106,7 @@ project, so they'd be blocked *and* wouldn't see the credentials screen.
 
 ## Install on another Mac
 
-1. Copy the `.dmg` (e.g. `Ember_0.1.0_aarch64.dmg`) to the other Mac and drag **Ember** into **Applications**.
+1. Copy the `.dmg` (e.g. `Ember_0.1.1_aarch64.dmg`) to the other Mac and drag **Ember** into **Applications**.
 2. The app is **unsigned / not notarized**, so Gatekeeper blocks the first launch. Either:
    - **System Settings → Privacy & Security → "Open Anyway"**, or
    - `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open it.

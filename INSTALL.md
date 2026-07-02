@@ -13,8 +13,8 @@ not notarized by Apple, so macOS blocks the first launch by design. The fix is b
 
 ## 1. Copy the installer over
 
-Get `Ember_0.1.0_aarch64.dmg` onto the other Mac — **AirDrop**, a USB stick, or any file transfer.
-(After a build it lives at `src-tauri/target/release/bundle/dmg/Ember_0.1.0_aarch64.dmg`.)
+Get `Ember_0.1.1_aarch64.dmg` onto the other Mac — **AirDrop**, a USB stick, or any file transfer.
+(After a build it lives at `src-tauri/target/release/bundle/dmg/Ember_0.1.1_aarch64.dmg`.)
 
 ## 2. Install the app
 
@@ -92,6 +92,23 @@ Summaries (separate from transcription) use [Ollama](https://ollama.com): instal
 
 ---
 
+## Upgrading to a new version
+
+1. Download the new `.dmg` and drag **Ember.app** into **Applications**, replacing the old one.
+2. Clear Gatekeeper's quarantine again (the new download gets its own flag — Step 3):
+   `xattr -dr com.apple.quarantine /Applications/Ember.app`
+3. **Coming from v0.1.0 or earlier? Re-grant Screen Recording — once.** Those early builds were
+   ad-hoc signed, and macOS ties the Screen Recording grant to that exact build. After updating,
+   System Settings still shows Ember's toggle **ON**, but recording fails with a permission error.
+   The one-time fix:
+   1. System Settings → Privacy & Security → **Screen Recording** (called **Screen & System Audio
+      Recording** on macOS 15+) → select the stale **Ember.app** row → remove it with the **−** button.
+   2. Launch the new Ember and click **Record** in a meeting note — macOS prompts again → enable Ember.
+   3. **Quit and reopen Ember** (the grant only takes effect at launch). Record now works.
+
+   Builds after v0.1.0 are signed with a stable certificate ("Ember Dev"), so future updates keep
+   the grant — this dance isn't needed again.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -101,5 +118,6 @@ Summaries (separate from transcription) use [Ollama](https://ollama.com): instal
 | Won't launch at all, no dialog | It's Apple-Silicon-only — confirm it's not an Intel Mac |
 | Google sign-in blocked / "not a test user" | Sign in with the project owner's account, or add that account as a test user in Google Cloud |
 | Recording produces an empty / silent transcript | Grant **Screen Recording**: System Settings → Privacy & Security → **Screen Recording** → turn **Ember** on, then **relaunch** Ember (it only takes effect after a restart) |
+| Permission error but the Screen Recording toggle is already **ON** | The grant belongs to a previous build (see **Upgrading**): remove the stale Ember entry with **−**, relaunch Ember, re-grant when prompted, then quit & reopen Ember |
 | Your own voice isn't in the transcript | Tick **"Also capture my voice"** before Record (and grant **Microphone**). This needs **macOS 15+** — on macOS 13–14 only the call/other participants are captured |
 | "Ember requires macOS 13" / won't install | Ember needs **macOS 13 (Ventura) or later** (ScreenCaptureKit). Older macOS isn't supported |
