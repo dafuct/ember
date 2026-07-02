@@ -24,8 +24,12 @@ permissions:
 
 jobs:
   build:
-    # macos-14 is Apple Silicon (arm64) → native aarch64 build, matching the app's target.
-    runs-on: macos-14
+    # macos-15: Apple Silicon (arm64) runner with Xcode 16 / the macOS 15 SDK. The SDK
+    # matters — native/syscapture.m references macOS 15 APIs (SCStreamOutputTypeMicrophone,
+    # captureMicrophone) that the older macos-14 runner's SDK doesn't declare, so it won't
+    # compile there. Those APIs are runtime-guarded with `@available(macOS 15.0, *)`, and
+    # the deployment target stays 13.0, so the artifact still runs on macOS 13+.
+    runs-on: macos-15
     env:
       # Ad-hoc sign in CI: the repo config sets signingIdentity "Ember Dev", a
       # self-signed cert that only exists on the maintainer's Mac. "-" overrides it
