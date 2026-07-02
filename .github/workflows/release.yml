@@ -36,6 +36,11 @@ jobs:
       # so the build doesn't fail looking for a certificate. The .dmg stays unsigned
       # / un-notarized — users get past Gatekeeper via the steps in INSTALL.md.
       APPLE_SIGNING_IDENTITY: "-"
+      # Force a portable arm64 whisper build (GGML_NATIVE=OFF). Without this, ggml's
+      # -mcpu=native both (a) fails to compile on the runner and (b) would bake in
+      # i8mm instructions that SIGILL-crash on M1 Macs. whisper-rs-sys forwards any
+      # CMAKE_* env var to cmake; CMAKE_PROJECT_INCLUDE runs our shim after project().
+      CMAKE_PROJECT_INCLUDE: ${{ github.workspace }}/src-tauri/cmake/portable-arm64.cmake
     steps:
       - name: Checkout
         uses: actions/checkout@v4

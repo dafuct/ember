@@ -51,11 +51,17 @@ Run everything **from the repo root**.
    ```bash
    mv src-tauri/.env src-tauri/.env.local.bak   # skip if you have no .env
    ```
-2. Build:
+2. Build a **portable** arm64 bundle. `CMAKE_PROJECT_INCLUDE` forces `GGML_NATIVE=OFF`
+   so whisper doesn't bake in the build machine's CPU features (e.g. i8mm, absent on
+   base M1) — without it, a build made on an M2+/M3+ Mac SIGILL-crashes on M1:
    ```bash
    npm ci
-   npm run tauri build
+   CMAKE_PROJECT_INCLUDE="$PWD/src-tauri/cmake/portable-arm64.cmake" npm run tauri build
    ```
+   > Confirm it's portable — this must print `0`:
+   > ```bash
+   > otool -tvV src-tauri/target/release/bundle/macos/Ember.app/Contents/MacOS/Ember | grep -icE '\b(smmla|ummla)\b'
+   > ```
 3. Checksum the `.dmg`:
    ```bash
    dmg=$(find src-tauri/target/release/bundle/dmg -name '*.dmg')
