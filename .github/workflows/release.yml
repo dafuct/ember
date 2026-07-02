@@ -31,11 +31,15 @@ jobs:
     # the deployment target stays 13.0, so the artifact still runs on macOS 13+.
     runs-on: macos-15
     env:
-      # Ad-hoc sign in CI: the repo config sets signingIdentity "Ember Dev", a
-      # self-signed cert that only exists on the maintainer's Mac. "-" overrides it
-      # so the build doesn't fail looking for a certificate. The .dmg stays unsigned
-      # / un-notarized — users get past Gatekeeper via the steps in INSTALL.md.
-      APPLE_SIGNING_IDENTITY: "-"
+      # Sign with the maintainer's "Ember Dev" self-signed cert when its .p12 is
+      # configured as a secret (imported in the step below). A cert-based signature
+      # keeps a STABLE designated requirement (`identifier + certificate leaf`), so
+      # macOS TCC grants — Screen Recording for meeting capture — survive app updates.
+      # Without the secret (forks), fall back to ad-hoc ("-"), whose per-build cdhash
+      # requirement silently invalidates those grants on every release: System Settings
+      # keeps showing the toggle ON while ScreenCaptureKit is denied. Either way the
+      # .dmg is not notarized — users get past Gatekeeper via the steps in INSTALL.md.
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_CERTIFICATE != '' && 'Ember Dev' || '-' }}
       # Force a portable arm64 whisper build (GGML_NATIVE=OFF). Without this, ggml's
       # -mcpu=native both (a) fails to compile on the runner and (b) would bake in
       # i8mm instructions that SIGILL-crash on M1 Macs. whisper-rs-sys forwards any
@@ -69,6 +73,26 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Import signing certificate
+        # Temp-keychain import per https://v2.tauri.app/distribute/sign/macos — the
+        # keychain lives only for this ephemeral runner; the password never leaves it.
+        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+          rm certificate.p12
+          security find-identity -v -p codesigning build.keychain
+
       - name: Build the app (.app + .dmg)
         run: npm run tauri build
 
@@ -95,7 +119,7 @@ jobs:
             "${{ steps.artifact.outputs.dmg }}" \
             "${{ steps.artifact.outputs.dmg }}.sha256" \
             --title "Ember $tag" \
-            --notes "Apple-Silicon macOS build (unsigned). See [INSTALL.md](https://github.com/${{ github.repository }}/blob/main/INSTALL.md) for setup — including getting past Gatekeeper and connecting your own Google credentials.
+            --notes "Apple-Silicon macOS build (self-signed, not notarized). See [INSTALL.md](https://github.com/${{ github.repository }}/blob/main/INSTALL.md) for setup — including getting past Gatekeeper and connecting your own Google credentials. Upgrading from v0.1.0 or earlier? Re-grant Screen Recording once (INSTALL.md, \"Upgrading\").
 
           Verify your download:
           \`\`\`
