@@ -39,6 +39,9 @@ jobs:
       # requirement silently invalidates those grants on every release: System Settings
       # keeps showing the toggle ON while ScreenCaptureKit is denied. Either way the
       # .dmg is not notarized — users get past Gatekeeper via the steps in INSTALL.md.
+      # (HAS_SIGNING_CERT exists because the `secrets` context is not allowed in a
+      # step-level `if:` — only env is.)
+      HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_CERTIFICATE != '' && 'Ember Dev' || '-' }}
       # Force a portable arm64 whisper build (GGML_NATIVE=OFF). Without this, ggml's
       # -mcpu=native both (a) fails to compile on the runner and (b) would bake in
@@ -76,7 +79,7 @@ jobs:
       - name: Import signing certificate
         # Temp-keychain import per https://v2.tauri.app/distribute/sign/macos — the
         # keychain lives only for this ephemeral runner; the password never leaves it.
-        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
