@@ -108,7 +108,9 @@ jobs:
             echo "No .dmg produced by the build" >&2
             exit 1
           fi
-          shasum -a 256 "$dmg" | tee "$dmg.sha256"
+          # Record only the basename in the .sha256 so `shasum -c` works where
+          # users actually run it (next to the downloaded .dmg), not the CI path.
+          (cd "$(dirname "$dmg")" && shasum -a 256 "$(basename "$dmg")") | tee "$dmg.sha256"
           echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
