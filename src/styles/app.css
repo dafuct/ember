@@ -104,6 +104,8 @@
 .connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
 .connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
 .connect-sub { font-size: 14px; color: var(--text-muted); margin: 0 0 8px; }
+.connect-error { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 440px; }
+.connect-error-hint { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 0; }
 
 .spin { animation: ember-spin 1s linear infinite; }
 @keyframes ember-spin { to { transform: rotate(360deg); } }

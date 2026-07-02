@@ -4,6 +4,19 @@ A **local-first macOS Gmail client** built with Tauri 2 (Rust) and React + TypeS
 
 > Personal project. Ember is not affiliated with Google.
 
+## Download
+
+Prebuilt macOS builds are published on the [**Releases**](https://github.com/dafuct/ember/releases)
+page (Apple-Silicon, macOS 13+, unsigned). See [INSTALL.md](INSTALL.md) for the full
+walkthrough — getting past Gatekeeper and connecting Google.
+
+> **Heads-up for downloaders:** Ember uses Google's *restricted* Gmail scope, so a public
+> build can't ship a shared key — on first launch you paste **your own** Google OAuth
+> Client ID + secret (the app explains how, and it's a one-time setup). This makes public
+> builds practical mainly for technical users. Why this is unavoidable — and the other
+> options (Test users, verification) — is covered in [INSTALL.md](INSTALL.md). Maintainers:
+> see [RELEASE.md](RELEASE.md) for how releases are cut.
+
 ## Features
 
 - **Multiple Google accounts** — add several accounts and switch the active one from the avatar menu; Gmail, Calendar, and notes all follow the active account. New mail for *all* connected accounts is polled in the background with native notifications.
@@ -83,6 +96,13 @@ Ember can be shared with other people, each using their **own** Google Cloud pro
 
 (Your own personal build that includes `src-tauri/.env` keeps working with no entry — the
 baked credentials are used automatically.)
+
+For **public** releases this is automated: pushing a `v*` tag runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the BYO
+`.dmg` on an Apple-Silicon runner, attaches a SHA-256 checksum, and creates the GitHub
+Release. Step-by-step (and the manual fallback) is in [RELEASE.md](RELEASE.md).
+⚠️ Never publish your personal baked build — a stranger isn't a Test user of your Google
+project, so they'd be blocked *and* wouldn't see the credentials screen.
 
 ## Install on another Mac
 

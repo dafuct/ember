@@ -2,7 +2,13 @@ import { useState } from "react";
 import { Flame } from "lucide-react";
 import { setGoogleCredentials } from "../lib/api";
 
-export function CredentialsSetup({ onSaved }: { onSaved: () => void }) {
+export function CredentialsSetup({
+  onSaved,
+  onBack,
+}: {
+  onSaved: () => void;
+  onBack?: () => void;
+}) {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [showHelp, setShowHelp] = useState(false);
@@ -54,6 +60,11 @@ export function CredentialsSetup({ onSaved }: { onSaved: () => void }) {
         <button className="creds-help-toggle" onClick={() => setShowHelp((s) => !s)}>
           {showHelp ? "Hide setup steps" : "How do I get these?"}
         </button>
+        {onBack && (
+          <button className="creds-help-toggle" onClick={onBack}>
+            ← Back
+          </button>
+        )}
         {showHelp && (
           <ol className="creds-help">
             <li>Open the <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> and create a project.</li>

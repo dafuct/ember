@@ -1,0 +1,103 @@
+name: Release
+
+# Builds a distributable macOS .dmg and publishes it to GitHub Releases.
+#
+# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the Actions tab.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# IMPORTANT — this always produces a "bring-your-own-credentials" build:
+#   `src-tauri/.env` is gitignored and never present in a clean CI checkout, so
+#   nothing is baked in (build.rs finds no .env → credentials source is "none").
+#   On first launch each user pastes their own Google Client ID + secret. This is
+#   the ONLY build that works for people you can't add as Test users of your own
+#   Google Cloud project — never publish your personal baked build.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the GitHub Release
+
+jobs:
+  build:
+    # macos-14 is Apple Silicon (arm64) → native aarch64 build, matching the app's target.
+    runs-on: macos-14
+    env:
+      # Ad-hoc sign in CI: the repo config sets signingIdentity "Ember Dev", a
+      # self-signed cert that only exists on the maintainer's Mac. "-" overrides it
+      # so the build doesn't fail looking for a certificate. The .dmg stays unsigned
+      # / un-notarized — users get past Gatekeeper via the steps in INSTALL.md.
+      APPLE_SIGNING_IDENTITY: "-"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build the app (.app + .dmg)
+        run: npm run tauri build
+
+      - name: Locate the .dmg and compute checksum
+        id: artifact
+        run: |
+          set -euo pipefail
+          dmg="$(find src-tauri/target -name '*.dmg' -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "No .dmg produced by the build" >&2
+            exit 1
+          fi
+          shasum -a 256 "$dmg" | tee "$dmg.sha256"
+          echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" \
+            "${{ steps.artifact.outputs.dmg }}" \
+            "${{ steps.artifact.outputs.dmg }}.sha256" \
+            --title "Ember $tag" \
+            --notes "Apple-Silicon macOS build (unsigned). See [INSTALL.md](https://github.com/${{ github.repository }}/blob/main/INSTALL.md) for setup — including getting past Gatekeeper and connecting your own Google credentials.
+
+          Verify your download:
+          \`\`\`
+          shasum -a 256 -c Ember_*_aarch64.dmg.sha256
+          \`\`\`"
+
+      - name: Upload build artifact (non-tag runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ember-dmg
+          path: |
+            ${{ steps.artifact.outputs.dmg }}
+            ${{ steps.artifact.outputs.dmg }}.sha256

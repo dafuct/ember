@@ -78,6 +78,10 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>({ signature: "", remote_images: true, notifications: true });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [credsConfigured, setCredsConfigured] = useState<boolean | null>(null);
+  // User chose "use my own Google credentials" even though a baked/stored key exists
+  // (e.g. after a sign-in was blocked because they aren't a Test user). Reveals the
+  // bring-your-own setup screen on demand; distinct from the first-run no-creds case.
+  const [byoOverride, setByoOverride] = useState(false);
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [accountEpoch, setAccountEpoch] = useState(0);
@@ -812,13 +816,19 @@ export default function App() {
   };
 
   if (!account) {
-    if (credsConfigured === false) {
+    if (credsConfigured === false || byoOverride) {
       return (
         <CredentialsSetup
           onSaved={() => {
             setCredsConfigured(true);
+            setByoOverride(false);
             setError(null);
           }}
+          // Offer "Back" only when there's already a working key to fall back on
+          // (baked/stored). The genuine first-run no-creds case has nowhere to go.
+          onBack={
+            credsConfigured === false ? undefined : () => setByoOverride(false)
+          }
         />
       );
     }
@@ -838,7 +848,26 @@ export default function App() {
           >
             {busy ? "Connecting…" : "Connect Gmail"}
           </button>
-          {error && <pre className="error-text">{error}</pre>}
+          {error && (
+            <div className="connect-error">
+              <pre className="error-text">{error}</pre>
+              <p className="connect-error-hint">
+                Ember uses Google's restricted Gmail scope, so an unverified app only
+                lets in accounts added as <b>Test users</b> of its Google Cloud project.
+                If that's the blocker, add this account as a Test user — or connect with
+                your own Google credentials.
+              </p>
+            </div>
+          )}
+          <button
+            className="creds-help-toggle"
+            onClick={() => {
+              setError(null);
+              setByoOverride(true);
+            }}
+          >
+            Use your own Google credentials
+          </button>
         </div>
       </div>
     );
