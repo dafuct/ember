@@ -50,8 +50,4 @@ CLAUDE.md
 # Local code-signing cert material (see scripts/create-signing-cert.sh)
 scripts/.signing/
 
-# Verity & Codacy — local-only tooling state, not shared in the repo
-.verity/
-VERITY.md
-.codacy/
 .claude/settings.local.json
