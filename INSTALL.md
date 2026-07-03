@@ -13,8 +13,8 @@ not notarized by Apple, so macOS blocks the first launch by design. The fix is b
 
 ## 1. Copy the installer over
 
-Get `Ember_0.1.1_aarch64.dmg` onto the other Mac — **AirDrop**, a USB stick, or any file transfer.
-(After a build it lives at `src-tauri/target/release/bundle/dmg/Ember_0.1.1_aarch64.dmg`.)
+Get `Ember_0.1.2_aarch64.dmg` onto the other Mac — **AirDrop**, a USB stick, or any file transfer.
+(After a build it lives at `src-tauri/target/release/bundle/dmg/Ember_0.1.2_aarch64.dmg`.)
 
 ## 2. Install the app
 
