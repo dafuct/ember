@@ -37,7 +37,14 @@ extern "C" fn on_audio(ctx: *mut c_void, mono: *const f32, frames: c_int, rate: 
         return;
     }
     let tx = unsafe { &*(ctx as *const tokio::sync::mpsc::UnboundedSender<Chunk>) };
-    let samples = unsafe { std::slice::from_raw_parts(mono, frames as usize) }.to_vec();
+    let mut samples = unsafe { std::slice::from_raw_parts(mono, frames as usize) }.to_vec();
+    // A single NaN/inf sample (seen with misdeclared USB-mic formats) would poison the whole
+    // mixed window and silently mute the transcriber — degrade that sample to silence instead.
+    for s in &mut samples {
+        if !s.is_finite() {
+            *s = 0.0;
+        }
+    }
     let _ = tx.send(Chunk { is_mic: is_mic != 0, samples, rate: rate.max(1.0) as u32 });
 }
 
@@ -186,6 +193,36 @@ async fn mix_worker(
         }
     }
     let _ = on_event.send(CaptureEvent::Stopped);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn on_audio_zeroes_non_finite_samples() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
+        let boxed = Box::new(tx);
+        let samples = [0.5f32, f32::INFINITY, f32::NAN, -0.25, f32::NEG_INFINITY];
+        on_audio(
+            (&*boxed) as *const tokio::sync::mpsc::UnboundedSender<Chunk> as *mut c_void,
+            samples.as_ptr(),
+            samples.len() as c_int,
+            32000.0,
+            1,
+        );
+        let chunk = rx.try_recv().expect("chunk delivered");
+        assert!(chunk.is_mic);
+        assert_eq!(chunk.samples, vec![0.5, 0.0, 0.0, -0.25, 0.0]);
+        assert_eq!(chunk.rate, 32000);
+    }
+
+    #[test]
+    fn mix_stays_finite_and_clamped() {
+        let mixed = mix(&[0.9, -0.9, 0.5], &[0.9, -0.9, -0.25]);
+        assert_eq!(mixed, vec![1.0, -1.0, 0.25]);
+        assert!(mixed.iter().all(|s| s.is_finite()));
+    }
 }
 
 fn transcribe_and_emit(

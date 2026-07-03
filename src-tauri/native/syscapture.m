@@ -29,13 +29,24 @@ typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double 
   if (!self.cb || !CMSampleBufferDataIsReady(sampleBuffer)) return;
   int is_mic = (type == SCStreamOutputTypeMicrophone) ? 1 : 0;
 
-  // Real format: sample rate, channel count, interleaved vs planar.
+  // Real format: sample rate, channel count, interleaved vs planar, float vs signed int.
+  // The system-audio tap is float32 planar mono, but SCStreamOutputTypeMicrophone delivers
+  // the capture device's NATIVE format — USB mics are commonly int16 interleaved stereo.
+  // Reading those bytes as float32 yields denormals and infinities that poison the whole
+  // mix with NaN downstream, so every sample path must honor the ASBD.
   CMFormatDescriptionRef fmt = CMSampleBufferGetFormatDescription(sampleBuffer);
   const AudioStreamBasicDescription *asbd =
       fmt ? CMAudioFormatDescriptionGetStreamBasicDescription(fmt) : NULL;
   double rate = asbd ? asbd->mSampleRate : 48000.0;
   int channels = (asbd && asbd->mChannelsPerFrame > 0) ? (int)asbd->mChannelsPerFrame : 1;
   BOOL planar = asbd ? (asbd->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0 : YES;
+  BOOL isFloat = asbd ? (asbd->mFormatFlags & kAudioFormatFlagIsFloat) != 0 : YES;
+  int bits = (asbd && asbd->mBitsPerChannel > 0) ? (int)asbd->mBitsPerChannel : 32;
+  int bytesPerSample = bits / 8;
+  // Only float32 and signed int16/int32 LPCM are handled; drop anything else rather than
+  // feed misread bytes to the transcriber.
+  if (asbd && asbd->mFormatID != kAudioFormatLinearPCM) return;
+  if (!((isFloat && bits == 32) || (!isFloat && (bits == 16 || bits == 32)))) return;
 
   AudioBufferList abl;
   CMBlockBufferRef blockBuf = NULL;
@@ -46,17 +57,22 @@ typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double 
     return;
   }
 
+#define EMBER_SAMPLE(buf, idx)                                                        \
+  (isFloat ? ((const float *)(buf))[idx]                                              \
+           : (bits == 16 ? (float)((const int16_t *)(buf))[idx] / 32768.0f            \
+                         : (float)((const int32_t *)(buf))[idx] / 2147483648.0f))
+
   if (planar) {
     int nb = (int)abl.mNumberBuffers;  // one buffer per channel
-    int frames = (int)(abl.mBuffers[0].mDataByteSize / sizeof(float));
+    int frames = (int)(abl.mBuffers[0].mDataByteSize / bytesPerSample);
     if (frames > 0) {
-      if (nb == 1) {
+      if (nb == 1 && isFloat) {
         self.cb(self.ctx, (const float *)abl.mBuffers[0].mData, frames, rate, is_mic);
       } else {
         float *mono = (float *)malloc((size_t)frames * sizeof(float));
         for (int i = 0; i < frames; i++) {
           float s = 0.0f;
-          for (int b = 0; b < nb; b++) s += ((const float *)abl.mBuffers[b].mData)[i];
+          for (int b = 0; b < nb; b++) s += EMBER_SAMPLE(abl.mBuffers[b].mData, i);
           mono[i] = s / (float)nb;
         }
         self.cb(self.ctx, mono, frames, rate, is_mic);
@@ -65,18 +81,18 @@ typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double 
     }
   } else {
     // Interleaved: all channels packed in mBuffers[0].
-    int total = (int)(abl.mBuffers[0].mDataByteSize / sizeof(float));
+    int total = (int)(abl.mBuffers[0].mDataByteSize / bytesPerSample);
     int ch = channels;
     int frames = total / ch;
-    const float *data = (const float *)abl.mBuffers[0].mData;
+    const void *data = abl.mBuffers[0].mData;
     if (frames > 0) {
-      if (ch == 1) {
-        self.cb(self.ctx, data, frames, rate, is_mic);
+      if (ch == 1 && isFloat) {
+        self.cb(self.ctx, (const float *)data, frames, rate, is_mic);
       } else {
         float *mono = (float *)malloc((size_t)frames * sizeof(float));
         for (int i = 0; i < frames; i++) {
           float s = 0.0f;
-          for (int c = 0; c < ch; c++) s += data[i * ch + c];
+          for (int c = 0; c < ch; c++) s += EMBER_SAMPLE(data, i * ch + c);
           mono[i] = s / (float)ch;
         }
         self.cb(self.ctx, mono, frames, rate, is_mic);
@@ -84,6 +100,7 @@ typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double 
       }
     }
   }
+#undef EMBER_SAMPLE
   if (blockBuf) CFRelease(blockBuf);
 }
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
