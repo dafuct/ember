@@ -8,6 +8,7 @@ extern "C" {
     fn ember_syscapture_start(
         capture_mic: c_int,
         cb: extern "C" fn(*mut c_void, *const f32, c_int, f64, c_int),
+        stop_cb: extern "C" fn(*mut c_void, *const c_char),
         ctx: *mut c_void,
         err_out: *mut c_char,
         err_len: c_int,
@@ -21,12 +22,17 @@ struct Chunk {
     rate: u32,
 }
 
+enum Feed {
+    Audio(Chunk),
+    Died(String),
+}
+
 struct Handle(*mut c_void);
 unsafe impl Send for Handle {}
 
 pub struct SysSession {
     handle: Handle,
-    _tx: Box<tokio::sync::mpsc::UnboundedSender<Chunk>>,
+    _tx: Box<tokio::sync::mpsc::UnboundedSender<Feed>>,
     worker: tokio::task::JoinHandle<()>,
 }
 
@@ -36,7 +42,7 @@ extern "C" fn on_audio(ctx: *mut c_void, mono: *const f32, frames: c_int, rate: 
     if ctx.is_null() || mono.is_null() || frames <= 0 {
         return;
     }
-    let tx = unsafe { &*(ctx as *const tokio::sync::mpsc::UnboundedSender<Chunk>) };
+    let tx = unsafe { &*(ctx as *const tokio::sync::mpsc::UnboundedSender<Feed>) };
     let mut samples = unsafe { std::slice::from_raw_parts(mono, frames as usize) }.to_vec();
     // A single NaN/inf sample (seen with misdeclared USB-mic formats) would poison the whole
     // mixed window and silently mute the transcriber — degrade that sample to silence instead.
@@ -45,7 +51,20 @@ extern "C" fn on_audio(ctx: *mut c_void, mono: *const f32, frames: c_int, rate: 
             *s = 0.0;
         }
     }
-    let _ = tx.send(Chunk { is_mic: is_mic != 0, samples, rate: rate.max(1.0) as u32 });
+    let _ = tx.send(Feed::Audio(Chunk { is_mic: is_mic != 0, samples, rate: rate.max(1.0) as u32 }));
+}
+
+extern "C" fn on_stream_died(ctx: *mut c_void, message: *const c_char) {
+    if ctx.is_null() {
+        return;
+    }
+    let tx = unsafe { &*(ctx as *const tokio::sync::mpsc::UnboundedSender<Feed>) };
+    let msg = if message.is_null() {
+        String::new()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(message) }.to_string_lossy().into_owned()
+    };
+    let _ = tx.send(Feed::Died(msg));
 }
 
 fn err_buf_to_string(buf: &[u8]) -> String {
@@ -73,15 +92,29 @@ pub async fn start_system_capture(
         }
     }
     {
-        let guard = state.lock().map_err(|_| AppError::Other("capture lock poisoned".into()))?;
-        if guard.is_some() {
-            return Err(AppError::Other("already capturing".into()));
+        // A stream that died on its own (screen lock, replayd restart) leaves a finished
+        // worker behind; reclaim it so the next Record works instead of "already capturing".
+        let stale = {
+            let mut guard =
+                state.lock().map_err(|_| AppError::Other("capture lock poisoned".into()))?;
+            match guard.as_ref() {
+                Some(s) if s.worker.is_finished() => guard.take(),
+                Some(_) => return Err(AppError::Other("already capturing".into())),
+                None => None,
+            }
+        };
+        if let Some(s) = stale {
+            let h = s.handle.0 as usize;
+            let _ = tokio::task::spawn_blocking(move || unsafe {
+                ember_syscapture_stop(h as *mut c_void)
+            })
+            .await;
         }
     }
 
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Feed>();
     let boxed_tx = Box::new(tx);
-    let ctx_addr = (&*boxed_tx) as *const tokio::sync::mpsc::UnboundedSender<Chunk> as usize;
+    let ctx_addr = (&*boxed_tx) as *const tokio::sync::mpsc::UnboundedSender<Feed> as usize;
     let mic = if capture_mic { 1 } else { 0 };
 
     let started = tokio::task::spawn_blocking(move || {
@@ -90,6 +123,7 @@ pub async fn start_system_capture(
             ember_syscapture_start(
                 mic,
                 on_audio,
+                on_stream_died,
                 ctx_addr as *mut c_void,
                 err.as_mut_ptr() as *mut c_char,
                 err.len() as c_int,
@@ -151,7 +185,7 @@ fn mix(a: &[f32], b: &[f32]) -> Vec<f32> {
 }
 
 async fn mix_worker(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<Chunk>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<Feed>,
     on_event: tauri::ipc::Channel<CaptureEvent>,
     capture_mic: bool,
     language: Option<String>,
@@ -161,7 +195,19 @@ async fn mix_worker(
     let lang = language.as_deref();
     let mut sys: Vec<f32> = Vec::new();
     let mut mic: Vec<f32> = Vec::new();
-    while let Some(c) = rx.recv().await {
+    while let Some(feed) = rx.recv().await {
+        let c = match feed {
+            Feed::Audio(c) => c,
+            Feed::Died(msg) => {
+                let message = if msg.is_empty() {
+                    "capture stopped by macOS — quit and reopen Ember, then Record again".into()
+                } else {
+                    format!("capture stopped: {msg}")
+                };
+                let _ = on_event.send(CaptureEvent::Error { message });
+                break;
+            }
+        };
         let s16 = crate::audio::resample_to_16k(&c.samples, c.rate);
         if c.is_mic {
             mic.extend(s16);
@@ -201,20 +247,40 @@ mod tests {
 
     #[test]
     fn on_audio_zeroes_non_finite_samples() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Feed>();
         let boxed = Box::new(tx);
         let samples = [0.5f32, f32::INFINITY, f32::NAN, -0.25, f32::NEG_INFINITY];
         on_audio(
-            (&*boxed) as *const tokio::sync::mpsc::UnboundedSender<Chunk> as *mut c_void,
+            (&*boxed) as *const tokio::sync::mpsc::UnboundedSender<Feed> as *mut c_void,
             samples.as_ptr(),
             samples.len() as c_int,
             32000.0,
             1,
         );
-        let chunk = rx.try_recv().expect("chunk delivered");
+        let Feed::Audio(chunk) = rx.try_recv().expect("chunk delivered") else {
+            panic!("expected an audio chunk");
+        };
         assert!(chunk.is_mic);
         assert_eq!(chunk.samples, vec![0.5, 0.0, 0.0, -0.25, 0.0]);
         assert_eq!(chunk.rate, 32000);
+    }
+
+    #[test]
+    fn on_stream_died_forwards_the_error_message() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Feed>();
+        let boxed = Box::new(tx);
+        let ctx = (&*boxed) as *const tokio::sync::mpsc::UnboundedSender<Feed> as *mut c_void;
+        let msg = std::ffi::CString::new("stream stopped by the system").unwrap();
+        on_stream_died(ctx, msg.as_ptr());
+        on_stream_died(ctx, std::ptr::null());
+        let Feed::Died(first) = rx.try_recv().expect("death delivered") else {
+            panic!("expected a death notice");
+        };
+        assert_eq!(first, "stream stopped by the system");
+        let Feed::Died(second) = rx.try_recv().expect("null message tolerated") else {
+            panic!("expected a death notice");
+        };
+        assert_eq!(second, "");
     }
 
     #[test]

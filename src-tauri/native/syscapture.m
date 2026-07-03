@@ -15,9 +15,13 @@
 // Rust receives each chunk here: (ctx, mono f32 samples, frame count, sample rate Hz, is_mic).
 // The pointer is only valid for the duration of the call — Rust copies immediately.
 typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double rate, int is_mic);
+// Rust learns the stream died on its own here (screen lock, replayd restart, TCC revocation).
+// Without this the UI shows "listening…" forever with no samples and no error.
+typedef void (*ember_stop_cb)(void *ctx, const char *message);
 
 @interface EmberCaptureOutput : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic, assign) ember_audio_cb cb;
+@property(nonatomic, assign) ember_stop_cb stop_cb;
 @property(nonatomic, assign) void *ctx;
 @end
 
@@ -104,6 +108,9 @@ typedef void (*ember_audio_cb)(void *ctx, const float *mono, int frames, double 
   if (blockBuf) CFRelease(blockBuf);
 }
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
+  if (!self.stop_cb) return;
+  const char *msg = error ? error.localizedDescription.UTF8String : "";
+  self.stop_cb(self.ctx, msg ? msg : "");
 }
 @end
 
@@ -113,8 +120,8 @@ typedef struct {
 } EmberCapture;
 
 // Start capture. Returns an opaque handle, or NULL on failure (message written to err_out).
-void *ember_syscapture_start(int capture_mic, ember_audio_cb cb, void *ctx, char *err_out,
-                             int err_len) {
+void *ember_syscapture_start(int capture_mic, ember_audio_cb cb, ember_stop_cb stop_cb, void *ctx,
+                             char *err_out, int err_len) {
   @autoreleasepool {
     __block SCShareableContent *content = nil;
     __block NSError *contentErr = nil;
@@ -163,18 +170,31 @@ void *ember_syscapture_start(int capture_mic, ember_audio_cb cb, void *ctx, char
 
     EmberCaptureOutput *output = [[EmberCaptureOutput alloc] init];
     output.cb = cb;
+    output.stop_cb = stop_cb;
     output.ctx = ctx;
 
     SCStream *stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:output];
     dispatch_queue_t q = dispatch_queue_create("dev.ember.audiocapture", DISPATCH_QUEUE_SERIAL);
     NSError *addErr = nil;
     [stream addStreamOutput:output type:SCStreamOutputTypeAudio sampleHandlerQueue:q error:&addErr];
+    if (addErr) {
+      snprintf(err_out, err_len, "could not attach the system-audio output: %s",
+               addErr.localizedDescription.UTF8String);
+      return NULL;
+    }
     if (capture_mic) {
       if (@available(macOS 15.0, *)) {
         [stream addStreamOutput:output
                            type:SCStreamOutputTypeMicrophone
              sampleHandlerQueue:q
                           error:&addErr];
+        // Failing loudly beats silently recording without the voice the user asked for —
+        // they can uncheck "Also capture my voice" to record without the mic.
+        if (addErr) {
+          snprintf(err_out, err_len, "could not attach the microphone output: %s",
+                   addErr.localizedDescription.UTF8String);
+          return NULL;
+        }
       }
     }
 
