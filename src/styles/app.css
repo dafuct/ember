@@ -101,7 +101,7 @@
 .reply-affordance:hover { background: var(--surface-2); }
 .reply-affordance:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.connect-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+.connect-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; text-align: center; padding: 24px; overflow-y: auto; }
 .connect-title { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
 .connect-sub { font-size: 14px; color: var(--text-muted); margin: 0 0 8px; }
 .connect-error { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 440px; }
@@ -304,10 +304,10 @@
 .event-row input[type="checkbox"] { width: auto; }
 .event-meet { font-size: 12px; color: var(--accent); word-break: break-all; padding: 2px 0; }
 
-.cal-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; }
 .cal-toolbar-spacer { flex: 1; }
 .event-detail-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.event-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 460px; }
+.event-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 460px; max-height: 88vh; overflow-y: auto; overscroll-behavior: contain; }
 .event-detail h3 { margin: 0 0 6px; }
 .event-detail-when { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
 .event-detail-desc { white-space: pre-wrap; }
@@ -529,7 +529,7 @@
 .sb-item.active .sb-count { background: var(--accent); color: var(--accent-contrast); }
 
 .snooze-backdrop { position: fixed; inset: 0; z-index: 40; }
-.snooze-menu { position: fixed; z-index: 41; min-width: 220px; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
+.snooze-menu { position: fixed; z-index: 41; min-width: 220px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
 .snooze-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 8px 10px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; cursor: pointer; }
 .snooze-item:hover { background: var(--accent-weak); color: var(--accent-text); }
 .snooze-when { color: var(--text-faint); font-size: 12px; }
@@ -543,7 +543,7 @@
 .snooze-wake { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--accent-text); }
 
 .account-backdrop { position: fixed; inset: 0; z-index: 40; }
-.account-switcher { position: fixed; left: calc(var(--rail-w) + 6px); bottom: 12px; z-index: 41; min-width: 240px; padding: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
+.account-switcher { position: fixed; left: calc(var(--rail-w) + 6px); bottom: 12px; z-index: 41; min-width: 240px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); box-shadow: 0 8px 28px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 2px; }
 .account-switcher-head { padding: 6px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
 .account-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; cursor: pointer; text-align: left; }
 .account-row:hover { background: var(--accent-weak); }
