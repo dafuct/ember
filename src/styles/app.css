@@ -149,7 +149,7 @@
 .cal-grid { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
 
 .cal-dayhead-row,
-.cal-allday-row { display: grid; grid-template-columns: 56px repeat(7, 1fr); border-bottom: 1px solid var(--border); }
+.cal-allday-row { display: grid; grid-template-columns: 56px repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
 .cal-gutter-cell { border-right: 1px solid var(--border); }
 .cal-dayhead { padding: 6px 0 8px; text-align: center; border-right: 1px solid var(--border); color: var(--text-muted); }
 .cal-dow { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
@@ -169,7 +169,7 @@
 }
 
 .cal-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.cal-body { display: grid; grid-template-columns: 56px repeat(7, 1fr); position: relative; }
+.cal-body { display: grid; grid-template-columns: 56px repeat(7, minmax(0, 1fr)); position: relative; }
 .cal-gutter { position: relative; border-right: 1px solid var(--border); }
 .cal-hour { position: absolute; right: 6px; font-size: 10px; color: var(--text-faint); transform: translateY(-6px); }
 .cal-col { position: relative; border-right: 1px solid var(--border); }
