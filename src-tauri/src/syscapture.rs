@@ -184,6 +184,47 @@ fn mix(a: &[f32], b: &[f32]) -> Vec<f32> {
     a.iter().zip(b.iter()).map(|(x, y)| (x + y).clamp(-1.0, 1.0)).collect()
 }
 
+// Whisper is trained on 30-second chunks; transcribing in 30s windows (rather than
+// the old 10s) stops words being split mid-boundary into garbage like "Тестплафема".
+const WINDOW: usize = 16_000 * 30;
+// Below this RMS a window is treated as silence and never sent to Whisper — silent
+// windows are what made it hallucinate "Дякую за перегляд!" over and over.
+const SILENCE_RMS: f32 = 0.005;
+// How much of the previous window's text to carry forward as decoding context.
+// Whisper truncates an over-long prompt itself, so this only needs to be "recent".
+const CONTEXT_TAIL_CHARS: usize = 200;
+
+/// Trailing `max_chars` characters of `s`, cut on a char boundary.
+fn context_tail(s: &str, max_chars: usize) -> String {
+    let n = s.chars().count();
+    if n <= max_chars {
+        return s.to_string();
+    }
+    s.chars().skip(n - max_chars).collect()
+}
+
+/// Transcribe one window, then fold the result back into the running state:
+/// pin an auto-detected language (D) and remember the tail for context (C).
+fn process_window(
+    transcriber: &crate::transcribe::TranscriberState,
+    window: &[f32],
+    effective_lang: &mut Option<String>,
+    context: &mut String,
+    on_event: &tauri::ipc::Channel<CaptureEvent>,
+) {
+    let ctx = if context.is_empty() { None } else { Some(context.as_str()) };
+    if let Some(tr) = transcribe_and_emit(transcriber, window, effective_lang.as_deref(), ctx, on_event) {
+        *context = context_tail(&tr.text, CONTEXT_TAIL_CHARS);
+        // Learn the language once (auto-detect only), then reuse it so later windows
+        // don't independently re-detect and drift between Ukrainian and Russian.
+        if effective_lang.is_none() {
+            if let Some(lang) = tr.language {
+                *effective_lang = Some(lang);
+            }
+        }
+    }
+}
+
 async fn mix_worker(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<Feed>,
     on_event: tauri::ipc::Channel<CaptureEvent>,
@@ -191,8 +232,9 @@ async fn mix_worker(
     language: Option<String>,
     transcriber: crate::transcribe::TranscriberState,
 ) {
-    const WINDOW: usize = 16_000 * 10;
-    let lang = language.as_deref();
+    // `None` means auto-detect; the first transcribed window pins it (see process_window).
+    let mut effective_lang = crate::transcribe::normalize_language(language.as_deref());
+    let mut context = String::new();
     let mut sys: Vec<f32> = Vec::new();
     let mut mic: Vec<f32> = Vec::new();
     while let Some(feed) = rx.recv().await {
@@ -224,7 +266,7 @@ async fn mix_worker(
             } else {
                 a
             };
-            transcribe_and_emit(&transcriber, &window, lang, &on_event);
+            process_window(&transcriber, &window, &mut effective_lang, &mut context, &on_event);
         }
     }
     if !sys.is_empty() {
@@ -235,7 +277,7 @@ async fn mix_worker(
             sys
         };
         if !window.is_empty() {
-            transcribe_and_emit(&transcriber, &window, lang, &on_event);
+            process_window(&transcriber, &window, &mut effective_lang, &mut context, &on_event);
         }
     }
     let _ = on_event.send(CaptureEvent::Stopped);
@@ -289,31 +331,48 @@ mod tests {
         assert_eq!(mixed, vec![1.0, -1.0, 0.25]);
         assert!(mixed.iter().all(|s| s.is_finite()));
     }
+
+    #[test]
+    fn context_tail_keeps_recent_chars_on_a_char_boundary() {
+        // Shorter than the cap → returned whole.
+        assert_eq!(context_tail("hello", 200), "hello");
+        // Longer → only the trailing `max_chars` survive.
+        assert_eq!(context_tail("abcdef", 3), "def");
+        // Multi-byte Cyrillic must be cut on a char boundary, not a byte one.
+        let s = "абвгд";
+        assert_eq!(context_tail(s, 2), "гд");
+        assert_eq!(context_tail(s, 0), "");
+    }
 }
 
 fn transcribe_and_emit(
     transcriber: &crate::transcribe::TranscriberState,
     samples_16k: &[f32],
     lang: Option<&str>,
+    context: Option<&str>,
     on_event: &tauri::ipc::Channel<CaptureEvent>,
-) {
-    let text = {
-        let guard = match transcriber.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
+) -> Option<crate::transcribe::Transcription> {
+    // Silence gate (A): a near-silent window is the classic hallucination trigger,
+    // so drop it before it ever reaches Whisper.
+    if crate::audio::rms(samples_16k) < SILENCE_RMS {
+        return None;
+    }
+    let result = {
+        let guard = transcriber.lock().ok()?;
         match guard.as_ref() {
-            Some(t) => t.transcribe_samples(samples_16k, lang),
-            None => return,
+            Some(t) => t.transcribe_samples(samples_16k, lang, context),
+            None => return None,
         }
     };
-    match text {
-        Ok(t) if !t.trim().is_empty() => {
-            let _ = on_event.send(CaptureEvent::Chunk { text: t });
+    match result {
+        Ok(tr) if !tr.text.trim().is_empty() => {
+            let _ = on_event.send(CaptureEvent::Chunk { text: tr.text.clone() });
+            Some(tr)
         }
-        Ok(_) => {}
+        Ok(_) => None,
         Err(e) => {
             let _ = on_event.send(CaptureEvent::Error { message: e.to_string() });
+            None
         }
     }
 }

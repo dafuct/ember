@@ -1157,7 +1157,9 @@ pub async fn transcribe_recording(
         let t = guard.as_ref().ok_or_else(|| {
             AppError::Other("transcription not ready — open a meeting note so it can set up first".into())
         })?;
-        t.transcribe_samples(&samples, language.as_deref())
+        // A whole file is decoded and transcribed in one pass, so there is no prior
+        // window to carry context from.
+        Ok(t.transcribe_samples(&samples, language.as_deref(), None)?.text)
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))??;
