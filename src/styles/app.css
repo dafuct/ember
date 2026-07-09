@@ -452,16 +452,21 @@
 .note-transcript-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   font-weight: 600;
   font-size: 13px;
   margin: 10px 0 6px;
 }
+.note-transcript-head > span {
+  flex: 0 0 auto;
+}
 .note-transcript-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .note-select {
   height: 32px;
@@ -472,6 +477,17 @@
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
+  flex: 0 0 auto;
+}
+/* The wide model dropdown absorbs/releases the row's spare width so all four
+   controls stay on one line; its text truncates before anything wraps. */
+.note-select--model {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.note-transcript-actions .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .note-select:disabled {
   opacity: 0.55;

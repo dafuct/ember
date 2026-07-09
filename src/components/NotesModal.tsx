@@ -319,7 +319,7 @@ export function NotesModal({
                   ))}
                 </select>
                 <select
-                  className="note-select"
+                  className="note-select note-select--model"
                   aria-label="Transcription model"
                   value={model}
                   disabled={blocked}
