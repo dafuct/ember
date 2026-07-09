@@ -21,6 +21,32 @@ export interface NoteTarget {
   eventStart: string;
 }
 
+/** A useState whose value is mirrored to localStorage under `key`. */
+function usePersistedState(key: string, fallback: string) {
+  const [value, setValue] = useState(() => localStorage.getItem(key) || fallback);
+  const set = (next: string) => {
+    setValue(next);
+    localStorage.setItem(key, next);
+  };
+  return [value, set] as const;
+}
+
+const TRANSCRIBE_LANGUAGES = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "uk", label: "Ukrainian" },
+  { value: "en", label: "English" },
+  { value: "ru", label: "Russian" },
+  { value: "de", label: "German" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "pl", label: "Polish" },
+];
+
+const TRANSCRIBE_MODELS = [
+  { value: "medium", label: "Standard — medium (1.5 GB)" },
+  { value: "large-v3-turbo", label: "High accuracy — large-v3-turbo (1.6 GB)" },
+];
+
 export function NotesModal({
   target,
   onClose,
@@ -45,12 +71,8 @@ export function NotesModal({
   const [transcribing, setTranscribing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [captureMic, setCaptureMic] = useState(true);
-  const [lang, setLang] = useState(
-    () => localStorage.getItem("ember.transcribeLang") || "auto",
-  );
-  const [model, setModel] = useState(
-    () => localStorage.getItem("ember.transcribeModel") || "medium",
-  );
+  const [lang, setLang] = usePersistedState("ember.transcribeLang", "auto");
+  const [model, setModel] = usePersistedState("ember.transcribeModel", "medium");
   const [error, setError] = useState<string | null>(null);
   const [prepMsg, setPrepMsg] = useState<string | null>(null);
 
@@ -288,32 +310,26 @@ export function NotesModal({
                   aria-label="Transcription language"
                   value={lang}
                   disabled={blocked}
-                  onChange={(e) => {
-                    setLang(e.target.value);
-                    localStorage.setItem("ember.transcribeLang", e.target.value);
-                  }}
+                  onChange={(e) => setLang(e.target.value)}
                 >
-                  <option value="auto">Auto-detect</option>
-                  <option value="uk">Ukrainian</option>
-                  <option value="en">English</option>
-                  <option value="ru">Russian</option>
-                  <option value="de">German</option>
-                  <option value="es">Spanish</option>
-                  <option value="fr">French</option>
-                  <option value="pl">Polish</option>
+                  {TRANSCRIBE_LANGUAGES.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
                 </select>
                 <select
                   className="note-select"
                   aria-label="Transcription model"
                   value={model}
                   disabled={blocked}
-                  onChange={(e) => {
-                    setModel(e.target.value);
-                    localStorage.setItem("ember.transcribeModel", e.target.value);
-                  }}
+                  onChange={(e) => setModel(e.target.value)}
                 >
-                  <option value="medium">Standard — medium (1.5 GB)</option>
-                  <option value="large-v3-turbo">High accuracy — large-v3-turbo (1.6 GB)</option>
+                  {TRANSCRIBE_MODELS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
                 </select>
                 <button className="btn" onClick={handleImport} disabled={blocked}>
                   {importing ? "Importing…" : "Import…"}
