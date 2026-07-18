@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Flame } from "lucide-react";
+import { EmberMark } from "./EmberMark";
 import { setGoogleCredentials } from "../lib/api";
 
 export function CredentialsSetup({
@@ -34,7 +34,7 @@ export function CredentialsSetup({
   return (
     <div className="app">
       <div className="connect-screen">
-        <Flame size={40} className="brand-icon" />
+        <EmberMark size={40} className="brand-icon" />
         <h1 className="connect-title">Set up Google access</h1>
         <p className="connect-sub">
           Ember uses your own Google API credentials. Paste your OAuth Client ID and secret

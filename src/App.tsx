@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Flame } from "lucide-react";
+import { EmberMark } from "./components/EmberMark";
 import "./styles/app.css";
 import {
   batchModifyMessages,
@@ -835,7 +835,7 @@ export default function App() {
     return (
       <div className="app">
         <div className="connect-screen">
-          <Flame size={40} className="brand-icon" />
+          <EmberMark size={40} className="brand-icon" />
           <h1 className="connect-title">Welcome to Ember</h1>
           <p className="connect-sub">
             A local-first Gmail client — your mail stays on your Mac. Connect to get

@@ -8,15 +8,22 @@
       <stop offset="1" stop-color="#4fce7e"/>
     </linearGradient>
   </defs>
-  <!-- translate(92) + scale(4.6667): a 180-unit design square → an 840px squircle centred on the
+  <!-- translate(92) + scale(4.6667): a 180-unit design square -> an 840px squircle centred on the
        1024 canvas with a ~92px transparent margin (native-looking macOS Dock icon). -->
   <g transform="translate(92,92) scale(4.6666667)">
     <rect x="0" y="0" width="180" height="180" rx="42" fill="url(#bg)"/>
-    <!-- The exact lucide-react "Flame" glyph (v1.21.0) shown in the app's IconRail brand button:
-         a stroked outline in the accent-contrast token, not a solid fill. Its 24-unit artboard is
-         scaled 5.2x and centred on the 180 design square. -->
-    <g transform="translate(27.6,25) scale(5.2)" fill="none" stroke="#0e160f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/>
+    <!-- Flying-envelope brand mark ("mail, sent"): a tilted envelope trailing three motion lines,
+         stroked in the accent-contrast ink. The same silhouette drives the in-app EmberMark glyph. -->
+    <g fill="none" stroke="#0e160f" stroke-linecap="round" stroke-linejoin="round">
+      <g stroke-width="8.5">
+        <line x1="17" y1="70" x2="41" y2="70"/>
+        <line x1="9" y1="92" x2="43" y2="92"/>
+        <line x1="19" y1="114" x2="41" y2="114"/>
+      </g>
+      <g transform="translate(104,92) rotate(-14) scale(4.3) translate(-12,-12)" stroke-width="2.3">
+        <rect x="2" y="4" width="20" height="16" rx="2.6"/>
+        <path d="M2.6 7 L11 12.5 a1.9 1.9 0 0 0 2 0 L21.4 7"/>
+      </g>
     </g>
   </g>
 </svg>

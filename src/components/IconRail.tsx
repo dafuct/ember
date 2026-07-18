@@ -1,4 +1,5 @@
-import { Flame, Inbox, CalendarDays, Plus, Sun, Moon } from "lucide-react";
+import { Inbox, CalendarDays, Plus, Sun, Moon } from "lucide-react";
+import { EmberMark } from "./EmberMark";
 import { useTheme } from "../theme";
 
 type View = "mail" | "calendar";
@@ -20,7 +21,7 @@ export function IconRail({
   const initials = (account ?? "?").slice(0, 2).toUpperCase();
   return (
     <nav className="icon-rail" aria-label="Primary">
-      <div className="rail-brand" aria-hidden><Flame size={20} /></div>
+      <div className="rail-brand" aria-hidden><EmberMark size={20} /></div>
       <button className={`rail-item${view === "mail" ? " active" : ""}`} aria-label="Mail" aria-current={view === "mail"} onClick={() => onSelectView("mail")}><Inbox size={20} /></button>
       <button className={`rail-item${view === "calendar" ? " active" : ""}`} aria-label="Calendar" aria-current={view === "calendar"} onClick={() => onSelectView("calendar")}><CalendarDays size={20} /></button>
       <div className="rail-spacer" />
